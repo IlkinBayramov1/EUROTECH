@@ -1,0 +1,252 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  INDIVIDUAL
+  AGENT_TUR_OPERATOR
+  CORPORATE_HR
+  OPERATOR
+  MANAGER
+  ADMIN
+}
+
+enum PortalType {
+  INDIVIDUAL
+  GROUP_AGENT
+  CORPORATE
+}
+
+enum DossierStatus {
+  RECEIVED
+  UNDER_REVIEW
+  NEEDS_CORRECTION
+  SUBMITTED_TO_CONSULATE
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  NEEDS_CORRECTION
+  REJECTED
+}
+
+model User {
+  id                String                  @id @default(uuid())
+  email             String                  @unique
+  passwordHash      String
+  role              Role                    @default(INDIVIDUAL)
+  fullName          String
+  phone             String?
+  companyName       String?
+  preferredLanguage String                  @default("az")
+  passportNumber    String?
+  isVerified        Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  dossiers          Dossier[]
+  subscriptions     CorporateSubscription[]
+  transactions      Transaction[]
+  auditLogs         AuditLog[]
+}
+
+model OtpToken {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  purpose   String   @default("REGISTER")
+  createdAt DateTime @default(now())
+}
+
+model Country {
+  id             String         @id @default(uuid())
+  code           String         @unique // e.g. HU, DE, CZ, AZ, UZ, TR
+  nameAz         String
+  nameEn         String
+  nameRu         String
+  flagUrl        String?
+  isActive       Boolean        @default(true)
+  visaCategories VisaCategory[]
+  dossiers       Dossier[]
+}
+
+model VisaCategory {
+  id                   String                 @id @default(uuid())
+  countryId            String
+  country              Country                @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  code                 String                 // e.g. SCHENGEN_TOURIST, WORK_PERMIT, STUDENT, ICT_TRANSFER
+  nameAz               String
+  nameEn               String
+  nameRu               String
+  baseFee              Float                  @default(80.0) // State fee
+  descriptionAz        String?
+  descriptionEn        String?
+  descriptionRu        String?
+  dynamicFields        DynamicField[]
+  requiredDocTypes     RequiredDocumentType[]
+  dossiers             Dossier[]
+}
+
+model DynamicField {
+  id             String       @id @default(uuid())
+  visaCategoryId String
+  visaCategory   VisaCategory @relation(fields: [visaCategoryId], references: [id], onDelete: Cascade)
+  fieldName      String
+  labelAz        String
+  labelEn        String
+  labelRu        String
+  fieldType      String       // TEXT, DATE, SELECT, NUMBER
+  isRequired     Boolean      @default(true)
+  optionsJson    Json?
+}
+
+model RequiredDocumentType {
+  id             String       @id @default(uuid())
+  visaCategoryId String
+  visaCategory   VisaCategory @relation(fields: [visaCategoryId], references: [id], onDelete: Cascade)
+  code           String       // PASSPORT, PHOTO, FORM, BANK_STATEMENT, HOTEL_ITINERARY, INSURANCE, DIPLOMA, CONTRACT
+  nameAz         String
+  nameEn         String
+  nameRu         String
+  isRequired     Boolean      @default(true)
+  allowedFormats String       @default("pdf,jpg,png")
+}
+
+model Dossier {
+  id                  String                 @id @default(uuid())
+  dossierNumber       String                 @unique // e.g. HU-AZ-2026-04891
+  portalType          PortalType             @default(INDIVIDUAL)
+  userId              String
+  user                User                   @relation(fields: [userId], references: [id])
+  countryId           String
+  country             Country                @relation(fields: [countryId], references: [id])
+  visaCategoryId      String
+  visaCategory        VisaCategory           @relation(fields: [visaCategoryId], references: [id])
+  currentStep         Int                    @default(1) // 1 - 8 Addımlı Sihirbaz
+  status              DossierStatus          @default(RECEIVED)
+  appointmentDate     DateTime?
+  appointmentLocation String?                // e.g. Budapeşt qəbul mərkəzi
+  costCenter          String?
+  department          String?
+  governmentFee       Float                  @default(80.0)
+  serviceFee          Float                  @default(120.0)
+  extraServicesFee    Float                  @default(0.0)
+  totalAmount         Float                  @default(200.0)
+  paymentStatus       PaymentStatus          @default(PENDING)
+  archivedZipUrl      String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  applicants          Applicant[]
+  documents           ApplicantDocument[]
+  services            AdditionalService[]
+  transactions        Transaction[]
+  statusHistory       DossierStatusHistory[]
+}
+
+model Applicant {
+  id             String              @id @default(uuid())
+  dossierId      String
+  dossier        Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  firstName      String
+  lastName       String
+  passportNumber String
+  birthDate      DateTime?
+  nationality    String?
+  gender         String?
+  formDataJson   Json?
+  documents      ApplicantDocument[]
+}
+
+model ApplicantDocument {
+  id                   String         @id @default(uuid())
+  dossierId            String
+  dossier              Dossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  applicantId          String
+  applicant            Applicant      @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  requiredDocumentType String
+  fileUrl              String
+  fileName             String
+  fileSize             Int
+  isMandatory          Boolean        @default(true)
+  status               DocumentStatus @default(PENDING)
+  operatorNotes        String?
+  reviewedByUserId     String?
+  reviewedAt           DateTime?
+}
+
+model AdditionalService {
+  id           String   @id @default(uuid())
+  dossierId    String
+  dossier      Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  serviceType  String   // EXPRESS_PROCESSING, TRAVEL_INSURANCE, TRANSLATION_APOSTILLE, COURIER, FLIGHT_BOOKING, HOTEL_BOOKING
+  price        Float
+  status       String   @default("ACTIVE")
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+}
+
+model Transaction {
+  id                   String        @id @default(uuid())
+  dossierId            String?
+  dossier              Dossier?      @relation(fields: [dossierId], references: [id])
+  userId               String
+  user                 User          @relation(fields: [userId], references: [id])
+  amount               Float
+  currency             String        @default("EUR")
+  paymentProvider      String        @default("STRIPE")
+  stripePaymentIntentId String?
+  status               PaymentStatus @default(PENDING)
+  metadataJson         Json?
+  createdAt            DateTime      @default(now())
+}
+
+model CorporateSubscription {
+  id                   String    @id @default(uuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id])
+  planTier             String    // BASIC_199, PRO_499, ENTERPRISE_999
+  monthlyFee           Float
+  maxUsers             Int       @default(10)
+  status               String    @default("ACTIVE")
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  ipAddress String?
+  userAgent String?
+  details   Json?
+  createdAt DateTime @default(now())
+}
+
+model DossierStatusHistory {
+  id              String        @id @default(uuid())
+  dossierId       String
+  dossier         Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  fromStatus      DossierStatus
+  toStatus        DossierStatus
+  changedByUserId String
+  notes           String?
+  createdAt       DateTime      @default(now())
+}

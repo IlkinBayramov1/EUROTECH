@@ -1,0 +1,45 @@
+{
+  "name": "eurotech-backend",
+  "version": "1.0.0",
+  "description": "EUROTECH Visa & Immigration Digital Platform Backend Service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "eurotech",
+    "visa",
+    "immigration",
+    "express",
+    "prisma",
+    "postgresql",
+    "stripe"
+  ],
+  "author": "EuroTech Services Kft.",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "archiver": "^6.0.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^6.9.11",
+    "pdf-lib": "^1.17.1",
+    "stripe": "^14.19.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "prisma": "^5.10.0"
+  }
+}

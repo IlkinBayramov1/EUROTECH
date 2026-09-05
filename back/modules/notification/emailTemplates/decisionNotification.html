@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }
+    .container { background-color: #ffffff; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    .header { font-size: 20px; font-weight: bold; color: #1e3a8a; margin-bottom: 20px; }
+    .status { font-size: 16px; font-weight: bold; padding: 10px; border-radius: 6px; background-color: #f3f4f6; margin: 15px 0; }
+    .footer { font-size: 12px; color: #6b7280; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">EUROTECH SERVICES - Dosye Status Bildirişi</div>
+    <p>Hörmətli <strong>{{fullName}}</strong>,</p>
+    <p>Müraciətinizin (Dosye Nömrəsi: <strong>{{dossierNumber}}</strong>) statusu yeniləndi:</p>
+    <div class="status">Yeni Status: {{statusText}}</div>
+    <p>Qeyd: {{notes}}</p>
+    <p>Ətraflı məlumat üçün Şəxsi Kabinetinizə keçid edin.</p>
+    <div class="footer">
+      &copy; 2026 EuroTech Services Kft. Budapeşt & Bakı. Bütün hüquqlar qorunur.
+    </div>
+  </div>
+</body>
+</html>

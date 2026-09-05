@@ -1,0 +1,11 @@
+{
+  "WELCOME": "Welcome to EuroTech Visa & Immigration Platform.",
+  "OTP_SENT": "Verification code has been sent to your email.",
+  "LOGIN_SUCCESS": "Login successful.",
+  "UNAUTHORIZED": "Unauthorized access.",
+  "FORBIDDEN": "You do not have permission to perform this action.",
+  "DOSSIER_CREATED": "Dossier created successfully.",
+  "STEP_BLOCKED": "Cannot proceed to next step until all required documents are uploaded and verified.",
+  "PAYMENT_SUCCESS": "Payment completed successfully.",
+  "STATUS_UPDATED": "Dossier status updated."
+}

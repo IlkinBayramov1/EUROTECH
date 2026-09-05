@@ -1,0 +1,11 @@
+{
+  "WELCOME": "EuroTech Viza və İmmiqrasiya Platformasına xoş gəlmisiniz.",
+  "OTP_SENT": "Təsdiq kodu e-poçt ünvanınıza göndərildi.",
+  "LOGIN_SUCCESS": "Uğurla daxil oldunuz.",
+  "UNAUTHORIZED": "İcazəsiz giriş.",
+  "FORBIDDEN": "Bu əməliyyatı icra etmək üçün icazəniz yoxdur.",
+  "DOSSIER_CREATED": "Dosye uğurla yaradıldı.",
+  "STEP_BLOCKED": "Bütün vacib sənədlər yüklənib yoxlanılmadan növbəti mərhələyə keçmək mümkün deyil.",
+  "PAYMENT_SUCCESS": "Ödəniş uğurla tamamlandı.",
+  "STATUS_UPDATED": "Dosye statusu yeniləndi."
+}
