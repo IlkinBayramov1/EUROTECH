@@ -8,6 +8,7 @@ const upload = require('../../middlewares/upload.middleware');
 router.use(authMiddleware);
 
 router.post('/upload', upload.single('file'), documentController.uploadDocument);
+router.get('/:documentId/signed-url', documentController.getSignedUrl);
 router.patch(
   '/:documentId/review',
   requireRoles(['OPERATOR', 'MANAGER', 'ADMIN']),

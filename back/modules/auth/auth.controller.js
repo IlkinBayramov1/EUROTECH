@@ -13,10 +13,28 @@ async function register(req, res, next) {
 
 async function login(req, res, next) {
   try {
-    const result = await authService.login(req.body);
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const result = await authService.login({ ...req.body, ip, userAgent });
     return ApiResponse.success(res, result, getText('LOGIN_SUCCESS', req.lang));
   } catch (error) {
     return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function refreshToken(req, res, next) {
+  try {
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const { refreshToken: token } = req.body;
+    if (!token) {
+      return ApiResponse.error(res, 'Refresh token is required', 400);
+    }
+    const result = await authService.rotateRefreshToken(token, ip, userAgent);
+    return ApiResponse.success(res, result, 'Token refreshed successfully');
+  } catch (error) {
+    const statusCode = error.message.includes('Security Alert') ? 403 : 401;
+    return ApiResponse.error(res, error.message, statusCode);
   }
 }
 
@@ -31,7 +49,9 @@ async function sendOtp(req, res, next) {
 
 async function verifyOtp(req, res, next) {
   try {
-    const result = await authService.verifyOtp(req.body);
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const result = await authService.verifyOtp({ ...req.body, ip, userAgent });
     return ApiResponse.success(res, result, 'OTP verified successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, 400);
@@ -45,6 +65,7 @@ async function getProfile(req, res, next) {
 module.exports = {
   register,
   login,
+  refreshToken,
   sendOtp,
   verifyOtp,
   getProfile,

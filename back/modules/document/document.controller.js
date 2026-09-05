@@ -40,6 +40,17 @@ async function reviewDocument(req, res, next) {
   }
 }
 
+async function getSignedUrl(req, res, next) {
+  try {
+    const { documentId } = req.params;
+    const result = await documentService.getSignedUrl(documentId, req.user);
+    return ApiResponse.success(res, result, 'Signed URL generated successfully');
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
 async function sendFeedback(req, res, next) {
   try {
     const { dossierId } = req.params;
@@ -55,5 +66,6 @@ async function sendFeedback(req, res, next) {
 module.exports = {
   uploadDocument,
   reviewDocument,
+  getSignedUrl,
   sendFeedback,
 };

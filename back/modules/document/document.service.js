@@ -1,5 +1,6 @@
 const prisma = require('../../config/db');
 const notificationService = require('../notification/notification.service');
+const { generateToken } = require('../../utils/jwt.util');
 
 async function uploadDocument({ dossierId, applicantId, requiredDocumentType, isMandatory, file }) {
   const dossier = await prisma.dossier.findUnique({ where: { id: dossierId } });
@@ -64,6 +65,45 @@ async function reviewDocument({ documentId, status, operatorNotes, reviewerUserI
   return document;
 }
 
+async function getSignedUrl(documentId, currentUser) {
+  const document = await prisma.applicantDocument.findUnique({
+    where: { id: documentId },
+    include: { dossier: true },
+  });
+
+  if (!document) {
+    const error = new Error('Document not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const isStaff = ['ADMIN', 'MANAGER', 'OPERATOR'].includes(currentUser.role);
+  const isOwner = document.dossier.userId === currentUser.id;
+
+  if (!isStaff && !isOwner) {
+    const error = new Error('Security Alert: Access denied. Cross-tenant IDOR violation detected.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Generate 15-minute temporary signed token for download
+  const signedToken = generateToken({
+    documentId: document.id,
+    userId: currentUser.id,
+    purpose: 'DOWNLOAD_SIGNED_URL',
+  }, '15m');
+
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const signedUrl = `/api/v1/documents/${document.id}/download?token=${signedToken}`;
+
+  return {
+    documentId: document.id,
+    fileName: document.fileName,
+    signedUrl,
+    expiresAt,
+  };
+}
+
 async function sendOperatorFeedback(dossierId, operatorNotes = '') {
   const dossier = await prisma.dossier.findUnique({
     where: { id: dossierId },
@@ -90,5 +130,6 @@ async function sendOperatorFeedback(dossierId, operatorNotes = '') {
 module.exports = {
   uploadDocument,
   reviewDocument,
+  getSignedUrl,
   sendOperatorFeedback,
 };

@@ -45,22 +45,42 @@ enum DocumentStatus {
 }
 
 model User {
-  id                String                  @id @default(uuid())
-  email             String                  @unique
-  passwordHash      String
-  role              Role                    @default(INDIVIDUAL)
-  fullName          String
-  phone             String?
-  companyName       String?
-  preferredLanguage String                  @default("az")
-  passportNumber    String?
-  isVerified        Boolean                 @default(false)
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
-  dossiers          Dossier[]
-  subscriptions     CorporateSubscription[]
-  transactions      Transaction[]
-  auditLogs         AuditLog[]
+  id                      String                  @id @default(uuid())
+  email                   String                  @unique
+  passwordHash            String
+  role                    Role                    @default(INDIVIDUAL)
+  fullName                String
+  phone                   String?
+  companyName             String?
+  preferredLanguage       String                  @default("az")
+  passportNumber          String?
+  passportNumberEncrypted String?                 @db.Text
+  passportNumberHash      String?                 @db.VarChar(64)
+  isVerified              Boolean                 @default(false)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  dossiers                Dossier[]
+  subscriptions           CorporateSubscription[]
+  transactions            Transaction[]
+  auditLogs               AuditLog[]
+  refreshTokenSessions    RefreshTokenSession[]
+}
+
+model RefreshTokenSession {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @db.VarChar(64)
+  familyId          String
+  replacedByTokenId String?
+  isRevoked         Boolean   @default(false)
+  revokedAt         DateTime?
+  revokedReason     String?
+  createdAt         DateTime  @default(now())
+  expiresAt         DateTime
+  lastUsedAt        DateTime?
+  ip                String?
+  userAgent         String?
 }
 
 model OtpToken {
@@ -86,20 +106,20 @@ model Country {
 }
 
 model VisaCategory {
-  id                   String                 @id @default(uuid())
-  countryId            String
-  country              Country                @relation(fields: [countryId], references: [id], onDelete: Cascade)
-  code                 String                 // e.g. SCHENGEN_TOURIST, WORK_PERMIT, STUDENT, ICT_TRANSFER
-  nameAz               String
-  nameEn               String
-  nameRu               String
-  baseFee              Float                  @default(80.0) // State fee
-  descriptionAz        String?
-  descriptionEn        String?
-  descriptionRu        String?
-  dynamicFields        DynamicField[]
-  requiredDocTypes     RequiredDocumentType[]
-  dossiers             Dossier[]
+  id               String                 @id @default(uuid())
+  countryId        String
+  country          Country                @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  code             String                 // e.g. SCHENGEN_TOURIST, WORK_PERMIT, STUDENT, ICT_TRANSFER
+  nameAz           String
+  nameEn           String
+  nameRu           String
+  baseFee          Float                  @default(80.0) // State fee
+  descriptionAz    String?
+  descriptionEn    String?
+  descriptionRu    String?
+  dynamicFields    DynamicField[]
+  requiredDocTypes RequiredDocumentType[]
+  dossiers         Dossier[]
 }
 
 model DynamicField {
@@ -159,17 +179,19 @@ model Dossier {
 }
 
 model Applicant {
-  id             String              @id @default(uuid())
-  dossierId      String
-  dossier        Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  firstName      String
-  lastName       String
-  passportNumber String
-  birthDate      DateTime?
-  nationality    String?
-  gender         String?
-  formDataJson   Json?
-  documents      ApplicantDocument[]
+  id                      String              @id @default(uuid())
+  dossierId               String
+  dossier                 Dossier             @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  firstName               String
+  lastName                String
+  passportNumber          String
+  passportNumberEncrypted String?             @db.Text
+  passportNumberHash      String?             @db.VarChar(64)
+  birthDate               DateTime?
+  nationality             String?
+  gender                  String?
+  formDataJson            Json?
+  documents               ApplicantDocument[]
 }
 
 model ApplicantDocument {
@@ -201,18 +223,18 @@ model AdditionalService {
 }
 
 model Transaction {
-  id                   String        @id @default(uuid())
-  dossierId            String?
-  dossier              Dossier?      @relation(fields: [dossierId], references: [id])
-  userId               String
-  user                 User          @relation(fields: [userId], references: [id])
-  amount               Float
-  currency             String        @default("EUR")
-  paymentProvider      String        @default("STRIPE")
+  id                    String        @id @default(uuid())
+  dossierId             String?
+  dossier               Dossier?      @relation(fields: [dossierId], references: [id])
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id])
+  amount                Float
+  currency              String        @default("EUR")
+  paymentProvider       String        @default("STRIPE")
   stripePaymentIntentId String?
-  status               PaymentStatus @default(PENDING)
-  metadataJson         Json?
-  createdAt            DateTime      @default(now())
+  status                PaymentStatus @default(PENDING)
+  metadataJson          Json?
+  createdAt             DateTime      @default(now())
 }
 
 model CorporateSubscription {

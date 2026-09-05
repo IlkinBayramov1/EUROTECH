@@ -5,14 +5,16 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 
 const errorMiddleware = require('./middlewares/error.middleware');
+const telemetryMiddleware = require('./monitoring/telemetry');
 const apiRoutes = require('./routes');
 
 const app = express();
 
-// Global Security & Logging Middlewares
+// Global Security, Telemetry & Logging Middlewares
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors());
 app.use(morgan('dev'));
+app.use(telemetryMiddleware);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

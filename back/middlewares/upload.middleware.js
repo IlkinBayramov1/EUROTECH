@@ -27,7 +27,7 @@ const fileFilter = (req, file, cb) => {
   if (extname && mimetype) {
     return cb(null, true);
   } else {
-    cb(new Error('Only .png, .jpg, .jpeg and .pdf formats are allowed!'));
+    cb(new Error('Security Error: Only .png, .jpg, .jpeg and .pdf formats are allowed!'));
   }
 };
 
@@ -37,4 +37,25 @@ const upload = multer({
   fileFilter: fileFilter,
 });
 
+function inspectMagicBytes(filePath) {
+  if (!fs.existsSync(filePath)) return false;
+  const buffer = Buffer.alloc(8);
+  const fd = fs.openSync(filePath, 'r');
+  fs.readSync(fd, buffer, 0, 8, 0);
+  fs.closeSync(fd);
+
+  const hex = buffer.toString('hex').toUpperCase();
+
+  // Magic BytesSignatures:
+  // PDF: %PDF (25 50 44 46)
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  // JPG/JPEG: FF D8 FF
+  if (hex.startsWith('25504446')) return 'pdf';
+  if (hex.startsWith('89504E47')) return 'png';
+  if (hex.startsWith('FFD8FF')) return 'jpg';
+
+  return false; // Unknown or malicious format
+}
+
 module.exports = upload;
+module.exports.inspectMagicBytes = inspectMagicBytes;
