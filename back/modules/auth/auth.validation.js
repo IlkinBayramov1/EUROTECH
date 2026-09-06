@@ -1,5 +1,21 @@
 const { body } = require('express-validator');
 
+const preRegisterValidation = [
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('fullName').notEmpty().withMessage('Full name is required'),
+  body('role')
+    .optional()
+    .isIn(['INDIVIDUAL', 'AGENT_TUR_OPERATOR', 'CORPORATE_HR'])
+    .withMessage('Invalid profile role'),
+];
+
+const setPasswordValidation = [
+  body('token').notEmpty().withMessage('Set password token is required'),
+  body('newPassword')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long'),
+];
+
 const registerValidation = [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
@@ -11,7 +27,8 @@ const registerValidation = [
 ];
 
 const loginValidation = [
-  body('email').isEmail().withMessage('Valid email is required'),
+  body('email').optional().isEmail().withMessage('Valid email is required if provided'),
+  body('username').optional().notEmpty().withMessage('Username must not be empty if provided'),
   body('password').notEmpty().withMessage('Password is required'),
 ];
 
@@ -23,6 +40,8 @@ const verifyOtpValidation = [
 ];
 
 module.exports = {
+  preRegisterValidation,
+  setPasswordValidation,
   registerValidation,
   loginValidation,
   sendOtpValidation,

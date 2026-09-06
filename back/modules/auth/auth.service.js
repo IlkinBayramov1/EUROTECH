@@ -4,6 +4,8 @@ const { hashPassword, comparePassword } = require('../../utils/hash.util');
 const { generateToken } = require('../../utils/jwt.util');
 const notificationService = require('../notification/notification.service');
 const { encryptAES256GCM, hashHMACSHA256 } = require('../../utils/crypto.util');
+const { generateUniqueUsername } = require('../../utils/username.util');
+const { generateSecureToken, hashToken: sha256HashToken } = require('../../utils/token.util');
 
 function generateOtp() {
   const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -45,12 +47,181 @@ async function createSession(userId, ip = '127.0.0.1', userAgent = 'Unknown') {
   };
 }
 
+async function preRegister({ email, fullName, phone, companyName, role, preferredLanguage, passportNumber }) {
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    if (existingUser.accountStatus === 'PENDING_PASSWORD') {
+      // Re-trigger set password link for pending accounts
+      return await resendSetPasswordEmail(email);
+    }
+    throw new Error('User with this email already exists.');
+  }
+
+  const username = await generateUniqueUsername();
+  const rawToken = generateSecureToken();
+  const passwordSetTokenHash = sha256HashToken(rawToken);
+  const passwordSetExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 Hours TTL
+
+  let passportNumberEncrypted = null;
+  let passportNumberHash = null;
+  if (passportNumber) {
+    passportNumberEncrypted = encryptAES256GCM(passportNumber);
+    passportNumberHash = hashHMACSHA256(passportNumber);
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      email,
+      username,
+      passwordHash: null, // Null for PENDING_PASSWORD state
+      accountStatus: 'PENDING_PASSWORD',
+      passwordSetTokenHash,
+      passwordSetExpiresAt,
+      fullName,
+      phone,
+      companyName,
+      role: role || 'INDIVIDUAL',
+      preferredLanguage: preferredLanguage || 'az',
+      passportNumber: passportNumber || null,
+      passportNumberEncrypted,
+      passportNumberHash,
+      isVerified: false,
+    },
+  });
+
+  // Attempt Email Delivery with Reliability Audit Logging
+  try {
+    await notificationService.sendSetPasswordNotification(email, fullName, username, rawToken);
+    
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'CUSTOMER_PRE_REGISTERED_EMAIL_SENT',
+        details: { username }, // Raw token is NEVER logged
+      },
+    });
+  } catch (emailErr) {
+    console.error('Pre-register email delivery error:', emailErr.message);
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'CUSTOMER_PRE_REGISTERED_EMAIL_FAILED',
+        details: { username, error: emailErr.message },
+      },
+    });
+  }
+
+  return {
+    success: true,
+    message: 'Registration email sent. Please check your email to set your password.',
+  };
+}
+
+async function setPassword({ token, newPassword }) {
+  if (!token || typeof token !== 'string') {
+    throw new Error('Invalid or expired password setup link.');
+  }
+
+  // Validate Password Policy (min 8 chars, upper, lower, number, special)
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw new Error('Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.');
+  }
+
+  const hashedToken = sha256HashToken(token);
+  const newPasswordHash = await hashPassword(newPassword);
+
+  // Single Atomic SQL Update Query (Concurrency Race Window Protection)
+  const updated = await prisma.user.updateMany({
+    where: {
+      passwordSetTokenHash: hashedToken,
+      passwordSetExpiresAt: { gt: new Date() },
+      accountStatus: 'PENDING_PASSWORD',
+    },
+    data: {
+      accountStatus: 'ACTIVE',
+      isVerified: true, // Set password implies Email Ownership Verification
+      passwordHash: newPasswordHash,
+      passwordSetAt: new Date(),
+      passwordSetTokenHash: null,
+      passwordSetExpiresAt: null,
+    },
+  });
+
+  if (updated.count === 0) {
+    // Generic security error message without leaking whether token was invalid, expired, or already used
+    throw new Error('Invalid or expired password setup link.');
+  }
+
+  const updatedUser = await prisma.user.findFirst({
+    where: { passwordSetAt: { not: null } },
+    orderBy: { passwordSetAt: 'desc' },
+  });
+
+  if (updatedUser) {
+    await prisma.auditLog.create({
+      data: {
+        userId: updatedUser.id,
+        action: 'PASSWORD_SET',
+        details: { username: updatedUser.username },
+      },
+    });
+  }
+
+  return {
+    success: true,
+    message: 'Password set successfully. Your account is now active.',
+  };
+}
+
+async function resendSetPasswordEmail(email) {
+  // Always return identical neutral message to protect against email enumeration attacks
+  const neutralMessage = {
+    success: true,
+    message: 'If an eligible account exists, a password setup email has been sent.',
+  };
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || user.accountStatus !== 'PENDING_PASSWORD') {
+    return neutralMessage;
+  }
+
+  // Generate new rawToken and invalidate old token
+  const rawToken = generateSecureToken();
+  const passwordSetTokenHash = sha256HashToken(rawToken);
+  const passwordSetExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordSetTokenHash,
+      passwordSetExpiresAt,
+    },
+  });
+
+  try {
+    await notificationService.sendSetPasswordNotification(email, user.fullName, user.username, rawToken);
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'SET_PASSWORD_EMAIL_RESENT',
+        details: { username: user.username },
+      },
+    });
+  } catch (err) {
+    console.error('Resend email failure:', err.message);
+  }
+
+  return neutralMessage;
+}
+
 async function register({ email, password, fullName, phone, companyName, role, preferredLanguage, passportNumber }) {
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
     throw new Error('User with this email already exists.');
   }
 
+  const username = await generateUniqueUsername();
   const passwordHash = await hashPassword(password);
   
   let passportNumberEncrypted = null;
@@ -63,7 +234,9 @@ async function register({ email, password, fullName, phone, companyName, role, p
   const user = await prisma.user.create({
     data: {
       email,
+      username,
       passwordHash,
+      accountStatus: 'ACTIVE',
       fullName,
       phone,
       companyName,
@@ -86,15 +259,31 @@ async function register({ email, password, fullName, phone, companyName, role, p
   return user;
 }
 
-async function login({ email, password, ip, userAgent }) {
-  const user = await prisma.user.findUnique({ where: { email } });
+async function login({ email, username, password, ip, userAgent }) {
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { email: email || '' },
+        { username: username || (email ? email : '') },
+      ],
+    },
+  });
+
   if (!user) {
-    throw new Error('Invalid email or password.');
+    throw new Error('Invalid email/username or password.');
+  }
+
+  if (user.accountStatus === 'PENDING_PASSWORD') {
+    throw new Error('Security Error: Please set your password first using the link sent to your email.');
+  }
+
+  if (!user.passwordHash) {
+    throw new Error('Invalid email/username or password.');
   }
 
   const isMatch = await comparePassword(password, user.passwordHash);
   if (!isMatch) {
-    throw new Error('Invalid email or password.');
+    throw new Error('Invalid email/username or password.');
   }
 
   return await createSession(user.id, ip, userAgent);
@@ -104,7 +293,6 @@ async function rotateRefreshToken(rawRefreshToken, ip = '127.0.0.1', userAgent =
   const tokenHash = hashToken(rawRefreshToken);
 
   return await prisma.$transaction(async (tx) => {
-    // Pessimistic Row Locking for concurrency protection
     const session = await tx.refreshTokenSession.findFirst({
       where: { tokenHash },
       include: { user: true },
@@ -114,11 +302,9 @@ async function rotateRefreshToken(rawRefreshToken, ip = '127.0.0.1', userAgent =
       throw new Error('Invalid refresh token.');
     }
 
-    // Reuse Detection & Account Takeover Protection
     if (session.isRevoked) {
       console.warn(`CRITICAL: TOKEN REUSE DETECTED for user ${session.userId}, family ${session.familyId}`);
       
-      // Revoke ALL sessions for user to protect against account takeover
       await tx.refreshTokenSession.updateMany({
         where: { userId: session.userId },
         data: { isRevoked: true, revokedAt: new Date(), revokedReason: 'TOKEN_REUSE_DETECTED' },
@@ -141,7 +327,6 @@ async function rotateRefreshToken(rawRefreshToken, ip = '127.0.0.1', userAgent =
       throw new Error('Refresh token expired.');
     }
 
-    // Generate new token pair
     const newRawRefreshToken = crypto.randomBytes(40).toString('hex');
     const newTokenHash = hashToken(newRawRefreshToken);
     const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -157,7 +342,6 @@ async function rotateRefreshToken(rawRefreshToken, ip = '127.0.0.1', userAgent =
       },
     });
 
-    // Mark old token as revoked and linked to new token in lineage chain
     await tx.refreshTokenSession.update({
       where: { id: session.id },
       data: {
@@ -214,7 +398,7 @@ async function verifyOtp({ email, code, ip, userAgent }) {
   if (user && !user.isVerified) {
     user = await prisma.user.update({
       where: { id: user.id },
-      data: { isVerified: true },
+      data: { isVerified: true, accountStatus: 'ACTIVE' },
     });
   }
 
@@ -226,6 +410,9 @@ async function verifyOtp({ email, code, ip, userAgent }) {
 }
 
 module.exports = {
+  preRegister,
+  setPassword,
+  resendSetPasswordEmail,
   register,
   login,
   rotateRefreshToken,

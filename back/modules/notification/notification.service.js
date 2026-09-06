@@ -26,6 +26,23 @@ async function sendOtpNotification(email, otpCode) {
   });
 }
 
+async function sendSetPasswordNotification(email, fullName, username, rawToken) {
+  const customerAppUrl = process.env.CUSTOMER_APP_URL || 'https://customer.eurotech.az';
+  const setPasswordLink = `${customerAppUrl}/set-password?token=${rawToken}`;
+
+  const html = loadTemplate('setPassword', {
+    fullName,
+    username,
+    setPasswordLink,
+  });
+
+  return sendEmail({
+    to: email,
+    subject: `EuroTech Services — Hesabınız Yaradıldı (${username})`,
+    html,
+  });
+}
+
 async function sendDossierSubmittedNotification(email, fullName, dossierNumber) {
   const html = loadTemplate('dossierSubmitted', { fullName, dossierNumber });
   return sendEmail({
@@ -55,6 +72,7 @@ async function sendDecisionNotification(email, fullName, dossierNumber, statusTe
 
 module.exports = {
   sendOtpNotification,
+  sendSetPasswordNotification,
   sendDossierSubmittedNotification,
   sendDocumentCorrectionNotification,
   sendDecisionNotification,

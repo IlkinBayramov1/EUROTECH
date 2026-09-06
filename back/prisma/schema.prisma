@@ -16,6 +16,12 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  PENDING_PASSWORD
+  ACTIVE
+  SUSPENDED
+}
+
 enum PortalType {
   INDIVIDUAL
   GROUP_AGENT
@@ -46,8 +52,9 @@ enum DocumentStatus {
 
 model User {
   id                      String                  @id @default(uuid())
+  username                String?                 @unique
   email                   String                  @unique
-  passwordHash            String
+  passwordHash            String?
   role                    Role                    @default(INDIVIDUAL)
   fullName                String
   phone                   String?
@@ -56,6 +63,10 @@ model User {
   passportNumber          String?
   passportNumberEncrypted String?                 @db.Text
   passportNumberHash      String?                 @db.VarChar(64)
+  accountStatus           UserStatus              @default(PENDING_PASSWORD)
+  passwordSetTokenHash    String?                 @unique @db.VarChar(64)
+  passwordSetExpiresAt    DateTime?
+  passwordSetAt           DateTime?
   isVerified              Boolean                 @default(false)
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
