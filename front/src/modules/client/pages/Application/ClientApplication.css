@@ -1,0 +1,408 @@
+/* src/pages/Client/Application/ClientApplication.css */
+
+.app-form-content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* --- List View Header --- */
+.app-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.docs-title {
+    font-size: 2rem;
+    margin: 0 0 8px 0;
+    color: var(--color-primary);
+    letter-spacing: -0.5px;
+}
+
+.docs-subtitle {
+    color: var(--color-neutral);
+    font-size: 1rem;
+    margin: 0;
+}
+
+/* --- Applicant Profile Cards (List View) --- */
+.applicants-grid-view {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 24px;
+}
+
+.applicant-profile-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.applicant-profile-card:hover {
+    border-color: var(--color-secondary);
+    box-shadow: 0 8px 24px rgba(15, 30, 54, 0.06);
+    transform: translateY(-2px);
+}
+
+.profile-card-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.profile-avatar {
+    width: 48px;
+    height: 48px;
+    background-color: var(--color-bg);
+    color: var(--color-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    border: 1px solid var(--color-border);
+}
+
+.profile-info { flex: 1; }
+
+.profile-info h3 {
+    margin: 0 0 4px 0;
+    font-size: 1.1rem;
+    color: var(--color-primary);
+}
+
+.profile-type {
+    font-size: 0.8rem;
+    color: var(--color-neutral);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.profile-status {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.profile-status.completed { background-color: #F0FDF4; color: #10B981; border: 1px solid #BBF7D0; }
+.profile-status.in-progress { background-color: #EFF6FF; color: var(--color-secondary); border: 1px solid #BFDBFE; }
+.profile-status.not-started { background-color: var(--color-bg); color: var(--color-neutral); border: 1px solid var(--color-border); }
+
+.profile-progress-bar {
+    height: 6px;
+    background-color: var(--color-bg);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: var(--color-secondary);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+.profile-card-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.progress-text {
+    font-size: 0.85rem;
+    color: var(--color-neutral);
+    font-weight: 600;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon-action {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-icon-action:hover:not(:disabled) {
+    background-color: var(--color-surface);
+    border-color: var(--color-secondary);
+    color: var(--color-secondary);
+}
+
+.btn-icon-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background-color: #f8fafc;
+}
+
+.btn-icon-action.danger:hover {
+    border-color: #EF4444;
+    color: #EF4444;
+}
+
+.btn-icon-action svg { width: 16px; height: 16px; }
+
+/* --- Edit Form View Header --- */
+.edit-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 24px;
+}
+
+.btn-back-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: var(--color-neutral);
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: color 0.2s;
+    padding: 0;
+}
+
+.btn-back-link:hover { color: var(--color-primary); }
+.btn-back-link svg { width: 18px; height: 18px; }
+
+.active-applicant-badge {
+    background-color: var(--color-bg);
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--color-border);
+    font-size: 0.9rem;
+    color: var(--color-neutral);
+}
+
+.active-applicant-badge strong {
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+/* --- HORIZONTAL STEPPER --- */
+.horizontal-stepper-wrapper {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+.stepper-item-horiz {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.stepper-label {
+    font-family: var(--font-heading);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--color-neutral);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: color 0.2s ease;
+}
+
+.stepper-line {
+    height: 4px;
+    background-color: var(--color-border);
+    border-radius: 4px;
+    transition: background-color 0.3s ease;
+}
+
+/* States for Horizontal Stepper */
+.stepper-item-horiz:hover:not(.active):not(.completed) .stepper-label { color: var(--color-primary); }
+.stepper-item-horiz:hover:not(.active):not(.completed) .stepper-line { background-color: #CBD5E1; }
+
+.stepper-item-horiz.active .stepper-label { color: var(--color-primary); }
+.stepper-item-horiz.active .stepper-line { background-color: var(--color-secondary); }
+
+.stepper-item-horiz.completed .stepper-label { color: var(--color-primary); }
+.stepper-item-horiz.completed .stepper-line { background-color: var(--color-secondary); }
+
+/* --- Form Content Area --- */
+.form-centered-container {
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.step-form-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.02);
+}
+
+.step-content-block h2 {
+    margin: 0 0 8px 0;
+    font-size: 1.5rem;
+    color: var(--color-primary);
+    letter-spacing: -0.5px;
+}
+
+.step-desc {
+    color: var(--color-neutral);
+    font-size: 0.95rem;
+    margin: 0 0 32px 0;
+    line-height: 1.5;
+}
+
+/* Form Grid & Inputs */
+.client-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.client-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.client-input-group.full-width { grid-column: span 2; }
+
+.client-input-group label {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--color-primary);
+}
+
+.client-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    color: var(--color-primary);
+    background-color: var(--color-bg);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.client-input::placeholder { color: var(--color-neutral); opacity: 0.5; }
+
+.client-input:focus {
+    outline: none;
+    border-color: var(--color-secondary);
+    box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.1);
+    background-color: var(--color-surface);
+}
+
+select.client-input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    cursor: pointer;
+}
+
+/* Form Footer */
+.step-form-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+}
+
+.btn-secondary {
+    padding: 12px 24px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background-color: transparent;
+    color: var(--color-neutral);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-surface);
+    color: var(--color-primary);
+    border-color: var(--color-neutral);
+}
+
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--color-primary);
+    color: var(--color-surface);
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #172a4d;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(15, 30, 54, 0.15);
+}
+
+.btn-primary:disabled {
+    background-color: var(--color-neutral);
+    cursor: wait;
+    opacity: 0.8;
+}
+
+.spinner {
+    animation: spin 1.2s linear infinite;
+    width: 18px;
+    height: 18px;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.fade-in { animation: fadeIn 0.3s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 900px) {
+    .horizontal-stepper-wrapper { flex-wrap: wrap; }
+    .stepper-item-horiz { flex: 1 1 calc(33.333% - 12px); min-width: 120px; }
+    .client-form-grid { grid-template-columns: 1fr; }
+    .client-input-group.full-width { grid-column: span 1; }
+}

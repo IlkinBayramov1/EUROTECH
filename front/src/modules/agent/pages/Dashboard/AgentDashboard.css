@@ -1,0 +1,326 @@
+/* Fərdi Müştəri (ClientDashboard) CSS qanunauyğunluqlarının tam eynisidir */
+
+.dashboard-content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.dash-title {
+    font-size: 2.2rem;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+    color: var(--color-primary);
+}
+
+.dash-subtitle {
+    color: var(--color-neutral);
+    font-size: 1.05rem;
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-primary);
+    color: var(--color-surface);
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background-color: #172a4d;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(15, 30, 54, 0.15);
+}
+
+.dash-grid-top {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.dash-stat-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.02);
+}
+
+.dash-stat-card.active-card {
+    border-color: var(--color-secondary);
+    background-color: #F4F7FF;
+}
+
+.stat-icon {
+    width: 60px;
+    height: 60px;
+    background-color: var(--color-bg);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-primary);
+}
+
+.active-card .stat-icon {
+    background-color: var(--color-surface);
+    color: var(--color-secondary);
+}
+
+.stat-icon svg {
+    width: 28px;
+    height: 28px;
+}
+
+.stat-info span {
+    font-size: 0.85rem;
+    color: var(--color-neutral);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-info h3 {
+    margin: 4px 0 0 0;
+    font-size: 1.2rem;
+    color: var(--color-primary);
+}
+
+.dash-grid-main {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 32px;
+}
+
+.dash-column-left, .dash-column-right {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.dash-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 10px 15px -3px rgba(15, 30, 54, 0.03);
+}
+
+.table-card-wrapper {
+    padding: 0;
+    overflow: hidden;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.card-header h3 {
+    font-size: 1.2rem;
+    margin: 0;
+}
+
+.btn-text {
+    background: none;
+    border: none;
+    color: var(--color-secondary);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.btn-text:hover {
+    text-decoration: underline;
+}
+
+/* Premium Table Styles for Agent */
+.premium-table-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.premium-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.premium-table th {
+    background-color: var(--color-bg);
+    color: var(--color-neutral);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.premium-table td {
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.95rem;
+    color: var(--color-primary);
+    vertical-align: middle;
+}
+
+.premium-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.premium-table tbody tr:hover {
+    background-color: var(--color-bg);
+}
+
+/* Status Badges in Table */
+.status-label {
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    display: inline-block;
+}
+
+.status-label.processing { background-color: #EFF6FF; color: var(--color-secondary); }
+.status-label.action-req { background-color: #FEF2F2; color: #DC2626; }
+.status-label.ready { background-color: #F0FDF4; color: var(--color-tertiary); }
+
+.btn-icon-action {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-neutral);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-icon-action:hover {
+    background-color: var(--color-bg);
+    color: var(--color-primary);
+    border-color: var(--color-neutral);
+}
+
+/* Activity Timeline (Client portal ile eyni) */
+.activity-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-left: 10px;
+    border-left: 2px solid var(--color-border);
+    margin-left: 10px;
+}
+
+.activity-item {
+    position: relative;
+    padding-left: 20px;
+}
+
+.activity-dot {
+    position: absolute;
+    left: -17px;
+    top: 2px;
+    width: 12px;
+    height: 12px;
+    background-color: var(--color-border);
+    border: 2px solid var(--color-surface);
+    border-radius: 50%;
+}
+
+.activity-dot.new {
+    background-color: var(--color-secondary);
+    box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.2);
+}
+
+.activity-content p {
+    margin: 0 0 4px 0;
+    font-size: 0.95rem;
+    color: var(--color-primary);
+}
+
+.activity-content span {
+    font-size: 0.8rem;
+    color: var(--color-neutral);
+}
+
+/* Premium Card */
+.dash-premium-card {
+    background: linear-gradient(135deg, var(--color-primary) 0%, #172a4d 100%);
+    border-radius: 12px;
+    padding: 32px;
+    color: white;
+    text-align: center;
+}
+
+.premium-icon {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+    color: #F59E0B;
+}
+
+.premium-icon svg {
+    width: 40px;
+    height: 40px;
+}
+
+.dash-premium-card h3 {
+    font-size: 1.4rem;
+    margin-bottom: 12px;
+    color: white;
+}
+
+.dash-premium-card p {
+    font-size: 0.95rem;
+    color: #cbd5e1;
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.btn-upgrade {
+    background-color: #F59E0B;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    font-weight: 800;
+    font-family: var(--font-heading);
+    cursor: pointer;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.btn-upgrade:hover {
+    background-color: #D97706;
+}
+
+@media (max-width: 1100px) {
+    .dash-grid-top { grid-template-columns: 1fr; }
+    .dash-grid-main { grid-template-columns: 1fr; }
+}

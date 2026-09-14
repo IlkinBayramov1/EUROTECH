@@ -1,7 +1,20 @@
 const prisma = require('../../config/db');
 const { SERVICE_PRICES } = require('../../config/constants');
 
-async function addServiceToDossier(dossierId, serviceType, metadataJson = {}) {
+async function addServiceToDossier(arg1, arg2, arg3) {
+  // Support both object syntax and legacy positional syntax (dossierId, serviceType, metadataJson)
+  let dossierId, applicantId, serviceType, metadataJson;
+  if (typeof arg1 === 'object') {
+    dossierId = arg1.dossierId;
+    applicantId = arg1.applicantId;
+    serviceType = arg1.serviceType;
+    metadataJson = arg1.metadataJson || {};
+  } else {
+    dossierId = arg1;
+    serviceType = arg2;
+    metadataJson = arg3 || {};
+  }
+
   const dossier = await prisma.dossier.findUnique({
     where: { id: dossierId },
     include: { services: true, applicants: true },
@@ -16,6 +29,7 @@ async function addServiceToDossier(dossierId, serviceType, metadataJson = {}) {
   const newService = await prisma.additionalService.create({
     data: {
       dossierId,
+      applicantId: applicantId || null,
       serviceType,
       price,
       metadataJson,

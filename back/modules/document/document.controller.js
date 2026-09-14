@@ -63,9 +63,22 @@ async function sendFeedback(req, res, next) {
   }
 }
 
+async function downloadDocument(req, res, next) {
+  try {
+    const { documentId } = req.params;
+    const { token } = req.query;
+    const fileData = await documentService.getDocumentFileForDownload(documentId, token, req.user);
+    return res.download(fileData.filePath, fileData.fileName);
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
 module.exports = {
   uploadDocument,
   reviewDocument,
   getSignedUrl,
+  downloadDocument,
   sendFeedback,
 };

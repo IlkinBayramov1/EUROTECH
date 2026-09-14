@@ -1,0 +1,291 @@
+/* ==========================================================================
+   EUROTECH DESIGN SYSTEM: PROFILE SELECTION
+   ========================================================================== */
+
+/* Font Imports based on design system */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
+
+:root {
+    --ds-primary: #0F1E36;
+    --ds-secondary: #1D4ED8;
+    --ds-tertiary: #059669;
+    --ds-neutral: #334155;
+    --ds-neutral-light: #94A3B8;
+    --ds-bg: #F8FAFC;
+    --ds-surface: #FFFFFF;
+    --ds-border: #E2E8F0;
+    
+    --font-heading: 'Plus Jakarta Sans', sans-serif;
+    --font-body: 'Inter', sans-serif;
+}
+
+.sp-wrapper {
+    min-height: 100vh;
+    background-color: var(--ds-bg);
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-body);
+    color: var(--ds-neutral);
+}
+
+/* --- Header --- */
+.sp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 48px;
+    background-color: var(--ds-surface);
+    border-bottom: 1px solid var(--ds-border);
+}
+
+.sp-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sp-logo-mark {
+    width: 28px;
+    height: 28px;
+    background-color: var(--ds-primary);
+    border-radius: 4px;
+}
+
+.sp-brand-name {
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 1.125rem;
+    color: var(--ds-primary);
+    letter-spacing: 0.5px;
+}
+
+.sp-brand-suffix {
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--ds-neutral-light);
+    border-left: 1px solid var(--ds-border);
+    padding-left: 12px;
+}
+
+.sp-header-support {
+    font-size: 0.875rem;
+    display: flex;
+    gap: 8px;
+    color: var(--ds-neutral);
+}
+
+.sp-header-support a {
+    color: var(--ds-secondary);
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.sp-header-support a:hover {
+    color: var(--ds-primary);
+}
+
+/* --- Main Content --- */
+.sp-main {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 24px;
+}
+
+.sp-content-container {
+    max-width: 1000px;
+    width: 100%;
+}
+
+.sp-text-center {
+    text-align: center;
+    margin-bottom: 56px;
+}
+
+.sp-title {
+    font-family: var(--font-heading);
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--ds-primary);
+    margin: 0 0 16px 0;
+    letter-spacing: -0.5px;
+}
+
+.sp-subtitle {
+    font-size: 1.125rem;
+    color: var(--ds-neutral);
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+
+/* --- Grid & Cards --- */
+.sp-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 48px;
+}
+
+.sp-card {
+    background-color: var(--ds-surface);
+    border: 2px solid var(--ds-border);
+    border-radius: 12px;
+    padding: 32px 24px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    flex-direction: column;
+}
+
+.sp-card:hover {
+    border-color: var(--ds-neutral-light);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -10px rgba(15, 30, 54, 0.08);
+}
+
+.sp-card-active {
+    border-color: var(--ds-secondary);
+    background-color: #F4F7FF; /* Very light tint of secondary */
+    box-shadow: 0 12px 24px -10px rgba(29, 78, 216, 0.15);
+}
+
+.sp-card-active:hover {
+    border-color: var(--ds-secondary);
+}
+
+.sp-card-icon {
+    width: 48px;
+    height: 48px;
+    background-color: var(--ds-bg);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 24px;
+    color: var(--ds-primary);
+    transition: all 0.2s ease;
+}
+
+.sp-card-active .sp-card-icon {
+    background-color: var(--ds-secondary);
+    color: var(--ds-surface);
+}
+
+.sp-card-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.sp-card-title {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--ds-primary);
+    margin: 0 0 12px 0;
+}
+
+.sp-card-desc {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--ds-neutral);
+    margin: 0;
+    flex: 1;
+}
+
+/* Custom Radio Indicator */
+.sp-radio {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--ds-border);
+    border-radius: 50%;
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.sp-radio-inner {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: transparent;
+    transition: all 0.2s ease;
+}
+
+.sp-card-active .sp-radio {
+    border-color: var(--ds-secondary);
+}
+
+.sp-card-active .sp-radio-inner {
+    background-color: var(--ds-secondary);
+}
+
+/* --- Actions --- */
+.sp-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.sp-btn-primary {
+    background-color: var(--ds-primary);
+    color: var(--ds-surface);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 16px 48px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.1);
+}
+
+.sp-btn-primary:hover:not(:disabled) {
+    background-color: #172a4d; /* Slightly lighter primary */
+    box-shadow: 0 10px 15px -3px rgba(15, 30, 54, 0.2);
+    transform: translateY(-1px);
+}
+
+.sp-btn-primary:disabled {
+    background-color: var(--ds-border);
+    color: var(--ds-neutral-light);
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* --- Responsive --- */
+@media (max-width: 1024px) {
+    .sp-grid {
+        grid-template-columns: 1fr;
+        max-width: 500px;
+        margin: 0 auto 48px auto;
+    }
+}
+
+@media (max-width: 640px) {
+    .sp-header {
+        flex-direction: column;
+        gap: 16px;
+        padding: 20px;
+        text-align: center;
+    }
+    
+    .sp-brand-suffix {
+        border-left: none;
+        padding-left: 0;
+        display: block;
+        margin-top: 4px;
+    }
+    
+    .sp-title {
+        font-size: 2rem;
+    }
+}

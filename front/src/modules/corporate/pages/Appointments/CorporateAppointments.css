@@ -1,0 +1,189 @@
+/* src/pages/Corporate/Appointments/CorporateAppointments.css */
+
+.corp-appt-content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* --- Header --- */
+.corp-appt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.header-titles { display: flex; flex-direction: column; gap: 8px; }
+.dash-title { font-size: 2.2rem; margin: 0; color: var(--color-primary); letter-spacing: -0.5px; }
+.dash-subtitle { color: var(--color-neutral); font-size: 1.05rem; margin: 0; }
+
+.btn-primary {
+    display: flex; align-items: center; gap: 8px; background-color: var(--color-primary);
+    color: var(--color-surface); padding: 12px 24px; border: none; border-radius: 8px;
+    font-family: var(--font-heading); font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: all 0.2s ease;
+}
+.btn-primary:hover { background-color: #0A1128; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(10, 17, 40, 0.2); }
+.btn-primary svg { width: 18px; height: 18px; }
+
+/* --- Grid Layout --- */
+.corp-appt-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 32px;
+    align-items: start;
+}
+
+/* --- Təqvim (Sol Tərəf) --- */
+.sticky-card {
+    position: sticky;
+    top: 24px;
+}
+
+.corp-calendar-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 12px -4px rgba(15, 30, 54, 0.03);
+}
+
+.calendar-header-nav {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;
+}
+
+.calendar-current-month {
+    font-family: var(--font-heading); font-weight: 700; font-size: 1.1rem; color: var(--color-primary);
+}
+
+.btn-cal-nav {
+    background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px;
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    color: var(--color-neutral); cursor: pointer; transition: all 0.2s ease;
+}
+.btn-cal-nav:hover { background-color: var(--color-surface); border-color: var(--color-secondary); color: var(--color-secondary); }
+.btn-cal-nav svg { width: 20px; height: 20px; }
+
+.calendar-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem;
+    font-family: var(--font-heading); font-weight: 700; color: var(--color-neutral);
+    text-transform: uppercase; margin-bottom: 12px;
+}
+
+.calendar-days-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
+}
+
+.calendar-day {
+    aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    font-family: var(--font-heading); font-weight: 600; font-size: 0.95rem; color: var(--color-primary);
+    cursor: pointer; transition: all 0.2s ease; position: relative; padding: 0;
+}
+
+.calendar-day:not(.empty):not(.disabled):hover { background-color: var(--color-bg); border-color: var(--color-border); }
+.calendar-day.selected { background-color: var(--color-secondary); color: var(--color-surface); border-color: var(--color-secondary); box-shadow: 0 4px 12px rgba(29, 78, 216, 0.15); }
+.calendar-day.disabled { color: #CBD5E1; cursor: not-allowed; background-color: transparent; }
+.calendar-day.empty { pointer-events: none; }
+
+.day-dots-container {
+    display: flex; gap: 4px; position: absolute; bottom: 6px;
+}
+.day-dot { width: 4px; height: 4px; border-radius: 50%; }
+.day-dot.confirmed { background-color: #10B981; }
+.day-dot.pending { background-color: #F59E0B; }
+.calendar-day.selected .day-dot { background-color: white; }
+
+.calendar-legend-premium {
+    display: flex; justify-content: center; gap: 24px; margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--color-border);
+}
+.legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--color-neutral); font-weight: 600; }
+.legend-color { width: 12px; height: 12px; border-radius: 4px; }
+.legend-color.confirmed { background-color: #F0FDF4; border: 1px solid #10B981; }
+.legend-color.pending { background-color: #FFFBEB; border: 1px solid #F59E0B; }
+
+
+/* --- Schedule List (Sağ Tərəf) --- */
+.corp-schedule-card {
+    background-color: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px;
+    overflow: hidden; box-shadow: 0 4px 12px -4px rgba(15, 30, 54, 0.03);
+}
+
+.schedule-header {
+    background-color: var(--color-bg); padding: 24px 32px; border-bottom: 1px solid var(--color-border);
+}
+
+.selected-date-display { display: flex; align-items: center; gap: 12px; color: var(--color-primary); }
+.selected-date-display svg { width: 24px; height: 24px; color: var(--color-secondary); }
+.selected-date-display h3 { margin: 0; font-size: 1.25rem; }
+
+.corp-appt-list { display: flex; flex-direction: column; }
+
+.corp-appt-item {
+    display: flex; align-items: stretch; justify-content: space-between; padding: 24px 32px;
+    border-bottom: 1px dashed var(--color-border); transition: all 0.2s ease; position: relative;
+}
+.corp-appt-item:last-child { border-bottom: none; }
+
+.corp-appt-item::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.corp-appt-item.confirmed { background-color: var(--color-surface); }
+.corp-appt-item.confirmed::before { background-color: #10B981; }
+.corp-appt-item.confirmed:hover { background-color: #F8FAFC; }
+
+.corp-appt-item.pending { background-color: #FFFBEB; }
+.corp-appt-item.pending::before { background-color: #F59E0B; }
+
+/* Blocks */
+.appt-time-block { display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 180px; flex-shrink: 0; }
+.appt-time { display: flex; align-items: center; gap: 8px; color: var(--color-primary); }
+.appt-time svg { width: 20px; height: 20px; color: var(--color-neutral); }
+.appt-time strong { font-family: var(--font-heading); font-size: 1.1rem; }
+.appt-location { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--color-neutral); }
+.appt-location svg { width: 16px; height: 16px; }
+
+.appt-info-block { flex: 1; padding: 0 24px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.appt-badge-row { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.appt-batch-id { font-size: 0.85rem; color: var(--color-secondary); font-weight: 700; font-family: var(--font-heading); }
+.appt-info-block h4 { margin: 0; font-size: 1.15rem; color: var(--color-primary); }
+.appt-info-block p { margin: 0; font-size: 0.9rem; color: var(--color-neutral); line-height: 1.4; }
+
+.appt-warning-alert { display: flex; align-items: center; gap: 8px; background-color: #FEF3C7; padding: 10px 12px; border-radius: 6px; margin-top: 8px; border: 1px solid #FDE68A; }
+.appt-warning-alert svg { width: 16px; height: 16px; color: #D97706; }
+.appt-warning-alert span { font-size: 0.8rem; color: #B45309; font-weight: 600; }
+
+.corp-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-success { background-color: #D1FAE5; color: #065F46; border: 1px solid #A7F3D0; }
+.badge-warning { background-color: #FEF3C7; color: #D97706; border: 1px solid #FDE68A; }
+
+.appt-actions-block { width: 140px; display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; }
+
+.btn-outline-primary {
+    background: transparent; border: 1px solid var(--color-secondary); color: var(--color-secondary);
+    padding: 10px 20px; border-radius: 6px; font-family: var(--font-heading); font-weight: 700;
+    font-size: 0.9rem; cursor: pointer; transition: all 0.2s; width: 100%; text-align: center;
+}
+.btn-outline-primary:hover { background-color: var(--color-secondary); color: var(--color-surface); }
+
+.btn-action.danger {
+    background-color: #DC2626; color: white; border: none; padding: 10px 20px; border-radius: 6px;
+    font-weight: 700; font-size: 0.9rem; cursor: pointer; transition: background-color 0.2s; width: 100%; font-family: var(--font-heading);
+}
+.btn-action.danger:hover { background-color: #991B1B; }
+
+.empty-state-box { padding: 60px 40px; text-align: center; color: var(--color-neutral); display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.empty-state-box svg { width: 48px; height: 48px; opacity: 0.5; }
+.empty-state-box p { margin: 0; font-size: 1.05rem; }
+
+/* Utilities */
+.fade-in { animation: fadeIn 0.3s ease-in-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 1100px) {
+    .corp-appt-grid { grid-template-columns: 1fr; }
+    .sticky-card { position: static; }
+    .corp-appt-item { flex-direction: column; gap: 20px; }
+    .appt-info-block { padding: 0; }
+    .appt-actions-block { width: 100%; justify-content: flex-start; }
+    .btn-outline-primary, .btn-action.danger { width: auto; }
+}

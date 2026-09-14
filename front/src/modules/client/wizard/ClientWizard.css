@@ -1,0 +1,1236 @@
+/* src/pages/Individual/Wizard/IndividualWizard.css */
+.wizard-layout {
+    min-height: 100vh;
+    background-color: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+}
+
+/* --- Header --- */
+.wizard-header {
+    height: 72px;
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 48px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.wizard-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-badge {
+    background-color: var(--color-primary);
+    color: var(--color-surface);
+    font-size: 0.75rem;
+    font-family: var(--font-heading);
+    font-weight: 800;
+    padding: 6px 12px;
+    border-radius: 6px;
+    letter-spacing: 1px;
+}
+
+.brand-title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--color-primary);
+}
+
+.btn-close {
+    background: transparent;
+    border: none;
+    color: var(--color-neutral);
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.btn-close:hover {
+    color: var(--color-primary);
+}
+
+/* --- Main Layout --- */
+.wizard-main {
+    flex: 1;
+    display: flex;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* --- Sidebar Stepper --- */
+.wizard-sidebar {
+    width: 280px;
+    padding: 60px 40px 60px 0;
+}
+
+.stepper-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    position: relative;
+}
+
+.stepper-list::before {
+    content: '';
+    position: absolute;
+    left: 17px;
+    top: 30px;
+    bottom: 30px;
+    width: 2px;
+    background-color: var(--color-border);
+    z-index: 0;
+}
+
+.stepper-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: var(--color-neutral);
+    opacity: 0.5;
+    transition: all 0.3s ease;
+    z-index: 1;
+}
+
+.stepper-item.active, .stepper-item.completed {
+    opacity: 1;
+}
+
+.stepper-item.active {
+    color: var(--color-primary);
+}
+
+.stepper-item.completed {
+    color: var(--color-tertiary);
+}
+
+.step-indicator {
+    width: 36px;
+    height: 36px;
+    border: 2px solid var(--color-border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 0.9rem;
+    background-color: var(--color-bg);
+    transition: all 0.3s ease;
+}
+
+.stepper-item.active .step-indicator {
+    border-color: var(--color-secondary);
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+    box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.1);
+}
+
+.stepper-item.completed .step-indicator {
+    border-color: var(--color-tertiary);
+    background-color: var(--color-tertiary);
+    color: var(--color-surface);
+}
+
+.step-name {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+/* --- Content Area --- */
+.wizard-content-area {
+    flex: 1;
+    padding: 60px 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.step-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 48px;
+    flex: 1;
+    box-shadow: 0 12px 24px -12px rgba(15, 30, 54, 0.08);
+}
+
+.step-title {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+}
+
+.step-subtitle {
+    color: var(--color-neutral);
+    font-size: 1rem;
+    line-height: 1.6;
+    margin-bottom: 40px;
+}
+
+/* --- Forms (General) --- */
+.wizard-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+}
+
+.wizard-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wizard-input-group label {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--color-primary);
+}
+
+.premium-select-wrapper {
+    position: relative;
+}
+
+.premium-select-wrapper::after {
+    content: '▼';
+    font-size: 0.7rem;
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-neutral);
+    pointer-events: none;
+}
+
+.premium-select-wrapper select {
+    width: 100%;
+    appearance: none;
+    padding: 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    color: var(--color-neutral);
+    background-color: var(--color-bg);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.premium-select-wrapper select:focus {
+    outline: none;
+    border-color: var(--color-secondary);
+    box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.1);
+    background-color: var(--color-surface);
+}
+
+.premium-select-wrapper select.selected {
+    color: var(--color-primary);
+    font-weight: 500;
+    background-color: var(--color-surface);
+}
+
+.premium-select-wrapper select:disabled {
+    background-color: #f1f5f9;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.wizard-helper-text {
+    font-size: 0.8rem;
+    color: var(--color-neutral);
+    opacity: 0.7;
+    margin-top: 4px;
+}
+
+.premium-input {
+    width: 100%;
+    padding: 16px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-family: var(--font-body);
+    font-size: 1rem;
+    color: var(--color-primary);
+    background-color: var(--color-bg);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.premium-input::placeholder {
+    color: var(--color-neutral);
+    opacity: 0.5;
+}
+
+.premium-input:focus {
+    outline: none;
+    border-color: var(--color-secondary);
+    box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.1);
+    background-color: var(--color-surface);
+}
+
+.premium-input[type="date"] {
+    color: var(--color-neutral);
+}
+.premium-input[type="date"]:valid {
+    color: var(--color-primary);
+    font-weight: 500;
+}
+
+/* --- Step 2: Premium Packages Styles --- */
+.packages-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: 48px;
+    align-items: stretch;
+}
+
+.package-card {
+    position: relative;
+    border: 2px solid var(--color-border);
+    border-radius: 16px;
+    background-color: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.package-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -8px rgba(15, 30, 54, 0.1);
+}
+
+.package-card.active {
+    border-width: 2px;
+}
+
+.package-badge {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+    padding: 6px 16px;
+    border-radius: 0 0 8px 8px;
+    font-family: var(--font-heading);
+    font-weight: 800;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.package-badge.luxury {
+    background-color: #D97706; /* Qızılı/Kəhrəba rəngi */
+}
+
+.package-header {
+    padding: 32px 24px 24px 24px;
+    border-bottom: 1px solid var(--color-border);
+    text-align: center;
+}
+
+.package-card.premium .package-header { padding-top: 40px; }
+.package-card.vip .package-header { padding-top: 40px; }
+
+.package-header h3 {
+    margin: 0 0 12px 0;
+    font-size: 1.25rem;
+    color: var(--color-primary);
+}
+
+.package-price {
+    font-family: var(--font-heading);
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--color-primary);
+    margin-bottom: 12px;
+}
+
+.package-price span {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--color-neutral);
+    font-family: var(--font-body);
+}
+
+.package-header p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--color-neutral);
+    line-height: 1.5;
+}
+
+.package-features {
+    list-style: none;
+    padding: 24px;
+    margin: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.package-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 0.9rem;
+    color: var(--color-neutral);
+    line-height: 1.4;
+}
+
+.package-features li svg {
+    width: 18px;
+    height: 18px;
+    color: var(--color-neutral);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.package-features li.highlight { color: var(--color-primary); font-weight: 500; }
+.package-features li.highlight svg { color: var(--color-secondary); }
+
+.package-features li.highlight-gold { 
+    color: var(--color-primary); 
+    font-weight: 600; 
+}
+.package-features li.highlight-gold svg { 
+    color: #F59E0B; 
+}
+
+/* Ensure it turns white ONLY when the VIP card is clicked/active */
+.package-card.vip.active .package-features li.highlight-gold { 
+    color: var(--color-surface); 
+}
+
+.package-action {
+    padding: 24px;
+    margin-top: auto;
+}
+
+.btn-package {
+    width: 100%;
+    padding: 14px;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    color: var(--color-neutral);
+}
+
+.package-card:hover .btn-package {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+/* AKTİV VƏZİYYƏTLƏR (Seçilmiş Paketlər) */
+.package-card.basic.active { border-color: var(--color-neutral); background-color: #F8FAFC; }
+.package-card.basic.active .btn-package.selected { background-color: var(--color-neutral); color: var(--color-surface); border-color: var(--color-neutral); }
+
+.package-card.premium.active { border-color: var(--color-secondary); background-color: #EFF6FF; }
+.package-card.premium.active .btn-package.selected { background-color: var(--color-secondary); color: var(--color-surface); border-color: var(--color-secondary); }
+.package-card.premium.active .package-header { border-bottom-color: #BFDBFE; }
+
+.package-card.vip { background: linear-gradient(180deg, var(--color-surface) 0%, #F8FAFC 100%); }
+.package-card.vip.active { 
+    border-color: var(--color-primary); 
+    background: linear-gradient(180deg, var(--color-primary) 0%, #0B162C 100%); 
+}
+.package-card.vip.active .package-header h3, 
+.package-card.vip.active .package-price,
+.package-card.vip.active .package-header p { color: var(--color-surface); }
+.package-card.vip.active .package-header { border-bottom-color: rgba(255,255,255,0.1); }
+.package-card.vip.active .package-features li { color: #CBD5E1; }
+.package-card.vip.active .btn-package.selected { background-color: #F59E0B; color: var(--color-surface); border-color: #F59E0B; }
+
+/* --- A LA CARTE (Individual Add-ons) --- */
+.individual-services-section { margin-top: 24px; }
+
+.divider-line {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: var(--color-neutral);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 24px;
+}
+
+.divider-line::before, .divider-line::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px dashed var(--color-border);
+}
+.divider-line span { padding: 0 16px; }
+
+.addons-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* 2 sütun geniş məlumat üçün daha uyğundur */
+    gap: 16px;
+}
+
+.addon-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 16px 20px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background-color: var(--color-surface);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.addon-card:hover { border-color: var(--color-neutral); }
+.addon-card.selected { border-color: var(--color-secondary); background-color: #EFF6FF; }
+
+.addon-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.addon-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.addon-title {
+    font-weight: 600;
+    color: var(--color-primary);
+    font-size: 0.95rem;
+}
+
+.addon-desc-small {
+    font-size: 0.8rem;
+    color: var(--color-neutral);
+    line-height: 1.4;
+}
+
+.addon-price {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-secondary);
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+    .packages-grid { grid-template-columns: 1fr; max-width: 450px; margin: 0 auto 48px auto; }
+    .addons-grid { grid-template-columns: 1fr; }
+}
+
+
+
+
+
+/* --- Step 4: Appointment Styles (Interactive Calendar) --- */
+.appointment-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    margin-top: 10px;
+    align-items: start;
+}
+
+.appointment-column h3 {
+    font-size: 1.05rem;
+    color: var(--color-primary);
+    margin-bottom: 24px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+/* --- Premium Calendar UI --- */
+.premium-calendar-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.02);
+}
+
+.calendar-header-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.calendar-current-month {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--color-primary);
+}
+
+.btn-cal-nav {
+    background-color: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-neutral);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-cal-nav:hover {
+    background-color: var(--color-surface);
+    border-color: var(--color-secondary);
+    color: var(--color-secondary);
+}
+
+.btn-cal-nav svg {
+    width: 20px;
+    height: 20px;
+}
+
+.calendar-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-size: 0.75rem;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-neutral);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+}
+
+.calendar-days-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--color-primary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* Seçilməmiş günlər üçün hover effekti (YENİLƏNDİ) */
+.calendar-day:not(.empty):not(.disabled):not(.selected):hover {
+    background-color: var(--color-bg);
+    border-color: var(--color-border);
+    color: var(--color-primary); /* Rəngin tünd qalmasını sığortalayırıq */
+}
+
+/* Seçilmiş günün üzərinə gəldikdə görünüşün pozulmaması üçün */
+.calendar-day.selected:hover {
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+    box-shadow: 0 6px 16px rgba(29, 78, 216, 0.25);
+    transform: translateY(-1px);
+}
+
+.calendar-day.selected {
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+    border-color: var(--color-secondary);
+    box-shadow: 0 4px 12px rgba(29, 78, 216, 0.15);
+}
+
+.calendar-day.disabled {
+    color: #CBD5E1;
+    cursor: not-allowed;
+    background-color: transparent;
+}
+
+.calendar-day.empty {
+    pointer-events: none;
+}
+
+/* --- Compact Time Slots --- */
+/* Saatlar yalnız qısa rəqəmlər olduğu üçün 3 sütunlu grid daha yaxşı görünür */
+.time-grid-compact {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.slot-card-compact {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.slot-card-compact:hover:not(.full) {
+    border-color: var(--color-secondary);
+    box-shadow: 0 4px 12px rgba(29, 78, 216, 0.08);
+}
+
+.slot-card-compact.selected {
+    background-color: var(--color-secondary);
+    border-color: var(--color-secondary);
+}
+
+.slot-card-compact.selected .slot-time-text {
+    color: var(--color-surface);
+}
+
+.slot-card-compact.full {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background-color: #F8FAFC;
+}
+
+.slot-time-text {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--color-primary);
+    transition: color 0.2s ease;
+}
+
+.slot-full-text {
+    font-size: 0.75rem;
+    color: var(--color-neutral);
+    font-weight: 600;
+}
+
+.empty-state-box {
+    background-color: var(--color-bg);
+    border: 1px dashed var(--color-border);
+    border-radius: 8px;
+    padding: 60px 30px;
+    text-align: center;
+    color: var(--color-neutral);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+    .appointment-container {
+        grid-template-columns: 1fr;
+        gap: 32px;
+    }
+}
+
+
+
+/* --- Step 1: Duration of Stay Cards (Platform Consistent) --- */
+.duration-cards-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.duration-card {
+    position: relative;
+    border: 2px solid var(--color-border);
+    border-radius: 12px;
+    padding: 24px;
+    background-color: var(--color-surface);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.02);
+}
+
+.duration-card:hover {
+    border-color: var(--color-neutral);
+    box-shadow: 0 10px 20px -10px rgba(15, 30, 54, 0.08);
+    transform: translateY(-2px);
+}
+
+.duration-card.selected {
+    border-color: var(--color-secondary);
+    background-color: #F4F7FF;
+}
+
+.duration-icon {
+    width: 48px;
+    height: 48px;
+    background-color: var(--color-bg);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-primary);
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.duration-card.selected .duration-icon {
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+}
+
+.duration-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.duration-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding-right: 24px; /* Checkmark üçün yer */
+}
+
+.duration-content h3 {
+    margin: 0 0 6px 0;
+    font-size: 1.05rem;
+    color: var(--color-primary);
+}
+
+.duration-content p {
+    margin: 0 0 12px 0;
+    font-size: 0.85rem;
+    color: var(--color-neutral);
+    line-height: 1.5;
+}
+
+.visa-badge {
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    background-color: var(--color-bg);
+    color: var(--color-neutral);
+    border: 1px solid var(--color-border);
+    transition: all 0.2s;
+}
+
+.duration-card.selected .visa-badge {
+    background-color: var(--color-surface);
+    color: var(--color-secondary);
+    border-color: var(--color-secondary);
+}
+
+/* Yuxarı sağ küncdəki seçim indikatoru */
+.duration-check {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-surface);
+    transition: all 0.2s ease;
+}
+
+.duration-card.selected .duration-check {
+    border-color: var(--color-secondary);
+    background-color: var(--color-secondary);
+    color: var(--color-surface);
+}
+
+.duration-check svg {
+    width: 12px;
+    height: 12px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.duration-card.selected .duration-check svg {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .duration-cards-grid { grid-template-columns: 1fr; }
+}
+
+
+
+
+
+
+
+/* --- Step 3: Multi-Applicant Styles --- */
+.applicants-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    margin-bottom: 32px;
+}
+
+.applicant-block {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 4px 12px -4px rgba(15, 30, 54, 0.03);
+    transition: all 0.3s ease;
+}
+
+.applicant-block:hover {
+    border-color: var(--color-neutral);
+    box-shadow: 0 8px 24px -8px rgba(15, 30, 54, 0.06);
+}
+
+.applicant-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 20px;
+    margin-bottom: 24px;
+}
+
+.applicant-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.applicant-icon {
+    width: 40px;
+    height: 40px;
+    background-color: #EFF6FF;
+    color: var(--color-secondary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.applicant-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.applicant-title h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--color-primary);
+}
+
+.btn-remove-applicant-alt {
+    background: transparent;
+    border: 1px solid #FECACA;
+    color: #DC2626;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.btn-remove-applicant-alt:hover {
+    background-color: #FEF2F2;
+    border-color: #DC2626;
+}
+
+.btn-remove-applicant-alt svg {
+    width: 16px;
+    height: 16px;
+}
+
+.btn-add-applicant-dashed {
+    width: 100%;
+    padding: 24px;
+    background-color: transparent;
+    border: 2px dashed var(--color-border);
+    border-radius: 12px;
+    color: var(--color-primary);
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    transition: all 0.2s ease;
+}
+
+.btn-add-applicant-dashed:hover {
+    border-color: var(--color-secondary);
+    background-color: #EFF6FF;
+    color: var(--color-secondary);
+}
+
+.btn-add-applicant-dashed svg {
+    width: 20px;
+    height: 20px;
+}
+
+
+
+
+
+
+/* --- Step 5: Final Confirmation (Detailed Invoice UI) --- */
+.confirmation-header-v2 {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.status-icon-pending {
+    width: 72px;
+    height: 72px;
+    background-color: #FFFBEB;
+    color: #F59E0B;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.1);
+}
+
+.status-icon-pending svg {
+    width: 36px;
+    height: 36px;
+}
+
+.summary-grid-v2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 32px;
+}
+
+.info-block {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.info-block-header {
+    background-color: var(--color-bg);
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.info-block-header svg {
+    width: 20px;
+    height: 20px;
+    color: var(--color-secondary);
+}
+
+.info-block-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--color-primary);
+}
+
+.info-block-content {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+}
+
+.info-row span { color: var(--color-neutral); }
+.info-row strong { color: var(--color-primary); font-weight: 600; text-align: right; }
+.info-row strong.text-warning { color: #D97706; }
+
+/* Detallı Qəbz (Invoice) Stili */
+.invoice-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-secondary);
+    border-radius: 12px;
+    margin-bottom: 32px;
+    box-shadow: 0 8px 24px -8px rgba(29, 78, 216, 0.08);
+    overflow: hidden;
+}
+
+.invoice-header {
+    background-color: #EFF6FF;
+    padding: 20px 32px;
+    border-bottom: 1px solid #BFDBFE;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.invoice-header h3 {
+    margin: 0;
+    color: #1E3A8A;
+    font-size: 1.15rem;
+}
+
+.invoice-badge {
+    background-color: white;
+    color: var(--color-secondary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.invoice-body {
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.invoice-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 24px;
+    border-bottom: 1px dashed var(--color-border);
+}
+
+.invoice-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.item-details h4 {
+    margin: 0 0 8px 0;
+    font-size: 1.05rem;
+    color: var(--color-primary);
+}
+
+.item-details p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--color-neutral);
+}
+
+.services-bullet-list {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+    color: var(--color-primary);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.item-price {
+    font-family: var(--font-heading);
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    white-space: nowrap;
+}
+
+.invoice-footer {
+    background-color: var(--color-bg);
+    padding: 24px 32px;
+    border-top: 1px solid var(--color-border);
+}
+
+.invoice-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.invoice-total span {
+    font-size: 1.1rem;
+    color: var(--color-neutral);
+    font-weight: 500;
+}
+
+.invoice-total strong {
+    font-family: var(--font-heading);
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: var(--color-primary);
+}
+
+/* Xəbərdarlıq qutusu */
+.terms-box-v2 {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    background-color: #FFFBEB;
+    border: 1px solid #FDE68A;
+    padding: 24px;
+    border-radius: 12px;
+}
+
+.terms-icon {
+    flex-shrink: 0;
+    color: #F59E0B;
+}
+
+.terms-icon svg {
+    width: 28px;
+    height: 28px;
+}
+
+.terms-content h4 {
+    margin: 0 0 8px 0;
+    color: #B45309;
+    font-size: 1.05rem;
+}
+
+.terms-content p {
+    margin: 0;
+    color: #92400E;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+    .summary-grid-v2 { grid-template-columns: 1fr; }
+    .invoice-item { flex-direction: column; gap: 12px; }
+    .invoice-total { flex-direction: column; align-items: flex-start; gap: 8px; }
+}

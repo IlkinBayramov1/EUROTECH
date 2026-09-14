@@ -50,6 +50,50 @@ enum DocumentStatus {
   REJECTED
 }
 
+enum AppointmentStatus {
+  CONFIRMED
+  PENDING_PAYMENT
+  CANCELLED
+  RESCHEDULED
+}
+
+enum GroupBatchStatus {
+  DRAFT
+  PROCESSING
+  READY
+  COMPLETED
+}
+
+enum WalletTxType {
+  CREDIT
+  DEBIT
+}
+
+enum WalletRefType {
+  COMMISSION
+  PAYOUT
+  TOPUP
+  VISA_PAYMENT
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSED
+  REJECTED
+}
+
+enum InvoiceStatus {
+  PAID
+  PENDING
+  OVERDUE
+}
+
+enum VisaRecordStatus {
+  ACTIVE
+  EXPIRED
+  PROCESSING
+}
+
 model User {
   id                      String                  @id @default(uuid())
   username                String?                 @unique
@@ -75,6 +119,11 @@ model User {
   transactions            Transaction[]
   auditLogs               AuditLog[]
   refreshTokenSessions    RefreshTokenSession[]
+  groupBatches            GroupBatch[]
+  appointments            Appointment[]
+  corporateEmployees      CorporateEmployee[]
+  wallet                  Wallet?
+  corporateInvoices       CorporateInvoice[]
 }
 
 model RefreshTokenSession {
@@ -164,6 +213,8 @@ model Dossier {
   portalType          PortalType             @default(INDIVIDUAL)
   userId              String
   user                User                   @relation(fields: [userId], references: [id])
+  groupBatchId        String?
+  groupBatch          GroupBatch?            @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
   countryId           String
   country             Country                @relation(fields: [countryId], references: [id])
   visaCategoryId      String
@@ -186,6 +237,7 @@ model Dossier {
   documents           ApplicantDocument[]
   services            AdditionalService[]
   transactions        Transaction[]
+  appointments        Appointment[]
   statusHistory       DossierStatusHistory[]
 }
 
@@ -203,6 +255,7 @@ model Applicant {
   gender                  String?
   formDataJson            Json?
   documents               ApplicantDocument[]
+  services                AdditionalService[]
 }
 
 model ApplicantDocument {
@@ -223,14 +276,16 @@ model ApplicantDocument {
 }
 
 model AdditionalService {
-  id           String   @id @default(uuid())
+  id           String     @id @default(uuid())
   dossierId    String
-  dossier      Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  serviceType  String   // EXPRESS_PROCESSING, TRAVEL_INSURANCE, TRANSLATION_APOSTILLE, COURIER, FLIGHT_BOOKING, HOTEL_BOOKING
+  dossier      Dossier    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  applicantId  String?
+  applicant    Applicant? @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  serviceType  String     // EXPRESS_PROCESSING, TRAVEL_INSURANCE, TRANSLATION_APOSTILLE, COURIER, FLIGHT_BOOKING, HOTEL_BOOKING, PREMIUM_LOUNGE, FILE_PREPARATION, etc.
   price        Float
-  status       String   @default("ACTIVE")
+  status       String     @default("ACTIVE")
   metadataJson Json?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
 }
 
 model Transaction {
@@ -282,4 +337,138 @@ model DossierStatusHistory {
   changedByUserId String
   notes           String?
   createdAt       DateTime      @default(now())
+}
+
+model TimeSlot {
+  id           String        @id @default(uuid())
+  date         DateTime
+  startTime    String        // e.g. "10:30 AM"
+  capacity     Int           @default(10)
+  bookedCount  Int           @default(0)
+  location     String        @default("EuroTech Main Center")
+  isActive     Boolean       @default(true)
+  appointments Appointment[]
+}
+
+model Appointment {
+  id           String            @id @default(uuid())
+  timeSlotId   String
+  timeSlot     TimeSlot          @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossierId    String?
+  dossier      Dossier?          @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  groupBatchId String?
+  groupBatch   GroupBatch?       @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
+  status       AppointmentStatus @default(CONFIRMED)
+  location     String?
+  notes        String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model GroupBatch {
+  id            String             @id @default(uuid())
+  code          String             @unique // e.g. GRP-8821, BCH-2026-101
+  portalType    PortalType         @default(GROUP_AGENT) // GROUP_AGENT or CORPORATE
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String             // e.g. "Vienna Summer Tour", "Vienna Summit Delegation"
+  destination   String             // e.g. "Hungary", "Austria", "Germany"
+  travelDate    DateTime?
+  duration      String?            // "short" or "long"
+  projectReason String?            // "Tourism", "Business / Corporate", "Work"
+  status        GroupBatchStatus   @default(DRAFT)
+  dossiers      Dossier[]
+  appointments  Appointment[]
+  invoices      CorporateInvoice[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model CorporateEmployee {
+  id                  String       @id @default(uuid())
+  corporateUserId     String
+  corporateUser       User         @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
+  firstName           String
+  lastName            String
+  jobTitle            String
+  department          String
+  nationality         String
+  passportNumber      String
+  passportExpiry      DateTime?
+  email               String?
+  phone               String?
+  delegationTokenHash String?      @unique @db.VarChar(64)
+  delegationExpiresAt DateTime?
+  visaHistory         VisaRecord[]
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model VisaRecord {
+  id         String            @id @default(uuid())
+  employeeId String
+  employee   CorporateEmployee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  country    String
+  type       String            // e.g. "Schengen C (Business)", "National D (Work)"
+  issueDate  DateTime
+  expiryDate DateTime
+  status     VisaRecordStatus  @default(ACTIVE)
+  batchRef   String?           // e.g. "BCH-2026-101"
+  createdAt  DateTime          @default(now())
+}
+
+model Wallet {
+  id             String              @id @default(uuid())
+  userId         String              @unique
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance        Float               @default(0.0)
+  pendingBalance Float               @default(0.0)
+  currency       String              @default("EUR")
+  transactions   WalletTransaction[]
+  payoutRequests PayoutRequest[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model WalletTransaction {
+  id            String        @id @default(uuid())
+  walletId      String
+  wallet        Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount        Float
+  type          WalletTxType
+  referenceType WalletRefType
+  referenceId   String?
+  description   String
+  status        PaymentStatus @default(PAID)
+  createdAt     DateTime      @default(now())
+}
+
+model PayoutRequest {
+  id          String       @id @default(uuid())
+  walletId    String
+  wallet      Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount      Float
+  bankName    String
+  iban        String
+  swiftBic    String
+  status      PayoutStatus @default(PENDING)
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+model CorporateInvoice {
+  id              String        @id @default(uuid())
+  corporateUserId String
+  corporateUser   User          @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
+  groupBatchId    String?
+  groupBatch      GroupBatch?   @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
+  invoiceNumber   String        @unique // e.g. "INV-2026-9012"
+  amount          Float
+  dueDate         DateTime
+  status          InvoiceStatus @default(PENDING)
+  pdfUrl          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }

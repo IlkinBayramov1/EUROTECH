@@ -3,8 +3,13 @@ const ApiResponse = require('../../core/api.response');
 
 async function addService(req, res, next) {
   try {
-    const { dossierId, serviceType, metadataJson } = req.body;
-    const service = await serviceService.addServiceToDossier(dossierId, serviceType, metadataJson);
+    const { dossierId, applicantId, serviceType, metadataJson } = req.body;
+    const service = await serviceService.addServiceToDossier({
+      dossierId,
+      applicantId,
+      serviceType,
+      metadataJson,
+    });
 
     return ApiResponse.success(res, { service }, 'Service added successfully', 201);
   } catch (error) {

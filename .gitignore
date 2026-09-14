@@ -20,3 +20,7 @@ back/archives/
 Thumbs.db
 .vscode/
 .idea/
+*.tsbuildinfo
+dist/
+build/
+

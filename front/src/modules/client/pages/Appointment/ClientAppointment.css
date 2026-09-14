@@ -1,0 +1,325 @@
+/* src/pages/Client/Appointment/ClientAppointment.css */
+
+.appointment-page-content {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.appt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.appt-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 32px;
+}
+
+.appt-column-left, .appt-column-right {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* --- Otaq Kartları --- */
+.appt-card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 32px;
+    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.02);
+}
+
+.card-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px dashed var(--color-border);
+}
+
+.card-header-flex h3, .appt-card h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--color-primary);
+    letter-spacing: -0.3px;
+}
+
+/* --- Badge (Status) --- */
+.appt-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.appt-badge svg {
+    width: 14px;
+    height: 14px;
+}
+
+.appt-badge.confirmed {
+    background-color: #F0FDF4;
+    color: var(--color-tertiary);
+}
+
+.appt-badge.cancelled {
+    background-color: #FEF2F2;
+    color: #DC2626;
+}
+
+/* --- Görüş Detalları --- */
+.appt-details-box {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin-bottom: 32px;
+    transition: opacity 0.3s ease;
+}
+
+.appt-details-box.dimmed {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.detail-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.detail-icon {
+    width: 48px;
+    height: 48px;
+    background-color: var(--color-bg);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-secondary);
+}
+
+.detail-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.detail-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.detail-content span {
+    font-size: 0.85rem;
+    color: var(--color-neutral);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.detail-content h4 {
+    margin: 4px 0 0 0;
+    font-size: 1.2rem;
+    color: var(--color-primary);
+}
+
+/* --- Aksiyalar (Düymələr) --- */
+.appt-actions {
+    display: flex;
+    gap: 16px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border);
+}
+
+.btn-outline, .btn-danger-outline {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: transparent;
+}
+
+.btn-outline {
+    border: 1px solid var(--color-border);
+    color: var(--color-primary);
+}
+
+.btn-outline:hover {
+    border-color: var(--color-primary);
+    background-color: var(--color-bg);
+}
+
+.btn-danger-outline {
+    border: 1px solid #FECACA;
+    color: #DC2626;
+}
+
+.btn-danger-outline:hover {
+    border-color: #DC2626;
+    background-color: #FEF2F2;
+}
+
+.btn-outline svg, .btn-danger-outline svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* --- Xəbərdarlıq qutusu (Cancelled) --- */
+.appt-alert {
+    background-color: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.appt-alert svg {
+    width: 24px;
+    height: 24px;
+    color: #DC2626;
+}
+
+.appt-alert span {
+    color: #B91C1C;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.small-btn {
+    padding: 10px 16px;
+    font-size: 0.85rem;
+}
+
+/* --- Sağ Sütun: Hazırlıq & Məkan --- */
+.preparation-card h3, .location-card h3 {
+    margin-bottom: 16px;
+    border-bottom: 1px dashed var(--color-border);
+    padding-bottom: 12px;
+}
+
+.prep-desc {
+    font-size: 0.95rem;
+    color: var(--color-neutral);
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+.prep-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.prep-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.prep-list li svg {
+    width: 20px;
+    height: 20px;
+    color: var(--color-tertiary);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.prep-list li span {
+    font-size: 0.95rem;
+    color: var(--color-primary);
+    line-height: 1.5;
+}
+
+.prep-list li strong {
+    color: var(--color-primary);
+}
+
+.location-box {
+    display: flex;
+    gap: 16px;
+    background-color: var(--color-bg);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid var(--color-border);
+}
+
+.location-icon {
+    width: 40px;
+    height: 40px;
+    background-color: rgba(29, 78, 216, 0.1);
+    color: var(--color-secondary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.location-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.location-info h4 {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+    color: var(--color-primary);
+}
+
+.location-info p {
+    margin: 4px 0;
+    font-size: 0.9rem;
+    color: var(--color-neutral);
+}
+
+.map-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-secondary);
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.map-link:hover {
+    color: var(--color-primary);
+    text-decoration: underline;
+}
+
+.map-link svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (max-width: 1024px) {
+    .appt-grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -253,7 +253,101 @@ async function main() {
     },
   });
 
-  console.log('Database seeding completed successfully!');
+  // Seed TimeSlots
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const slotTimes = ['09:00 AM', '10:30 AM', '14:00 PM', '16:00 PM'];
+  for (let i = 0; i < 5; i++) {
+    const slotDate = new Date(today.getTime() + (i + 1) * 24 * 60 * 60 * 1000);
+    for (const timeStr of slotTimes) {
+      await prisma.timeSlot.create({
+        data: {
+          date: slotDate,
+          startTime: timeStr,
+          capacity: 10,
+          bookedCount: 0,
+          location: i % 2 === 0 ? 'EuroTech Main Center' : 'EuroTech Premium Lounge',
+          isActive: true,
+        },
+      });
+    }
+  }
+
+  // Seed Agent Wallet
+  await prisma.wallet.upsert({
+    where: { userId: agentUser.id },
+    update: {},
+    create: {
+      userId: agentUser.id,
+      balance: 480.0,
+      pendingBalance: 1250.0,
+      currency: 'EUR',
+      transactions: {
+        create: [
+          {
+            amount: 480.0,
+            type: 'CREDIT',
+            referenceType: 'COMMISSION',
+            referenceId: 'GRP-8821',
+            description: 'Commission: TechTrade Delegation (24 App)',
+            status: 'PAID',
+          },
+        ],
+      },
+    },
+  });
+
+  // Seed Corporate Wallet & Employees
+  await prisma.wallet.upsert({
+    where: { userId: corporateUser.id },
+    update: {},
+    create: {
+      userId: corporateUser.id,
+      balance: 12500.0,
+      currency: 'EUR',
+      transactions: {
+        create: [
+          {
+            amount: 5000.0,
+            type: 'CREDIT',
+            referenceType: 'TOPUP',
+            description: 'Wallet Top-Up (Wire Transfer)',
+            status: 'PAID',
+          },
+        ],
+      },
+    },
+  });
+
+  await prisma.corporateEmployee.create({
+    data: {
+      corporateUserId: corporateUser.id,
+      firstName: 'David',
+      lastName: 'Smith',
+      jobTitle: 'Senior Software Engineer',
+      department: 'Engineering',
+      nationality: 'United Kingdom',
+      passportNumber: 'P1234567',
+      passportExpiry: new Date('2030-05-14'),
+      email: 'd.smith@corp.az',
+      phone: '+44 7700 900077',
+      visaHistory: {
+        create: [
+          {
+            country: 'Austria',
+            type: 'Schengen C (Business)',
+            issueDate: new Date('2026-10-20'),
+            expiryDate: new Date('2027-10-20'),
+            status: 'PROCESSING',
+            batchRef: 'BCH-2026-101',
+          },
+        ],
+      },
+    },
+  });
+
+  console.log('Database seeding completed successfully with Slots, Batches, Wallets, and Employees!');
 }
 
 main()
