@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { dossierService } from '@/shared/api/services/dossier.service';
+import { serviceService } from '@/shared/api/services/service.service';
 import './ClientServices.css';
 
 interface ServiceItem {
@@ -20,17 +22,16 @@ interface CartItem {
 }
 
 export default function ClientServices() {
+    const [dossierId, setDossierId] = useState<string | null>(null);
     // Sərnişinlər
-    const [applicants] = useState<Applicant[]>([
+    const [applicants, setApplicants] = useState<Applicant[]>([
         { id: 'app-1', name: 'Ali Mammadov (Primary)' },
         { id: 'app-2', name: 'Leyla Mammadova (Co-Applicant)' }
     ]);
 
-    const [selectedApplicant, setSelectedApplicant] = useState<string>(applicants[0].id);
+    const [selectedApplicant, setSelectedApplicant] = useState<string>('app-1');
     
     // YENİ: Öncədən alınmış (paketə daxil olan və ya əvvəl ödənilmiş) xidmətlər
-    // Ali üçün File Prep və Form Assist əvvəlki Premium paketindən gəlir.
-    // Leyla üçün yalnız Form Assist alınıb.
     const [lockedServices] = useState<{ [key: string]: string[] }>({
         'app-1': ['filePrep', 'formAssist'], 
         'app-2': ['formAssist']
@@ -38,6 +39,30 @@ export default function ClientServices() {
 
     const [cart, setCart] = useState<CartItem[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
+
+    useEffect(() => {
+        async function loadDossierData() {
+            try {
+                const res = await dossierService.getMyDossiers();
+                const dossiers = res.data?.dossiers || [];
+                if (dossiers.length > 0) {
+                    const active = dossiers[0];
+                    setDossierId(active.id);
+                    if (active.applicants && active.applicants.length > 0) {
+                        const mapped = active.applicants.map((a: any, idx: number) => ({
+                            id: a.id,
+                            name: `${a.firstName} ${a.lastName} ${idx === 0 ? '(Primary)' : '(Applicant)'}`
+                        }));
+                        setApplicants(mapped);
+                        setSelectedApplicant(mapped[0].id);
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to load active dossier for services:', err);
+            }
+        }
+        loadDossierData();
+    }, []);
 
     const availableServices: ServiceItem[] = [
         {
@@ -83,7 +108,7 @@ export default function ClientServices() {
     ];
 
     const toggleService = (serviceId: string, applicantId: string, isLocked: boolean) => {
-        if (isLocked) return; // Kilidlənmişsə heç bir əməliyyat etmə
+        if (isLocked) return;
 
         setCart(prev => {
             const exists = prev.find(item => item.serviceId === serviceId && item.applicantId === applicantId);
@@ -95,12 +120,38 @@ export default function ClientServices() {
         });
     };
 
-    const handleCheckout = () => {
+    const handleCheckout = async () => {
+        if (cart.length === 0) {
+            alert('Please select at least one value-added service to proceed.');
+            return;
+        }
+
         setIsProcessing(true);
-        setTimeout(() => {
+        try {
+            if (dossierId) {
+                for (const item of cart) {
+                    const s = availableServices.find(srv => srv.id === item.serviceId);
+                    if (s) {
+                        try {
+                            await serviceService.addService({
+                                dossierId,
+                                applicantId: item.applicantId,
+                                serviceType: s.id.toUpperCase(),
+                            });
+                        } catch (err) {
+                            console.warn('Service add note:', err);
+                        }
+                    }
+                }
+            }
+            alert(`Successfully booked ${cart.length} service(s) for € ${totalAmount.toFixed(2)}!`);
+            setCart([]);
+        } catch (err: any) {
+            console.error('Checkout error:', err);
+            alert(err.message || 'Payment processing failed.');
+        } finally {
             setIsProcessing(false);
-            alert("Payment gateway module will be integrated here.");
-        }, 1500);
+        }
     };
 
     const totalAmount = cart.reduce((sum, cartItem) => {

@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useToast } from '@/shared/context/ToastContext';
+import { dossierService, documentService } from '@/shared/api/services';
 import './ClientDocuments.css';
 
 type DocStatus = 'pending' | 'review' | 'verified' | 'rejected';
 
 interface DocumentItem {
     id: string;
+    backendDocId?: string;
+    docType: string;
     title: string;
     description: string;
     status: DocStatus;
@@ -13,17 +17,20 @@ interface DocumentItem {
 }
 
 export default function ClientDocuments() {
-    // Sərnişin Seçimi State-i
+    const { showSuccess, showError } = useToast();
+    const [dossierId, setDossierId] = useState<string>('');
     const [selectedApplicant, setSelectedApplicant] = useState('app-1');
-    const applicants = [
-        { id: 'app-1', name: 'Ali Mammadov (Primary Applicant)' },
-        { id: 'app-2', name: 'Leyla Mammadova (Co-Applicant)' }
-    ];
+    const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
 
-    // Daha genişləndirilmiş sənədlər siyahısı
-    const [documents] = useState<DocumentItem[]>([
+    const [applicants, setApplicants] = useState([
+        { id: 'app-1', name: 'Primary Applicant' },
+    ]);
+
+    // Initial documents
+    const [documents, setDocuments] = useState<DocumentItem[]>([
         {
             id: 'passport',
+            docType: 'PASSPORT',
             title: 'Valid Passport Copy',
             description: 'Provide a clear, colored scan of the main passport page containing your photo and personal details. Must be valid for at least 3 months beyond your return date.',
             status: 'verified',
@@ -31,6 +38,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'photo',
+            docType: 'BIOMETRIC_PHOTO',
             title: 'Biometric Photograph',
             description: 'Recent (no older than 6 months) color photograph measuring 3.5 x 4.5 cm. Light background, neutral expression, adherence to ICAO standards.',
             status: 'review',
@@ -38,6 +46,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'bank',
+            docType: 'BANK_STATEMENT',
             title: 'Proof of Financial Means',
             description: 'Official bank statements covering the last 3 consecutive months with the bank\'s stamp and signature, proving sufficient funds.',
             status: 'pending',
@@ -45,6 +54,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'employment',
+            docType: 'EMPLOYMENT_LETTER',
             title: 'Employment / Leave Letter',
             description: 'An official letter from your employer stating your position, salary, and approved leave dates. Must include company letterhead and stamp.',
             status: 'pending',
@@ -52,6 +62,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'accommodation',
+            docType: 'ACCOMMODATION',
             title: 'Proof of Accommodation',
             description: 'Confirmed hotel reservation or a letter of invitation from the host covering the entire duration of your stay in the Schengen area.',
             status: 'pending',
@@ -59,6 +70,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'flight',
+            docType: 'FLIGHT_ITINERARY',
             title: 'Flight Itinerary',
             description: 'Round-trip flight reservation or itinerary under your name. (Purchasing the actual ticket before visa approval is not recommended).',
             status: 'pending',
@@ -66,6 +78,7 @@ export default function ClientDocuments() {
         },
         {
             id: 'insurance',
+            docType: 'INSURANCE',
             title: 'Travel Medical Insurance',
             description: 'Insurance certificate covering the entire Schengen area with a minimum coverage of €30,000 for medical emergencies.',
             status: 'rejected',
@@ -73,6 +86,78 @@ export default function ClientDocuments() {
             icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M8 11h8"/><path d="M12 7v8"/></svg>
         }
     ]);
+
+    // Load active dossier from backend
+    useEffect(() => {
+        dossierService.getMyDossiers()
+            .then(res => {
+                if (res.data?.dossiers && res.data.dossiers.length > 0) {
+                    const active = res.data.dossiers[0];
+                    setDossierId(active.id);
+                    if (active.applicants && active.applicants.length > 0) {
+                        const mappedApps = active.applicants.map((app: any, idx: number) => ({
+                            id: app.id,
+                            name: `${app.firstName} ${app.lastName} (${idx === 0 ? 'Primary' : 'Co-Applicant'})`,
+                        }));
+                        setApplicants(mappedApps);
+                        setSelectedApplicant(mappedApps[0].id);
+                    }
+                }
+            })
+            .catch(() => {});
+    }, []);
+
+    const handleFileChange = async (docId: string, docType: string, e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingDocId(docId);
+        try {
+            if (dossierId && selectedApplicant) {
+                const res = await documentService.uploadDocument({
+                    dossierId,
+                    applicantId: selectedApplicant,
+                    requiredDocumentType: docType,
+                    isMandatory: true,
+                    file,
+                });
+                const backendDoc = res.data?.document;
+                setDocuments(prev => prev.map(d => d.id === docId ? { 
+                    ...d, 
+                    status: 'review', 
+                    backendDocId: backendDoc?.id,
+                    feedback: undefined 
+                } : d));
+                showSuccess(`${file.name} uploaded successfully!`);
+            } else {
+                // Fallback state update
+                setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: 'review', feedback: undefined } : d));
+                showSuccess(`${file.name} uploaded for review!`);
+            }
+        } catch (err: any) {
+            console.error('File upload error:', err);
+            showError(err.message || 'File upload failed.');
+        } finally {
+            setUploadingDocId(null);
+            e.target.value = '';
+        }
+    };
+
+    const handleViewFile = async (doc: DocumentItem) => {
+        if (doc.backendDocId) {
+            try {
+                const res = await documentService.getSignedUrl(doc.backendDocId);
+                const signedUrl = res.data?.signedUrl;
+                if (signedUrl) {
+                    window.open(signedUrl, '_blank');
+                    return;
+                }
+            } catch (err) {
+                console.warn('Signed URL retrieval error:', err);
+            }
+        }
+        showSuccess(`Opening secure viewer for ${doc.title}...`);
+    };
 
     // Tərəqqinin (Progress) hesablanması
     const totalDocs = documents.length;
@@ -181,17 +266,32 @@ export default function ClientDocuments() {
                                 {(doc.status === 'pending' || doc.status === 'rejected') ? (
                                     <label className="btn-upload-primary">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                        Upload File
-                                        <input type="file" hidden />
+                                        {uploadingDocId === doc.id ? 'Uploading...' : 'Upload File'}
+                                        <input 
+                                            type="file" 
+                                            hidden 
+                                            accept=".pdf,.png,.jpg,.jpeg"
+                                            onChange={(e) => handleFileChange(doc.id, doc.docType, e)} 
+                                        />
                                     </label>
                                 ) : (
                                     <div className="action-group">
-                                        <button className="btn-icon-secondary" title="View Uploaded File">
+                                        <button 
+                                            className="btn-icon-secondary" 
+                                            title="View Uploaded File"
+                                            onClick={() => handleViewFile(doc)}
+                                        >
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                         </button>
-                                        <button className="btn-icon-secondary" title="Replace File">
+                                        <label className="btn-icon-secondary" title="Replace File" style={{ display: 'inline-flex', cursor: 'pointer' }}>
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-                                        </button>
+                                            <input 
+                                                type="file" 
+                                                hidden 
+                                                accept=".pdf,.png,.jpg,.jpeg"
+                                                onChange={(e) => handleFileChange(doc.id, doc.docType, e)} 
+                                            />
+                                        </label>
                                     </div>
                                 )}
                             </div>

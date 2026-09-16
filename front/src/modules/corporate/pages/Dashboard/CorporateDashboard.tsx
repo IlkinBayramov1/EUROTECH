@@ -1,9 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/shared/context/AuthContext';
 import './CorporateDashboard.css';
 
 export default function CorporateDashboard() {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const companyDisplayName = user?.companyName || user?.fullName || 'Tech Innovators LLC';
 
     return (
         <div className="corp-dash-content fade-in">
@@ -11,7 +14,7 @@ export default function CorporateDashboard() {
             <div className="corp-dash-header">
                 <div className="header-titles">
                     <h1 className="dash-title">HR & Mobility Workspace</h1>
-                    <p className="dash-subtitle">Manage employee visa batches, track corporate invoices, and oversee global mobility for <strong>Tech Innovators LLC</strong>.</p>
+                    <p className="dash-subtitle">Manage employee visa batches, track corporate invoices, and oversee global mobility for <strong>{companyDisplayName}</strong>.</p>
                 </div>
                 <div className="header-actions">
                     <button className="btn-outline-secondary" onClick={() => navigate('/corporate/finance')}>
@@ -189,8 +192,8 @@ export default function CorporateDashboard() {
                             <h2>€ 12,500.00</h2>
                         </div>
                         <div className="wallet-actions">
-                            <button className="btn-wallet-outline" onClick={() => alert('Redirecting to Invoice Generation...')}>Generate Invoice</button>
-                            <button className="btn-wallet-solid" onClick={() => alert('Opening Credit Card payment gateway...')}>Add Funds</button>
+                            <button className="btn-wallet-outline" onClick={() => navigate('/corporate/finance')}>Generate Invoice</button>
+                            <button className="btn-wallet-solid" onClick={() => navigate('/corporate/finance')}>Add Funds</button>
                         </div>
                     </div>
 

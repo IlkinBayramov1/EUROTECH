@@ -17,7 +17,7 @@ export default function CorporateLayout() {
       {/* --- CORPORATE SIDEBAR --- */}
       <aside className="corporate-sidebar">
         <div className="corporate-brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/corporate')}>
-          <EuroTechLogo size={32} subtitle="Corporate Mobility" />
+          <EuroTechLogo size={32} subtitle="Corporate Mobility" theme="light" />
         </div>
 
         <nav className="corp-nav">

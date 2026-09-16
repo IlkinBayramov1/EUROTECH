@@ -12,12 +12,20 @@ export default function ClientLayout() {
     navigate('/');
   };
 
+  const displayName = user?.fullName || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'İlkin Bayramov');
+  const userInitials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n: string) => n[0].toUpperCase())
+    .join('') || 'IB';
+
   return (
     <div className="client-layout">
-      {/* --- SIDEBAR --- */}
+      {/* --- EXECUTIVE DARK SIDEBAR --- */}
       <aside className="client-sidebar">
         <div className="sidebar-brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/client')}>
-          <EuroTechLogo size={32} subtitle="Client Portal" />
+          <EuroTechLogo size={32} subtitle="Client Portal" theme="light" />
         </div>
 
         <nav className="sidebar-nav">
@@ -65,7 +73,7 @@ export default function ClientLayout() {
             Status Tracking
           </NavLink>
 
-          <p className="nav-heading" style={{ marginTop: '16px' }}>COMPLIANCE</p>
+          <p className="nav-heading" style={{ marginTop: '24px' }}>COMPLIANCE & LEGAL</p>
 
           <NavLink to="/client/privacy" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <span className="nav-icon">
@@ -75,14 +83,15 @@ export default function ClientLayout() {
           </NavLink>
         </nav>
 
+        {/* Client User Profile Footer */}
         <div className="sidebar-footer">
           <div className="user-profile">
             <div className="user-avatar">
-              {user?.firstName ? user.firstName[0].toUpperCase() : 'U'}
+              {userInitials}
             </div>
             <div className="user-info">
-              <h4>{user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Applicant'}</h4>
-              <span>{user?.email || 'Individual'}</span>
+              <h4>{displayName}</h4>
+              <span>{user?.email || 'Individual Applicant'}</span>
             </div>
           </div>
           <button className="logout-btn" onClick={handleLogout} title="Sign Out">
@@ -96,17 +105,17 @@ export default function ClientLayout() {
         <header className="client-topbar">
           <div className="topbar-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" placeholder="Search application, documents, services..." />
+            <input type="text" placeholder="Search applications, dossier, appointments, services..." />
           </div>
 
           <div className="topbar-actions">
-            <div className="action-item badge-trigger">
+            <button className="topbar-icon-btn badge-trigger" title="Notifications" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
               <span className="notification-dot"></span>
-            </div>
-            <div className="action-item" onClick={() => navigate('/')} title="Switch Portal">
+            </button>
+            <button className="topbar-icon-btn" onClick={() => navigate('/')} title="Switch Portal / Home" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            </div>
+            </button>
           </div>
         </header>
 
@@ -117,3 +126,4 @@ export default function ClientLayout() {
     </div>
   );
 }
+

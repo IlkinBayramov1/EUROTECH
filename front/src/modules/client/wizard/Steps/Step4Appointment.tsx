@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { appointmentService } from '@/shared/api/services';
 
 interface Step4Props {
     data: {
@@ -11,15 +12,29 @@ interface Step4Props {
 export default function Step4Appointment({ data, updateData }: Step4Props) {
     // Təqvimdə hazırda baxılan ay/il üçün state
     const [currentViewDate, setCurrentViewDate] = useState(new Date());
-
-    // Yenilənmiş və yalnız saatları göstərən slotlar
-    const timeSlots = [
+    const [slots, setSlots] = useState<{ id: string; label: string; status: 'available' | 'full' }[]>([
         { id: '09:00', label: '09:00', status: 'available' },
         { id: '10:30', label: '10:30', status: 'available' },
         { id: '13:00', label: '13:00', status: 'available' },
         { id: '14:30', label: '14:30', status: 'available' },
         { id: '16:00', label: '16:00', status: 'available' },
-    ];
+    ]);
+
+    useEffect(() => {
+        if (!data.appointmentDate) return;
+        appointmentService.getSlots(data.appointmentDate)
+            .then(res => {
+                if (res.data?.slots && res.data.slots.length > 0) {
+                    const mapped = res.data.slots.map((s: any) => ({
+                        id: s.startTime,
+                        label: s.startTime,
+                        status: s.bookedCount >= s.capacity ? 'full' : 'available',
+                    }));
+                    setSlots(mapped);
+                }
+            })
+            .catch(() => {});
+    }, [data.appointmentDate]);
 
     // Təqvim naviqasiyası
     const handlePrevMonth = () => {
@@ -117,7 +132,7 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                         </div>
                     ) : (
                         <div className="time-grid-compact fade-in">
-                            {timeSlots.map(slot => {
+                            {slots.map(slot => {
                                 const isSelected = data.appointmentTime === slot.id;
                                 const isFull = slot.status === 'full';
                                 

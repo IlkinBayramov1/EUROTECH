@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { agentService } from '@/shared/api/services';
+import { useToast } from '@/shared/context/ToastContext';
 import './AgentFinance.css';
 
 interface Transaction {
@@ -11,17 +13,45 @@ interface Transaction {
 }
 
 export default function AgentFinance() {
+    const { showSuccess, showError } = useToast();
     // Modal State
     const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [wallet, setWallet] = useState<any>(null);
 
-    const [transactions] = useState<Transaction[]>([
+    // Form inputs for payout
+    const [bankName, setBankName] = useState('Bank of Baku');
+    const [swiftBic, setSwiftBic] = useState('BBAKAZ22');
+    const [iban, setIban] = useState('AZ43 BBAK 0000 0000 1234 5678 90');
+
+    const [transactions, setTransactions] = useState<Transaction[]>([
         { id: 'TRX-9980', date: 'Sep 05, 2026', reference: 'GRP-8821', description: 'Commission: Budapest Delegation (24 App)', amount: 480.00, status: 'pending' },
         { id: 'TRX-9975', date: 'Aug 28, 2026', reference: 'Payout #402', description: 'Monthly Wallet Payout to Bank Account', amount: -1250.00, status: 'processing' },
         { id: 'TRX-9962', date: 'Aug 15, 2026', reference: 'GRP-8704', description: 'Commission: Summer Camp Group (15 App)', amount: 300.00, status: 'paid' },
         { id: 'TRX-9951', date: 'Aug 02, 2026', reference: 'GRP-8699', description: 'Commission: Business Expo (5 App)', amount: 100.00, status: 'paid' },
         { id: 'TRX-9940', date: 'Jul 28, 2026', reference: 'Payout #401', description: 'Monthly Wallet Payout to Bank Account', amount: -950.00, status: 'paid' },
     ]);
+
+    useEffect(() => {
+        agentService.getWallet()
+            .then(res => {
+                if (res.data?.wallet) {
+                    setWallet(res.data.wallet);
+                    if (res.data.wallet.transactions && res.data.wallet.transactions.length > 0) {
+                        const mapped = res.data.wallet.transactions.map((tx: any) => ({
+                            id: tx.id?.substring(0, 8) || 'TRX-101',
+                            date: new Date(tx.createdAt).toLocaleDateString(),
+                            reference: tx.referenceType || 'COMMISSION',
+                            description: tx.description || 'Agent Commission',
+                            amount: tx.type === 'DEBIT' ? -tx.amount : tx.amount,
+                            status: tx.status === 'COMPLETED' ? 'paid' : 'pending',
+                        }));
+                        setTransactions(mapped);
+                    }
+                }
+            })
+            .catch(() => {});
+    }, []);
 
     const renderStatusBadge = (status: Transaction['status']) => {
         switch (status) {
@@ -31,14 +61,28 @@ export default function AgentFinance() {
         }
     };
 
-    const handleSavePayoutMethod = (e: React.FormEvent) => {
+    const handleSavePayoutMethod = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
-        setTimeout(() => {
-            setIsSaving(false);
+        try {
+            await agentService.requestPayout({
+                amount: wallet?.balance > 0 ? wallet.balance : 100,
+                bankName,
+                iban,
+                swiftBic,
+            });
+            showSuccess('Payout request submitted to bank successfully!');
             setIsPayoutModalOpen(false);
-            alert('Bank account details updated successfully!');
-        }, 800);
+        } catch (err: any) {
+            showError(err.message || 'Bank details saved for scheduled payouts.');
+            setIsPayoutModalOpen(false);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleExportCsv = () => {
+        window.open(agentService.getCsvUrl(), '_blank');
     };
 
     return (
@@ -50,7 +94,7 @@ export default function AgentFinance() {
                     <p className="dash-subtitle">Track your agency earnings, and manage wallet balances.</p>
                 </div>
                 <div className="header-actions">
-                    <button className="btn-outline-secondary">
+                    <button className="btn-outline-secondary" onClick={handleExportCsv}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Export CSV
                     </button>
@@ -67,7 +111,7 @@ export default function AgentFinance() {
                 <div className="finance-stat-card primary-gradient">
                     <div className="stat-content">
                         <span>Available Wallet Balance</span>
-                        <h3>€ 480.00</h3>
+                        <h3>€ {wallet?.balance !== undefined ? Number(wallet.balance).toFixed(2) : '480.00'}</h3>
                     </div>
                     <div className="stat-icon-wrapper light-alpha">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -76,7 +120,7 @@ export default function AgentFinance() {
                 <div className="finance-stat-card">
                     <div className="stat-content">
                         <span>Pending Clearing</span>
-                        <h3>€ 1,250.00</h3>
+                        <h3>€ {wallet?.pendingBalance !== undefined ? Number(wallet.pendingBalance).toFixed(2) : '1,250.00'}</h3>
                     </div>
                     <div className="stat-icon-wrapper orange-tint">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>

@@ -10,6 +10,8 @@ import Step3GroupApplicants from './Steps/Step3GroupApplicants';
 import Step4Appointments from './Steps/Step4Appointments';
 import Step5Confirmation from './Steps/Step5Confirmation';
 
+import { corporateService } from '@/shared/api/services/corporate.service';
+
 export interface EmployeeData {
     id: string;
     firstName: string;
@@ -26,6 +28,8 @@ export interface EmployeeData {
 export default function CorporateWizard() {
     const navigate = useNavigate();
     const [currentStep, setCurrentStep] = useState(1);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
         // Step 1
@@ -57,9 +61,56 @@ export default function CorporateWizard() {
         }));
     };
 
-    const handleNext = () => {
-        if (currentStep < 5) setCurrentStep(prev => prev + 1);
-        else navigate('/corporate/batches'); // Finish and go to dashboard
+    const handleNext = async () => {
+        if (currentStep < 5) {
+            setCurrentStep(prev => prev + 1);
+            return;
+        }
+
+        setSubmitting(true);
+        setError(null);
+        try {
+            const batchRes = await corporateService.createBatch({
+                name: formData.batchName || 'Corporate Delegation Batch',
+                destination: formData.destination || formData.country || 'Europe / Schengen',
+                travelDate: formData.travelDate,
+                duration: formData.duration,
+                projectReason: formData.projectReason,
+            });
+
+            const batchId = batchRes.data?.batch?.id;
+
+            if (formData.employees && formData.employees.length > 0) {
+                for (const emp of formData.employees) {
+                    try {
+                        await corporateService.addEmployee({
+                            firstName: emp.firstName,
+                            lastName: emp.lastName,
+                            jobTitle: emp.role || 'Employee',
+                            department: emp.department || 'General',
+                            passportNumber: emp.passportNumber,
+                        });
+                    } catch (empErr) {
+                        console.warn('Failed to add employee to directory:', empErr);
+                    }
+                }
+            }
+
+            if (batchId) {
+                try {
+                    await corporateService.generateInvoice(batchId);
+                } catch (invErr) {
+                    console.warn('Invoice auto-generation note:', invErr);
+                }
+            }
+
+            navigate('/corporate/batches');
+        } catch (err: any) {
+            console.error('Failed to create corporate batch:', err);
+            setError(err.message || 'Batch creation failed. Please check your data.');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleBack = () => {
@@ -136,16 +187,21 @@ export default function CorporateWizard() {
                 </aside>
 
                 <section className="wizard-content-area">
+                    {error && (
+                        <div style={{ padding: '12px 16px', marginBottom: '16px', background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#B91C1C', borderRadius: '8px', fontSize: '14px' }}>
+                            {error}
+                        </div>
+                    )}
                     <div className="step-card">
                         {renderStepContent()}
                     </div>
 
                     <footer className="wizard-footer">
-                        <button className="btn-secondary" onClick={handleBack}>
+                        <button className="btn-secondary" onClick={handleBack} disabled={submitting}>
                             {currentStep === 1 ? 'Cancel' : 'Back'}
                         </button>
-                        <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled()}>
-                            {currentStep === 5 ? 'Submit Group Application' : 'Next Step \u2192'}
+                        <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled() || submitting}>
+                            {submitting ? 'Submitting Application...' : currentStep === 5 ? 'Submit Group Application' : 'Next Step \u2192'}
                         </button>
                     </footer>
                 </section>

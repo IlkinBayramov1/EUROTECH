@@ -1,0 +1,501 @@
+/* ==========================================================================
+   EUROTECH GDPR PRIVACY & DATA GOVERNANCE CENTER
+   ========================================================================== */
+
+.privacy-content-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* --- HEADER --- */
+.privacy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 24px;
+    border-bottom: 1px solid #E2E8F0;
+    gap: 20px;
+}
+
+.privacy-header-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.privacy-header-titles h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #0F172A;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.privacy-header-titles p {
+    font-size: 0.95rem;
+    color: #64748B;
+    margin: 0;
+    max-width: 720px;
+    line-height: 1.5;
+}
+
+.privacy-badges-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.gdpr-compliance-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #ECFDF5;
+    border: 1px solid #A7F3D0;
+    color: #059669;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.gdpr-compliance-badge svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* --- MAIN 2-COLUMN CARDS GRID --- */
+.privacy-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+.privacy-feature-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 18px;
+    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.privacy-feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.08);
+}
+
+.card-top-block {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.feature-header-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.feature-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.feature-icon-box.blue {
+    background: #EFF6FF;
+    color: #2563EB;
+}
+
+.feature-icon-box.danger {
+    background: #FEF2F2;
+    color: #DC2626;
+}
+
+.feature-icon-box svg {
+    width: 24px;
+    height: 24px;
+}
+
+.feature-title-wrap h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0F172A;
+}
+
+.article-tag {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #94A3B8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.feature-description {
+    font-size: 0.9rem;
+    color: #64748B;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* What's Included Preview */
+.package-included-box {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.included-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.included-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.chip-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #334155;
+}
+
+.chip-item svg {
+    width: 12px;
+    height: 12px;
+    color: #10B981;
+}
+
+/* Export Buttons & Formats */
+.export-action-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #F1F5F9;
+}
+
+.export-primary-row {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-export-excel {
+    flex: 1.3;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    color: #FFFFFF;
+    border: none;
+    padding: 13px 20px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);
+    transition: all 0.2s ease;
+}
+
+.btn-export-excel:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+    background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+}
+
+.btn-export-excel:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.btn-export-excel svg {
+    width: 18px;
+    height: 18px;
+}
+
+.btn-export-alt {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #FFFFFF;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    padding: 13px 16px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-export-alt:hover:not(:disabled) {
+    background: #F8FAFC;
+    border-color: #94A3B8;
+    color: #0F172A;
+    transform: translateY(-1px);
+}
+
+.btn-export-alt svg {
+    width: 16px;
+    height: 16px;
+    color: #64748B;
+}
+
+.export-hint {
+    font-size: 0.75rem;
+    color: #94A3B8;
+    margin: 0;
+    text-align: center;
+}
+
+/* Erasure Card Details */
+.erasure-warning-box {
+    background: #FFFBEB;
+    border: 1px solid #FDE68A;
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.erasure-warning-box strong {
+    font-size: 0.85rem;
+    color: #B45309;
+}
+
+.erasure-warning-box p {
+    font-size: 0.8rem;
+    color: #92400E;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.btn-request-erasure {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #DC2626;
+    color: #FFFFFF;
+    border: none;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 24px;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25);
+    transition: all 0.2s ease;
+}
+
+.btn-request-erasure:hover {
+    background: #B91C1C;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(220, 38, 38, 0.35);
+}
+
+/* --- SECURITY SAFEGUARDS ACTIVE --- */
+.privacy-safeguards-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 18px;
+    padding: 28px 32px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+}
+
+.safeguards-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.safeguards-header h4 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #0F172A;
+}
+
+.safeguards-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+.safeguard-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+}
+
+.safeguard-check {
+    color: #10B981;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.safeguard-check svg {
+    width: 18px;
+    height: 18px;
+}
+
+.safeguard-text strong {
+    display: block;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #0F172A;
+    margin-bottom: 2px;
+}
+
+.safeguard-text p {
+    font-size: 0.78rem;
+    color: #64748B;
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* --- LEGAL ACCORDION / POLICY NOTICE --- */
+.privacy-policy-banner {
+    background: #F1F5F9;
+    border-radius: 14px;
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.policy-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.policy-banner-left svg {
+    width: 20px;
+    height: 20px;
+    color: #64748B;
+    flex-shrink: 0;
+}
+
+.policy-banner-left p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #475569;
+}
+
+.policy-banner-left strong {
+    color: #0F172A;
+}
+
+/* Modal Customization */
+.erasure-modal-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.erasure-modal-wrap p {
+    font-size: 0.9rem;
+    color: #475569;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.modal-confirm-input-box {
+    padding: 16px;
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.modal-confirm-input-box label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #991B1B;
+}
+
+.modal-confirm-input-box input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #F87171;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    outline: none;
+    letter-spacing: 1px;
+}
+
+.modal-confirm-input-box input:focus {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
+@media (max-width: 1024px) {
+    .privacy-cards-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .safeguards-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .privacy-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .safeguards-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .export-primary-row {
+        flex-direction: column;
+    }
+}

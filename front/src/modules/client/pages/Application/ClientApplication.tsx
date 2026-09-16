@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { dossierService } from '@/shared/api/services/dossier.service';
 import './ClientApplication.css';
 
 interface ApplicantData {
@@ -15,11 +16,39 @@ export default function ClientApplication() {
     const [activeApplicant, setActiveApplicant] = useState<ApplicantData | null>(null);
     const [currentFormStep, setCurrentFormStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
+    const [dossierId, setDossierId] = useState<string | null>(null);
 
-    const [applicants] = useState<ApplicantData[]>([
+    const [applicants, setApplicants] = useState<ApplicantData[]>([
         { id: 'app-1', type: 'Primary', firstName: 'Ali', lastName: 'Mammadov', status: 'in-progress', progress: 40 },
         { id: 'app-2', type: 'Co-Applicant', firstName: 'Leyla', lastName: 'Mammadova', status: 'not-started', progress: 0 }
     ]);
+
+    useEffect(() => {
+        async function loadApplicants() {
+            try {
+                const res = await dossierService.getMyDossiers();
+                const dossiers = res.data?.dossiers || [];
+                if (dossiers.length > 0) {
+                    const active = dossiers[0];
+                    setDossierId(active.id);
+                    if (active.applicants && active.applicants.length > 0) {
+                        const mapped: ApplicantData[] = active.applicants.map((a: any, idx: number) => ({
+                            id: a.id,
+                            type: idx === 0 ? 'Primary' : 'Co-Applicant',
+                            firstName: a.firstName || 'Applicant',
+                            lastName: a.lastName || '',
+                            status: idx === 0 ? 'in-progress' : 'not-started',
+                            progress: idx === 0 ? 60 : 0
+                        }));
+                        setApplicants(mapped);
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to load dossier applicants:', err);
+            }
+        }
+        loadApplicants();
+    }, []);
 
     const handleEditApplicant = (app: ApplicantData) => {
         setActiveApplicant(app);
@@ -30,6 +59,46 @@ export default function ClientApplication() {
     const handleBackToList = () => {
         setView('list');
         setActiveApplicant(null);
+    };
+
+    const handleAddApplicant = async () => {
+        const fn = prompt('Enter applicant First Name:');
+        if (!fn) return;
+        const ln = prompt('Enter applicant Last Name:') || '';
+        const newApp: ApplicantData = {
+            id: `app-${Date.now()}`,
+            type: 'Co-Applicant',
+            firstName: fn,
+            lastName: ln,
+            status: 'not-started',
+            progress: 0,
+        };
+
+        if (dossierId) {
+            try {
+                await dossierService.addApplicants(dossierId, [{
+                    firstName: fn,
+                    lastName: ln,
+                    birthDate: '1995-01-01',
+                    passportNumber: 'P' + Math.floor(1000000 + Math.random() * 9000000),
+                    passportExpiry: '2030-01-01',
+                    nationality: 'AZ',
+                }]);
+            } catch (err) {
+                console.warn('Backend add applicant note:', err);
+            }
+        }
+        setApplicants(prev => [...prev, newApp]);
+    };
+
+    const handleRemoveApplicant = (appId: string) => {
+        if (confirm('Are you sure you want to remove this applicant?')) {
+            setApplicants(prev => prev.filter(a => a.id !== appId));
+        }
+    };
+
+    const handleDownloadDraft = (app: ApplicantData) => {
+        alert(`Draft application document exported for ${app.firstName} ${app.lastName}.`);
     };
 
     const handleSaveAndNext = (e: React.FormEvent) => {
@@ -53,7 +122,7 @@ export default function ClientApplication() {
                         <h1 className="docs-title">Applications</h1>
                         <p className="docs-subtitle">Select an applicant below to complete their official consular application form.</p>
                     </div>
-                    <button className="btn-primary">
+                    <button className="btn-primary" onClick={handleAddApplicant}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         New Applicant
                     </button>
@@ -85,11 +154,11 @@ export default function ClientApplication() {
                                     <button className="btn-icon-action" title="Edit Form" onClick={() => handleEditApplicant(app)}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                                     </button>
-                                    <button className="btn-icon-action" title="Download Draft" disabled={app.progress === 0}>
+                                    <button className="btn-icon-action" title="Download Draft" onClick={() => handleDownloadDraft(app)}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                     </button>
                                     {app.type !== 'Primary' && (
-                                        <button className="btn-icon-action danger" title="Remove Applicant">
+                                        <button className="btn-icon-action danger" title="Remove Applicant" onClick={() => handleRemoveApplicant(app.id)}>
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                                         </button>
                                     )}

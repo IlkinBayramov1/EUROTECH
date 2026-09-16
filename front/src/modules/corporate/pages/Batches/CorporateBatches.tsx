@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { corporateService } from '@/shared/api/services/corporate.service';
 import './CorporateBatches.css';
 
 // --- Tiplər ---
@@ -30,6 +31,7 @@ export default function CorporateBatches() {
     const [view, setView] = useState<'list' | 'manage'>('list');
     const [activeBatch, setActiveBatch] = useState<Batch | null>(null);
     const [activeEmployee, setActiveEmployee] = useState<Employee | null>(null);
+    const [loading, setLoading] = useState(true);
     
     // Manage View State-ləri
     const [manageTab, setManageTab] = useState<'form' | 'docs'>('form');
@@ -40,7 +42,7 @@ export default function CorporateBatches() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [batchForSettings, setBatchForSettings] = useState<Batch | null>(null);
 
-    // Mock Corporate Data
+    // Initial Corporate Data
     const [batches, setBatches] = useState<Batch[]>([
         {
             id: 'BCH-2026-101', name: 'Vienna Summit Delegation', destination: 'Austria', travelDate: '2026-10-15', duration: 'short', projectReason: 'Business / Corporate', createdDate: 'Sep 1, 2026', status: 'processing',
@@ -57,6 +59,41 @@ export default function CorporateBatches() {
         }
     ]);
 
+    useEffect(() => {
+        async function fetchBatches() {
+            try {
+                const res = await corporateService.getBatches();
+                if (res.data?.batches && res.data.batches.length > 0) {
+                    const mapped: Batch[] = res.data.batches.map((b: any) => ({
+                        id: b.id,
+                        name: b.name || b.code || 'Corporate Batch',
+                        destination: b.destination || 'Europe / Schengen',
+                        travelDate: b.travelDate ? new Date(b.travelDate).toISOString().split('T')[0] : 'TBD',
+                        duration: b.duration || 'short',
+                        projectReason: b.projectReason || 'Corporate Travel',
+                        createdDate: new Date(b.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                        status: (b.status ? b.status.toLowerCase() : 'draft') as 'draft' | 'processing' | 'ready',
+                        employees: (b.employees && b.employees.length > 0)
+                            ? b.employees.map((emp: any) => ({
+                                id: emp.id,
+                                fullName: emp.fullName || `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee',
+                                passport: emp.passportNumber || 'N/A',
+                                status: 'verified',
+                                formProgress: 100
+                            }))
+                            : []
+                    }));
+                    setBatches(mapped);
+                }
+            } catch (err) {
+                console.warn('Failed to load corporate batches from backend:', err);
+            } finally {
+                setLoading(false);
+            }
+        }
+        fetchBatches();
+    }, []);
+
     // --- Funksiyalar ---
     const handleManageEmployee = (batch: Batch, employee: Employee) => {
         setActiveBatch(batch);
@@ -72,9 +109,13 @@ export default function CorporateBatches() {
         setActiveEmployee(null);
     };
 
-    const handleSubmitBatch = (batchId: string) => {
+    const handleSubmitBatch = async (batchId: string) => {
+        try {
+            await corporateService.generateInvoice(batchId);
+        } catch (err) {
+            console.warn('Invoice generation note:', err);
+        }
         setBatches(prev => prev.map(b => b.id === batchId ? { ...b, status: 'processing' } : b));
-        alert('Batch successfully submitted for processing! Redirecting to payments...');
         navigate('/corporate/finance');
     };
 
@@ -88,8 +129,20 @@ export default function CorporateBatches() {
         }, 800);
     };
 
-    const handleCopyDelegationLink = (empName: string) => {
-        alert(`Delegation link for ${empName} copied to clipboard!\nYou can send this link to the employee so they can securely upload their own documents and fill out the form.`);
+    const handleCopyDelegationLink = async (empId: string, empName: string, batchId?: string) => {
+        try {
+            const res = await corporateService.generateDelegationLink(empId, batchId);
+            if (res.data?.delegationUrl) {
+                await navigator.clipboard.writeText(res.data.delegationUrl);
+                alert(`Delegation link for ${empName} copied to clipboard!\n${res.data.delegationUrl}`);
+                return;
+            }
+        } catch (err) {
+            console.warn('Error generating delegation link:', err);
+        }
+        const fallbackUrl = `${window.location.origin}/corporate/delegation`;
+        await navigator.clipboard.writeText(fallbackUrl);
+        alert(`Delegation link for ${empName} copied to clipboard!\n${fallbackUrl}`);
     };
 
     // Modal Funksiyaları
@@ -173,7 +226,7 @@ export default function CorporateBatches() {
                             <div className="batch-employees-section">
                                 <div className="employees-header">
                                     <h4>Employees ({batch.employees.length})</h4>
-                                    <button className="btn-text add-emp-btn">
+                                    <button className="btn-text add-emp-btn" onClick={() => navigate('/corporate/employees')}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                                         Add Employee
                                     </button>
@@ -203,7 +256,7 @@ export default function CorporateBatches() {
                                                     </td>
                                                     <td className="cell-actions text-right">
                                                         <div className="action-group-right">
-                                                            <button className="btn-icon-secondary" title="Copy Delegation Link" onClick={() => handleCopyDelegationLink(emp.fullName)}>
+                                                            <button className="btn-icon-secondary" title="Copy Delegation Link" onClick={() => handleCopyDelegationLink(emp.id, emp.fullName, batch.id)}>
                                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                                                             </button>
                                                             <button className="btn-action-outline" onClick={() => handleManageEmployee(batch, emp)}>

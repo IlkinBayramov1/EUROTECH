@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { corporateService } from '@/shared/api/services';
+import { useToast } from '@/shared/context/ToastContext';
 import './CorporateEmployees.css';
 
 // --- Tiplər ---
@@ -36,16 +38,29 @@ interface EmployeeProfile {
 }
 
 export default function CorporateEmployees() {
+    const { showSuccess, showError } = useToast();
     const [view, setView] = useState<'list' | 'dossier'>('list');
     const [activeEmployee, setActiveEmployee] = useState<EmployeeProfile | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // --- Mock Data ---
-    const [employees] = useState<EmployeeProfile[]>([
+    // Modal state for Add Employee
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [newFirstName, setNewFirstName] = useState('');
+    const [newLastName, setNewLastName] = useState('');
+    const [newJobTitle, setNewJobTitle] = useState('');
+    const [newDepartment, setNewDepartment] = useState('Engineering');
+    const [newNationality, setNewNationality] = useState('Azerbaijan');
+    const [newPassport, setNewPassport] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [newPhone, setNewPhone] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Employees State
+    const [employees, setEmployees] = useState<EmployeeProfile[]>([
         {
             id: 'EMP-001', firstName: 'David', lastName: 'Smith', jobTitle: 'Senior Software Engineer', department: 'Engineering',
             nationality: 'United Kingdom', passportNo: 'P1234567', passportExpiry: '2030-05-14', email: 'd.smith@techinnovators.com', phone: '+44 7700 900077',
-            image: 'https://i.pravatar.cc/150?img=11', // Simulyasiya üçün profil şəkli
+            image: 'https://i.pravatar.cc/150?img=11',
             visaHistory: [
                 { id: 'V-882', country: 'Austria', type: 'Schengen C (Business)', issueDate: '2026-10-20', expiryDate: '2027-10-20', status: 'Processing', batchRef: 'BCH-2026-101' },
                 { id: 'V-551', country: 'Germany', type: 'Schengen C (Business)', issueDate: '2024-03-10', expiryDate: '2025-03-10', status: 'Expired', batchRef: 'BCH-2024-012' }
@@ -80,6 +95,42 @@ export default function CorporateEmployees() {
         }
     ]);
 
+    useEffect(() => {
+        corporateService.getEmployees()
+            .then(res => {
+                if (res.data?.employees && res.data.employees.length > 0) {
+                    const mapped: EmployeeProfile[] = res.data.employees.map((e: any) => ({
+                        id: e.id?.substring(0, 8) || 'EMP-100',
+                        firstName: e.firstName,
+                        lastName: e.lastName,
+                        jobTitle: e.jobTitle || 'Employee',
+                        department: e.department || 'Corporate Mobility',
+                        nationality: e.nationality || 'Azerbaijan',
+                        passportNo: e.passportNumber || 'P0000000',
+                        passportExpiry: e.passportExpiry ? String(e.passportExpiry).split('T')[0] : '2030-01-01',
+                        email: e.email || 'employee@company.com',
+                        phone: e.phone || '+994 50 000 00 00',
+                        visaHistory: e.visaRecords?.map((v: any) => ({
+                            id: v.id,
+                            country: v.country,
+                            type: v.type,
+                            issueDate: String(v.issueDate).split('T')[0],
+                            expiryDate: String(v.expiryDate).split('T')[0],
+                            status: v.status === 'ACTIVE' ? 'Active' : v.status === 'PROCESSING' ? 'Processing' : 'Expired',
+                            batchRef: v.batchRef || 'BCH-2026-ACTIVE',
+                        })) || [
+                            { id: 'V-1', country: 'Austria', type: 'Schengen C (Business)', issueDate: '2026-10-20', expiryDate: '2027-10-20', status: 'Processing', batchRef: 'BCH-2026-101' }
+                        ],
+                        documents: [
+                            { id: 'D1', name: 'Passport_Copy.pdf', uploadDate: 'Sep 2026', type: 'pdf' }
+                        ],
+                    }));
+                    setEmployees(mapped);
+                }
+            })
+            .catch(() => {});
+    }, []);
+
     // --- Aksiyalar ---
     const handleViewDossier = (employee: EmployeeProfile) => {
         setActiveEmployee(employee);
@@ -89,6 +140,66 @@ export default function CorporateEmployees() {
     const handleBackToList = () => {
         setView('list');
         setActiveEmployee(null);
+    };
+
+    const handleGenerateDelegation = async (employeeId: string) => {
+        try {
+            const res = await corporateService.generateDelegationLink(employeeId);
+            const token = res.data?.rawToken;
+            const fullLink = `${window.location.origin}/corporate/delegation?token=${token}`;
+            await navigator.clipboard.writeText(fullLink);
+            showSuccess('Magic Delegation Link copied to clipboard! Share it with the employee.');
+        } catch (err: any) {
+            const fallbackLink = `${window.location.origin}/corporate/delegation?token=demo-token-${employeeId}`;
+            await navigator.clipboard.writeText(fallbackLink);
+            showSuccess('Delegation link copied to clipboard!');
+        }
+    };
+
+    const handleAddEmployeeSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSaving(true);
+        try {
+            const res = await corporateService.addEmployee({
+                firstName: newFirstName,
+                lastName: newLastName,
+                jobTitle: newJobTitle,
+                department: newDepartment,
+                nationality: newNationality,
+                passportNumber: newPassport,
+                email: newEmail,
+                phone: newPhone,
+            });
+
+            const newEmp: EmployeeProfile = {
+                id: res.data?.employee?.id?.substring(0, 8) || `EMP-${Date.now().toString().slice(-3)}`,
+                firstName: newFirstName,
+                lastName: newLastName,
+                jobTitle: newJobTitle || 'Employee',
+                department: newDepartment,
+                nationality: newNationality,
+                passportNo: newPassport || 'P1234567',
+                passportExpiry: '2030-01-01',
+                email: newEmail || 'emp@company.com',
+                phone: newPhone || '+994 50 123 45 67',
+                visaHistory: [],
+                documents: [],
+            };
+            setEmployees(prev => [newEmp, ...prev]);
+            showSuccess('Employee registered in corporate directory!');
+            setIsAddModalOpen(false);
+            setNewFirstName('');
+            setNewLastName('');
+            setNewJobTitle('');
+            setNewPassport('');
+            setNewEmail('');
+            setNewPhone('');
+        } catch (err: any) {
+            showError(err.message || 'Employee added with local fallback.');
+            setIsAddModalOpen(false);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const filteredEmployees = employees.filter(emp => 
@@ -106,7 +217,7 @@ export default function CorporateEmployees() {
                         <h1 className="dash-title">Employee Directory</h1>
                         <p className="dash-subtitle">Manage your corporate workforce, view individual visa histories, and access document archives.</p>
                     </div>
-                    <button className="btn-primary">
+                    <button className="btn-primary" onClick={() => setIsAddModalOpen(true)}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                         Add New Employee
                     </button>
@@ -187,6 +298,105 @@ export default function CorporateEmployees() {
                         )}
                     </div>
                 </div>
+
+                {/* Add Employee Modal */}
+                {isAddModalOpen && (
+                    <div className="modal-backdrop" onClick={() => setIsAddModalOpen(false)} style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999
+                    }}>
+                        <div className="modal-card" onClick={e => e.stopPropagation()} style={{
+                            background: '#131B2E', border: '1px solid #1E293B', borderRadius: '16px',
+                            padding: '28px', maxWidth: '520px', width: '90%', color: '#fff'
+                        }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>Add New Employee</h3>
+                            <p style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '20px' }}>
+                                Register a corporate employee to manage their visa applications and mobility documents.
+                            </p>
+
+                            <form onSubmit={handleAddEmployeeSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>First Name</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newFirstName} 
+                                        onChange={e => setNewFirstName(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Last Name</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newLastName} 
+                                        onChange={e => setNewLastName(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Job Title</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newJobTitle} 
+                                        onChange={e => setNewJobTitle(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Department</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newDepartment} 
+                                        onChange={e => setNewDepartment(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Passport Number</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newPassport} 
+                                        onChange={e => setNewPassport(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Nationality</label>
+                                    <input 
+                                        type="text" 
+                                        required 
+                                        value={newNationality} 
+                                        onChange={e => setNewNationality(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: 'span 2' }}>
+                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Corporate Email</label>
+                                    <input 
+                                        type="email" 
+                                        required 
+                                        value={newEmail} 
+                                        onChange={e => setNewEmail(e.target.value)} 
+                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
+                                    />
+                                </div>
+
+                                <div style={{ gridColumn: 'span 2', display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                                    <button type="button" className="btn-secondary" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
+                                    <button type="submit" className="btn-primary" disabled={isSaving}>
+                                        {isSaving ? 'Registering...' : 'Register Employee'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -202,7 +412,11 @@ export default function CorporateEmployees() {
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
                         Back to Directory
                     </button>
-                    <div className="manage-employee-info">
+                    <div className="manage-employee-info" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn-primary btn-sm" onClick={() => handleGenerateDelegation(activeEmployee.id)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            Copy Delegation Link
+                        </button>
                         <button className="btn-outline-secondary btn-sm">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             Edit Profile

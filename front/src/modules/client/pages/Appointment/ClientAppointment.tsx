@@ -1,19 +1,94 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useToast } from '@/shared/context/ToastContext';
+import { dossierService, appointmentService, TimeSlot } from '@/shared/api/services';
 import './ClientAppointment.css';
 
 export default function ClientAppointment() {
+    const { showSuccess, showError } = useToast();
     const [status, setStatus] = useState<'confirmed' | 'cancelled'>('confirmed');
+    const [appointment, setAppointment] = useState<any>(null);
+    const [applicantName, setApplicantName] = useState('Primary Applicant');
+    const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+    const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+    const [selectedSlotId, setSelectedSlotId] = useState<string>('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleReschedule = () => {
-        // Real ssenaridə burada təqvim modalu açılacaq
-        alert("Reschedule module will open here.");
-    };
+    useEffect(() => {
+        dossierService.getMyDossiers()
+            .then(res => {
+                if (res.data?.dossiers && res.data.dossiers.length > 0) {
+                    const activeDossier = res.data.dossiers[0];
+                    if (activeDossier.appointments && activeDossier.appointments.length > 0) {
+                        const appt = activeDossier.appointments[0];
+                        setAppointment(appt);
+                        if (appt.status === 'CANCELLED') {
+                            setStatus('cancelled');
+                        } else {
+                            setStatus('confirmed');
+                        }
+                    }
+                    if (activeDossier.applicants && activeDossier.applicants.length > 0) {
+                        const primary = activeDossier.applicants[0];
+                        setApplicantName(`${primary.firstName} ${primary.lastName} (${primary.passportNumber || 'Passport on file'})`);
+                    }
+                }
+            })
+            .catch(() => {});
+    }, []);
 
-    const handleCancel = () => {
-        if (window.confirm("Are you sure you want to cancel your appointment? You will need to book a new one to proceed with your application.")) {
-            setStatus('cancelled');
+    const handleOpenReschedule = async () => {
+        setIsRescheduleOpen(true);
+        try {
+            const res = await appointmentService.getSlots();
+            if (res.data?.slots) {
+                setAvailableSlots(res.data.slots);
+                if (res.data.slots.length > 0) {
+                    setSelectedSlotId(res.data.slots[0].id);
+                }
+            }
+        } catch (err) {
+            console.warn('Slot loading error:', err);
         }
     };
+
+    const handleConfirmReschedule = async () => {
+        if (!selectedSlotId) return;
+        setIsSubmitting(true);
+        try {
+            if (appointment?.id) {
+                const res = await appointmentService.rescheduleAppointment(appointment.id, selectedSlotId);
+                setAppointment(res.data?.appointment || appointment);
+            }
+            showSuccess('Appointment rescheduled successfully!');
+            setIsRescheduleOpen(false);
+        } catch (err: any) {
+            showError(err.message || 'Reschedule failed.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleCancel = async () => {
+        if (window.confirm("Are you sure you want to cancel your appointment? You will need to book a new one to proceed with your application.")) {
+            try {
+                if (appointment?.id) {
+                    await appointmentService.cancelAppointment(appointment.id);
+                }
+                setStatus('cancelled');
+                showSuccess('Appointment cancelled successfully.');
+            } catch (err: any) {
+                showError(err.message || 'Cancellation failed.');
+            }
+        }
+    };
+
+    const apptDate = appointment?.timeSlot?.date 
+        ? new Date(appointment.timeSlot.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+        : 'Thursday, September 10, 2026';
+
+    const apptTime = appointment?.timeSlot?.startTime 
+        ? `${appointment.timeSlot.startTime} (Local Time)`
+        : '10:30 AM (Local Time)';
 
     return (
         <div className="appointment-page-content fade-in">
@@ -51,7 +126,7 @@ export default function ClientAppointment() {
                                 </div>
                                 <div className="detail-content">
                                     <span>Date</span>
-                                    <h4>Thursday, September 10, 2026</h4>
+                                    <h4>{apptDate}</h4>
                                 </div>
                             </div>
                             
@@ -61,7 +136,7 @@ export default function ClientAppointment() {
                                 </div>
                                 <div className="detail-content">
                                     <span>Time</span>
-                                    <h4>10:30 AM (Local Time)</h4>
+                                    <h4>{apptTime}</h4>
                                 </div>
                             </div>
 
@@ -71,7 +146,7 @@ export default function ClientAppointment() {
                                 </div>
                                 <div className="detail-content">
                                     <span>Applicant(s)</span>
-                                    <h4>Ali Mammadov (C12345678)</h4>
+                                    <h4>{applicantName}</h4>
                                 </div>
                             </div>
                         </div>
@@ -79,7 +154,7 @@ export default function ClientAppointment() {
                         {/* Aksiyalar */}
                         {status === 'confirmed' && (
                             <div className="appt-actions">
-                                <button className="btn-outline" onClick={handleReschedule}>
+                                <button className="btn-outline" onClick={handleOpenReschedule}>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-7.27l-3.27-3.27"/></svg>
                                     Reschedule
                                 </button>
@@ -94,7 +169,7 @@ export default function ClientAppointment() {
                             <div className="appt-alert">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                 <span>This appointment has been cancelled. Please book a new one to continue your application.</span>
-                                <button className="btn-primary small-btn" style={{marginTop: '12px'}}>Book New Appointment</button>
+                                <button className="btn-primary small-btn" style={{marginTop: '12px'}} onClick={handleOpenReschedule}>Book New Appointment</button>
                             </div>
                         )}
                     </div>
@@ -138,13 +213,62 @@ export default function ClientAppointment() {
                                 <p>Baku, Azerbaijan, AZ1025</p>
                             </div>
                         </div>
-                        <a href="#" className="map-link">
+                        <a href="https://maps.google.com" target="_blank" rel="noreferrer" className="map-link">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
                             View on Google Maps
                         </a>
                     </div>
                 </div>
             </div>
+
+            {/* Reschedule Modal */}
+            {isRescheduleOpen && (
+                <div className="modal-backdrop" onClick={() => setIsRescheduleOpen(false)} style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999
+                }}>
+                    <div className="modal-card" onClick={e => e.stopPropagation()} style={{
+                        background: '#131B2E', border: '1px solid #1E293B', borderRadius: '16px',
+                        padding: '28px', maxWidth: '460px', width: '90%', color: '#fff'
+                    }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>Reschedule Appointment</h3>
+                        <p style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '20px' }}>
+                            Select a newly available time slot from the embassy schedule.
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '240px', overflowY: 'auto', marginBottom: '24px' }}>
+                            {availableSlots.map(slot => (
+                                <div 
+                                    key={slot.id} 
+                                    onClick={() => setSelectedSlotId(slot.id)}
+                                    style={{
+                                        padding: '12px 16px',
+                                        borderRadius: '10px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        background: selectedSlotId === slot.id ? 'rgba(59, 130, 246, 0.15)' : '#1E293B',
+                                        border: selectedSlotId === slot.id ? '1px solid #3B82F6' : '1px solid transparent',
+                                        color: selectedSlotId === slot.id ? '#60A5FA' : '#E2E8F0',
+                                    }}
+                                >
+                                    <span>{slot.startTime}</span>
+                                    <span style={{ fontSize: '12px', color: '#94A3B8' }}>{slot.location || 'EuroTech Center'}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                            <button className="btn-secondary" onClick={() => setIsRescheduleOpen(false)}>Cancel</button>
+                            <button className="btn-primary" onClick={handleConfirmReschedule} disabled={isSubmitting}>
+                                {isSubmitting ? 'Updating...' : 'Confirm Reschedule'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

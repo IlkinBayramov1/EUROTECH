@@ -58,11 +58,13 @@ async function cancelAppointment(req, res, next) {
 
 async function getManifestPdf(req, res, next) {
   try {
-    const { appointmentId } = req.params;
-    const { groupBatchId } = req.query;
+    const appointmentId = req.params.appointmentId || req.body?.appointmentId || req.query?.appointmentId;
+    const groupBatchId = req.query?.groupBatchId || req.body?.groupBatchId;
+    const customGroupInfo = req.body?.groupInfo;
     const result = await appointmentService.generateManifestPdf({
       appointmentId,
       groupBatchId,
+      customGroupInfo,
       currentUser: req.user,
     });
     return ApiResponse.success(res, result, 'Group appointment manifest PDF generated successfully');

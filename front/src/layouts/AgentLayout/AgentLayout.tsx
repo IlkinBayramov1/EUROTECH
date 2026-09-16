@@ -17,7 +17,7 @@ export default function AgentLayout() {
       {/* --- AGENT SIDEBAR --- */}
       <aside className="agent-sidebar">
         <div className="agent-brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/agent')}>
-          <EuroTechLogo size={32} subtitle="Travel Agent B2B" />
+          <EuroTechLogo size={32} subtitle="Travel Agent B2B" theme="light" />
         </div>
 
         <nav className="agent-nav">

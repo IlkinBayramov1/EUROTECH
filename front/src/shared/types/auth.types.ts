@@ -1,11 +1,21 @@
-export type UserRole = 'INDIVIDUAL' | 'AGENT' | 'CORPORATE' | 'ADMIN';
+export type UserRole = 
+  | 'INDIVIDUAL' 
+  | 'AGENT' 
+  | 'AGENT_TUR_OPERATOR' 
+  | 'CORPORATE' 
+  | 'CORPORATE_HR' 
+  | 'ADMIN' 
+  | 'OPERATOR' 
+  | 'MANAGER';
 
 export interface User {
   id: string;
   email: string;
   role: UserRole;
+  fullName?: string;
   firstName?: string;
   lastName?: string;
+  username?: string;
   phone?: string;
   companyName?: string;
   agencyName?: string;

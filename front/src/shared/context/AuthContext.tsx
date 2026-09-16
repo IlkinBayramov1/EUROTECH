@@ -44,14 +44,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         storage.setRole(authUser.role);
         setUser(authUser);
         setRole(authUser.role);
+        return;
       }
-    } catch (error) {
-      // Fallback for offline/mock development if server is unreachable
+    } catch (error: any) {
+      // If it's an explicit 400/401/403 credentials error, rethrow so UI can notify
+      if (error?.status && error.status < 500) {
+        throw error;
+      }
       console.warn('Backend login request fallback:', error);
       const mockUser: User = {
         id: 'mock-user-1',
         email: credentials.email,
         role: role || 'INDIVIDUAL',
+        fullName: credentials.email.split('@')[0],
         firstName: credentials.email.split('@')[0],
       };
       storage.setToken('mock-dev-token');
@@ -61,22 +66,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (payload: RegisterPayload) => {
+    const backendRole = payload.role === 'AGENT' ? 'AGENT_TUR_OPERATOR' 
+      : payload.role === 'CORPORATE' ? 'CORPORATE_HR' 
+      : payload.role;
+
+    const fullName = (payload.firstName || payload.lastName) 
+      ? `${payload.firstName || ''} ${payload.lastName || ''}`.trim() 
+      : 'User';
+
+    const body = {
+      email: payload.email,
+      password: payload.password,
+      fullName,
+      role: backendRole,
+      companyName: payload.companyName || payload.agencyName,
+      phone: payload.phone,
+      passportNumber: payload.passportNumber,
+    };
+
     try {
-      const res = await apiClient.post('/auth/register', payload);
-      if (res.success && res.data) {
-        const { user: authUser, accessToken } = res.data;
-        storage.setToken(accessToken);
-        storage.setUser(authUser);
-        storage.setRole(authUser.role);
-        setUser(authUser);
-        setRole(authUser.role);
+      const res = await apiClient.post('/auth/register', body);
+      // Auto-login to obtain session token
+      try {
+        const loginRes = await apiClient.post('/auth/login', {
+          email: payload.email,
+          password: payload.password,
+        });
+        if (loginRes.success && loginRes.data) {
+          const { user: authUser, accessToken } = loginRes.data;
+          storage.setToken(accessToken);
+          storage.setUser(authUser);
+          storage.setRole(authUser.role);
+          setUser(authUser);
+          setRole(authUser.role);
+          return;
+        }
+      } catch (loginErr) {
+        if (res.data?.user) {
+          setUser(res.data.user);
+          setRole(res.data.user.role);
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status && error.status < 500) {
+        throw error;
+      }
       console.warn('Backend register fallback:', error);
       const mockUser: User = {
         id: 'mock-user-reg',
         email: payload.email,
         role: payload.role,
+        fullName,
         firstName: payload.firstName || 'User',
       };
       storage.setToken('mock-dev-token');

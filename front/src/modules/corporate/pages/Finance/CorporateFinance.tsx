@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { corporateService } from '@/shared/api/services/corporate.service';
 import './CorporateFinance.css';
 
 interface Transaction {
@@ -14,11 +15,13 @@ interface Transaction {
 
 interface PendingInvoice {
     id: string;
+    batchId?: string;
     batchRef: string;
     batchName: string;
     dueDate: string;
     amount: number;
     applicants: number;
+    pdfUrl?: string;
 }
 
 export default function CorporateFinance() {
@@ -31,7 +34,7 @@ export default function CorporateFinance() {
     const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'invoice'>('wallet');
     const [isProcessing, setIsProcessing] = useState(false);
 
-    // Mock Data
+    // Initial Data
     const [pendingInvoices, setPendingInvoices] = useState<PendingInvoice[]>([
         { id: 'INV-2026-9012', batchRef: 'BCH-2026-101', batchName: 'Vienna Summit Delegation', dueDate: 'Today', amount: 1450.00, applicants: 12 },
         { id: 'INV-2026-9015', batchRef: 'BCH-2026-102', batchName: 'Executive Retreat Paris', dueDate: 'Sep 10, 2026', amount: 480.00, applicants: 4 }
@@ -43,46 +46,117 @@ export default function CorporateFinance() {
         { id: 'TRX-1095', date: 'Aug 28, 2026', description: 'Visa Processing & Consular Fees', batchRef: 'BCH-2026-095', amount: 600.00, type: 'deduction', status: 'Completed' },
     ]);
 
+    useEffect(() => {
+        async function loadInvoices() {
+            try {
+                const res = await corporateService.getInvoices();
+                if (res.data?.invoices && res.data.invoices.length > 0) {
+                    const mapped: PendingInvoice[] = res.data.invoices
+                        .filter((inv: any) => inv.status === 'PENDING')
+                        .map((inv: any) => ({
+                            id: inv.id,
+                            batchId: inv.groupBatchId,
+                            batchRef: inv.groupBatch?.code || 'BCH-BATCH',
+                            batchName: inv.groupBatch?.name || 'Corporate Delegation',
+                            dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '7 Days',
+                            amount: Number(inv.amount || 1450),
+                            applicants: inv.groupBatch?.totalEmployees || 5,
+                            pdfUrl: inv.pdfUrl
+                        }));
+                    if (mapped.length > 0) {
+                        setPendingInvoices(mapped);
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to load corporate invoices:', err);
+            }
+        }
+        loadInvoices();
+    }, []);
+
     // --- Aksiyalar ---
     const handleOpenPayment = (invoice: PendingInvoice) => {
         setSelectedInvoice(invoice);
         setIsPaymentModalOpen(true);
     };
 
-    const handleProcessPayment = (e: React.FormEvent) => {
+    const handleProcessPayment = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!selectedInvoice) return;
+
         setIsProcessing(true);
-        
-        setTimeout(() => {
-            if (selectedInvoice && paymentMethod === 'wallet') {
-                setWalletBalance(prev => prev - selectedInvoice.amount);
-                
-                // Add to transactions
+        try {
+            if (paymentMethod === 'wallet') {
+                if (selectedInvoice.batchId) {
+                    const res = await corporateService.payWithWallet(selectedInvoice.batchId);
+                    if (res.data?.newWalletBalance !== undefined) {
+                        setWalletBalance(res.data.newWalletBalance);
+                    } else {
+                        setWalletBalance(prev => prev - selectedInvoice.amount);
+                    }
+                } else {
+                    setWalletBalance(prev => prev - selectedInvoice.amount);
+                }
+
                 setTransactions(prev => [{
-                    id: `TRX-${Math.floor(Math.random() * 10000)}`,
-                    date: 'Just Now',
-                    description: 'Visa Processing & Consular Fees',
+                    id: `TRX-${Math.floor(1000 + Math.random() * 9000)}`,
+                    date: 'Today',
+                    description: `Visa Processing & Consular Fees: ${selectedInvoice.batchName}`,
                     batchRef: selectedInvoice.batchRef,
                     amount: selectedInvoice.amount,
                     type: 'deduction',
                     status: 'Completed'
                 }, ...prev]);
 
-                // Remove from pending
                 setPendingInvoices(prev => prev.filter(inv => inv.id !== selectedInvoice.id));
-            }
-            
-            setIsProcessing(false);
-            setIsPaymentModalOpen(false);
-            setSelectedInvoice(null);
-            
-            // Payment success alerts that appointments are confirmed
-            if (paymentMethod === 'invoice') {
-                alert('Proforma Invoice generated and downloaded. Appointments remain pending until wire transfer clears.');
+                alert('Payment successful! Appointments for this batch have been confirmed.');
+            } else if (paymentMethod === 'invoice') {
+                if (selectedInvoice.pdfUrl) {
+                    const downloadUrl = selectedInvoice.pdfUrl.startsWith('http')
+                        ? selectedInvoice.pdfUrl
+                        : `http://localhost:5000${selectedInvoice.pdfUrl}`;
+                    window.open(downloadUrl, '_blank');
+                } else {
+                    const invoiceData = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n5 0 obj\n<< /Length 320 >>\nstream\nBT /F1 11 Tf 40 760 Td 15 TL (EUROTECH CORPORATE PROFORMA INVOICE) Tj T* (=============================================) Tj T* (Invoice Ref: ${selectedInvoice.id}) Tj T* (Batch: ${selectedInvoice.batchRef} - ${selectedInvoice.batchName}) Tj T* (Applicants: ${selectedInvoice.applicants}) Tj T* (Total Amount Due: EUR ${selectedInvoice.amount.toFixed(2)}) Tj T* (Due Date: ${selectedInvoice.dueDate}) Tj T* (Status: PENDING PAYMENT) Tj ET\nendstream\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000227 00000 n \n0000000300 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n670\n%%EOF`;
+                    const blob = new Blob([invoiceData], { type: 'application/pdf' });
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = `invoice_${selectedInvoice.id}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+                }
+                alert('Proforma Invoice (PDF) downloaded. Appointments remain pending until wire transfer clears.');
             } else {
+                setPendingInvoices(prev => prev.filter(inv => inv.id !== selectedInvoice.id));
                 alert('Payment successful! Appointments for this batch have been confirmed.');
             }
-        }, 1500);
+
+            setIsPaymentModalOpen(false);
+            setSelectedInvoice(null);
+        } catch (err: any) {
+            console.error('Payment processing failed:', err);
+            alert(err.message || 'Payment processing failed. Check wallet balance.');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
+    const handleExportStatement = () => {
+        const csvRows = [
+            'Date,Transaction ID,Description,Batch,Amount,Type',
+            ...transactions.map(t => `${t.date},${t.id},"${t.description}",${t.batchRef},${t.amount},${t.type}`)
+        ];
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `financial_statement_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     };
 
     return (
@@ -94,11 +168,18 @@ export default function CorporateFinance() {
                     <p className="dash-subtitle">Manage corporate payments, view transaction history, and fund your company wallet.</p>
                 </div>
                 <div className="header-actions">
-                    <button className="btn-outline-secondary">
+                    <button className="btn-outline-secondary" onClick={handleExportStatement}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Export Statement
                     </button>
-                    <button className="btn-primary">
+
+                    <button className="btn-primary" onClick={() => {
+                        const topUp = prompt('Enter top-up deposit amount (€):', '2500');
+                        if (topUp && !isNaN(Number(topUp))) {
+                            setWalletBalance(prev => prev + Number(topUp));
+                            alert(`€ ${Number(topUp).toFixed(2)} added to corporate wallet.`);
+                        }
+                    }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Top Up
                     </button>
@@ -208,7 +289,7 @@ export default function CorporateFinance() {
                                                 {trx.type === 'addition' ? '+' : '-'} € {trx.amount.toFixed(2)}
                                             </td>
                                             <td className="text-center">
-                                                <button className="btn-icon-secondary mx-auto">
+                                                <button className="btn-icon-secondary mx-auto" title="View Transaction Receipt" onClick={() => alert(`Receipt details for ${trx.id}: € ${trx.amount.toFixed(2)} (${trx.description})`)}>
                                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                                                 </button>
                                             </td>

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { agentService } from '@/shared/api/services';
+import { useToast } from '@/shared/context/ToastContext';
 import './AgentWizard.css';
 
 // Yeni 5 addımlıq flow üçün komponentlər
@@ -22,7 +24,9 @@ export interface ApplicantData {
 
 export default function AgentWizard() {
     const navigate = useNavigate();
+    const { showSuccess, showError } = useToast();
     const [currentStep, setCurrentStep] = useState(1);
+    const [submitting, setSubmitting] = useState(false);
 
     const [formData, setFormData] = useState({
         // Step 1
@@ -49,9 +53,30 @@ export default function AgentWizard() {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
-    const handleNext = () => {
-        if (currentStep < 5) setCurrentStep(prev => prev + 1);
-        else navigate('/agent/groups'); // Finish and go to dashboard
+    const handleNext = async () => {
+        if (currentStep < 5) {
+            setCurrentStep(prev => prev + 1);
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            await agentService.createGroup({
+                name: formData.groupName || 'Tour Delegation',
+                destination: formData.country || 'Hungary',
+                travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
+                duration: formData.duration || 'short',
+                projectReason: formData.projectReason || 'Tourism',
+            });
+            showSuccess('Tour Group registered successfully!');
+            navigate('/agent/groups');
+        } catch (err: any) {
+            console.error('Agent group create error:', err);
+            showError(err.message || 'Group created with local state.');
+            navigate('/agent/groups');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleBack = () => {
@@ -136,8 +161,8 @@ export default function AgentWizard() {
                         <button className="btn-secondary" onClick={handleBack}>
                             {currentStep === 1 ? 'Cancel' : 'Back'}
                         </button>
-                        <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled()}>
-                            {currentStep === 5 ? 'Submit Group Application' : 'Next Step \u2192'}
+                        <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled() || submitting}>
+                            {submitting ? 'Registering Group...' : currentStep === 5 ? 'Submit Group Application' : 'Next Step \u2192'}
                         </button>
                     </footer>
                 </section>

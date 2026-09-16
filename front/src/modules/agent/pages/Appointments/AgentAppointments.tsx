@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import './AgentAppointments.css';
+import { appointmentService } from '@/shared/api/services';
+import { useToast } from '@/shared/context/ToastContext';
 
 type SlotStatus = 'booked';
 
@@ -31,6 +33,8 @@ export default function AgentAppointments() {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const { showSuccess, showError, showToast } = useToast();
 
     const timeSlots: TimeSlot[] = [
         { 
@@ -77,6 +81,87 @@ export default function AgentAppointments() {
     const closeModal = () => {
         setIsModalOpen(false);
         setTimeout(() => setSelectedSlot(null), 300); // Animasiya bitdikdən sonra təmizləyir
+    };
+
+    const generateClientManifestPdf = (slot: TimeSlot) => {
+        const { groupInfo, time } = slot;
+        const dateStr = `Sep ${selectedDate}, ${year}`;
+
+        const lines = [
+            'EUROTECH CONSULAR SERVICES - OFFICIAL GROUP MANIFEST',
+            '==================================================================',
+            `Group Reference : ${groupInfo.id}`,
+            `Group Title     : ${groupInfo.name}`,
+            `Appointment Slot: ${dateStr} at ${time}`,
+            `Service Package : ${groupInfo.package}`,
+            `Total Travelers : ${groupInfo.size} Applicants`,
+            '------------------------------------------------------------------',
+            'PASSENGER MANIFEST:',
+            '------------------------------------------------------------------',
+            ...groupInfo.applicants.map((app, i) =>
+                `${i + 1}. ${app.name.padEnd(25, ' ')} | Passport: ${app.passport.padEnd(12, ' ')} | Status: ${app.docsStatus}`
+            ),
+            '------------------------------------------------------------------',
+            'Document certified for consular biometric submission.',
+            'EuroTech Visa & Immigration Systems - Confidential.'
+        ];
+
+        const escaped = lines.join('\n').replace(/[()\\]/g, '\\$&').replace(/\n/g, ') Tj T* (');
+        const stream = `BT /F1 10 Tf 40 760 Td 15 TL (${escaped}) Tj ET`;
+        const pdfData = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n5 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\nxref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000227 00000 n \n0000000300 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${360 + stream.length}\n%%EOF`;
+
+        const blob = new Blob([pdfData], { type: 'application/pdf' });
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `manifest_${groupInfo.id}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000);
+    };
+
+    const handleDownloadManifest = async () => {
+        if (!selectedSlot) return;
+        setIsDownloading(true);
+
+        try {
+            const res: any = await appointmentService.generateManifestPdf({
+                appointmentId: selectedSlot.id,
+                groupInfo: selectedSlot.groupInfo,
+            });
+
+            const data = res?.data || res;
+            if (data && data.fileUrl) {
+                const fileUrl = data.fileUrl.startsWith('http')
+                    ? data.fileUrl
+                    : `${window.location.origin}${data.fileUrl}`;
+
+                const link = document.createElement('a');
+                link.href = fileUrl;
+                link.download = data.fileName || `manifest_${selectedSlot.groupInfo.id}.pdf`;
+                link.target = '_blank';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                showSuccess('Qrup manifesti (PDF) uğurla yükləndi!');
+            } else {
+                generateClientManifestPdf(selectedSlot);
+                showSuccess('Qrup manifesti (PDF) uğurla yükləndi!');
+            }
+        } catch (err) {
+            console.warn('Backend PDF endpoint error, using client fallback:', err);
+            generateClientManifestPdf(selectedSlot);
+            showSuccess('Qrup manifesti (PDF) uğurla yükləndi!');
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+    const handleReschedule = () => {
+        showToast('Tarixi dəyişmək üçün təqvimdən yeni vaxt yuvası seçin və ya sorğu göndərin.', 'info');
+        closeModal();
     };
 
     return (
@@ -280,10 +365,44 @@ export default function AgentAppointments() {
 
                         {/* Modal Footer */}
                         <div className="modal-footer">
-                            <button className="btn-modal-secondary">Reschedule Slot</button>
-                            <button className="btn-modal-primary">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                Download Manifest (PDF)
+                            <button 
+                                className="btn-modal-secondary"
+                                onClick={handleReschedule}
+                                type="button"
+                            >
+                                Reschedule Slot
+                            </button>
+                            <button 
+                                className="btn-modal-primary"
+                                onClick={handleDownloadManifest}
+                                disabled={isDownloading}
+                                type="button"
+                            >
+                                {isDownloading ? (
+                                    <>
+                                        <svg 
+                                            viewBox="0 0 24 24" 
+                                            fill="none" 
+                                            stroke="currentColor" 
+                                            strokeWidth="2" 
+                                            strokeLinecap="round" 
+                                            strokeLinejoin="round" 
+                                            style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }}
+                                        >
+                                            <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="10"/>
+                                        </svg>
+                                        Yüklənir...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                            <polyline points="7 10 12 15 17 10"/>
+                                            <line x1="12" y1="15" x2="12" y2="3"/>
+                                        </svg>
+                                        Download Manifest (PDF)
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>

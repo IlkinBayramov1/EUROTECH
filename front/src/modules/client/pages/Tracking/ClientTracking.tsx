@@ -1,16 +1,43 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { dossierService } from '@/shared/api/services';
 import './ClientTracking.css';
 
 export default function ClientTracking() {
-    // Sərnişin Seçimi
+    const [dossier, setDossier] = useState<any>(null);
     const [selectedApplicant, setSelectedApplicant] = useState('app-1');
-    const applicants = [
-        { id: 'app-1', name: 'Ali Mammadov (Primary)' },
-        { id: 'app-2', name: 'Leyla Mammadova (Co-Applicant)' }
-    ];
+    const [applicants, setApplicants] = useState([
+        { id: 'app-1', name: 'Primary Applicant' },
+    ]);
 
-    // Viza Dəstək Şirkəti üçün məntiqi izləmə mərhələləri
-    const currentStep = 3; // Simulyasiya: 3-cü mərhələ (Submitted at VAC)
+    useEffect(() => {
+        dossierService.getMyDossiers()
+            .then(res => {
+                if (res.data?.dossiers && res.data.dossiers.length > 0) {
+                    const active = res.data.dossiers[0];
+                    setDossier(active);
+                    if (active.applicants && active.applicants.length > 0) {
+                        const mapped = active.applicants.map((a: any, idx: number) => ({
+                            id: a.id,
+                            name: `${a.firstName} ${a.lastName} (${idx === 0 ? 'Primary' : 'Co-Applicant'})`,
+                        }));
+                        setApplicants(mapped);
+                        setSelectedApplicant(mapped[0].id);
+                    }
+                }
+            })
+            .catch(() => {});
+    }, []);
+
+    // Map backend status to 1-5 steps
+    const currentStep = (() => {
+        switch (dossier?.status) {
+            case 'RECEIVED': return 1;
+            case 'UNDER_REVIEW': return 2;
+            case 'SUBMITTED_TO_CONSULATE': return 3;
+            case 'APPROVED': case 'REJECTED': return 5;
+            default: return 2;
+        }
+    })();
 
     const stages = [
         { id: 1, title: 'File Preparation', desc: 'Dossier compilation' },
@@ -20,8 +47,8 @@ export default function ClientTracking() {
         { id: 5, title: 'Passport Returned', desc: 'Ready for collection' }
     ];
 
-    // Proqress çubuğunun dolma faizi
     const progressPercentage = ((currentStep - 1) / (stages.length - 1)) * 100;
+    const dossierRef = dossier?.dossierNumber || '#ET-2026-8904';
 
     return (
         <div className="tracking-page-content fade-in">
@@ -29,7 +56,7 @@ export default function ClientTracking() {
             <div className="tracking-header-premium">
                 <div className="header-titles">
                     <h1 className="docs-title">Live Application Tracking</h1>
-                    <p className="docs-subtitle">Monitor the real-time status of your visa dossier. Reference: <strong>#ET-2026-8904</strong></p>
+                    <p className="docs-subtitle">Monitor the real-time status of your visa dossier. Reference: <strong>{dossierRef}</strong></p>
                 </div>
                 
                 <div className="header-actions-row">
@@ -52,7 +79,6 @@ export default function ClientTracking() {
             {/* Top Stepper (Premium Horizontal Timeline) */}
             <div className="tracking-stepper-card">
                 <div className="stepper-wrapper">
-                    {/* Arxa fon xətti və dolan xətt */}
                     <div className="stepper-track-bg"></div>
                     <div className="stepper-track-fill" style={{ width: `${progressPercentage}%` }}></div>
 
@@ -89,69 +115,70 @@ export default function ClientTracking() {
                         <h3>Detailed Tracking History</h3>
                         
                         <div className="vertical-timeline">
-                            {/* Mərhələ 3: Viza mərkəzində təhvil verildi */}
-                            <div className="timeline-item active">
-                                <div className="timeline-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                            {currentStep >= 3 && (
+                                <div className="timeline-item active">
+                                    <div className="timeline-icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                    </div>
+                                    <div className="timeline-content">
+                                        <h4>Application Submitted at VAC</h4>
+                                        <p>The applicant successfully attended the appointment at the official Visa Application Center (VAC). Biometrics were collected and the physical dossier was handed over. The application is now en route to the Embassy.</p>
+                                        <span className="timeline-date">Active Milestone</span>
+                                    </div>
                                 </div>
-                                <div className="timeline-content">
-                                    <h4>Application Submitted at VAC</h4>
-                                    <p>The applicant successfully attended the appointment at the official Visa Application Center (VAC). Biometrics were collected and the physical dossier was handed over. The application is now en route to the Embassy.</p>
-                                    <span className="timeline-date">Sep 6, 2026 • 10:45 AM</span>
-                                </div>
-                            </div>
+                            )}
 
-                            {/* Mərhələ 2: Randevu gözlənilir */}
-                            <div className="timeline-item">
-                                <div className="timeline-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            {currentStep >= 2 && (
+                                <div className={`timeline-item ${currentStep === 2 ? 'active' : 'completed'}`}>
+                                    <div className="timeline-icon">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    </div>
+                                    <div className="timeline-content">
+                                        <h4>Appointment Slot Reserved</h4>
+                                        <p>Biometric appointment confirmed at EuroTech Visa Center. Dossier files compiled and ready for review.</p>
+                                        <span className="timeline-date">Confirmed Schedule</span>
+                                    </div>
                                 </div>
-                                <div className="timeline-content">
-                                    <h4>Ready for Appointment</h4>
-                                    <p>The dossier has been perfectly compiled by our experts. The applicant is scheduled to visit the Visa Application Center on Sep 6, 2026.</p>
-                                    <span className="timeline-date">Sep 2, 2026 • 15:30 PM</span>
-                                </div>
-                            </div>
+                            )}
 
-                            {/* Mərhələ 1: Sənədlərin hazırlanması */}
-                            <div className="timeline-item">
+                            <div className="timeline-item completed">
                                 <div className="timeline-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                                 </div>
                                 <div className="timeline-content">
-                                    <h4>File Preparation Initiated</h4>
-                                    <p>All required documents have been successfully verified by EuroTech. Our visa experts are compiling the final dossier and booking the embassy appointment.</p>
-                                    <span className="timeline-date">Aug 28, 2026 • 09:15 AM</span>
-                                </div>
-                            </div>
-
-                            {/* Mərhələ 0: İlkin ödəniş */}
-                            <div className="timeline-item">
-                                <div className="timeline-icon">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                                </div>
-                                <div className="timeline-content">
-                                    <h4>Service Request Confirmed</h4>
-                                    <p>Initial application wizard completed and premium services paid successfully.</p>
-                                    <span className="timeline-date">Aug 26, 2026 • 16:20 PM</span>
+                                    <h4>Dossier Initialized & Received</h4>
+                                    <p>Your online application was successfully registered in the EuroTech consular network. Reference code assigned.</p>
+                                    <span className="timeline-date">{dossierRef}</span>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Sağ Tərəf: ETA və Dəstək */}
-                <aside className="tracking-sidebar-column">
-
-                    <div className="tracking-card support-card">
-                        <h3>Need Assistance?</h3>
-                        <p>If you have any questions regarding your appointment or application status, your dedicated visa expert is ready to assist.</p>
-                        <button className="btn-secondary support-btn">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                            Contact Support
-                        </button>
+                {/* Sağ Tərəf: Xülasə Kartı */}
+                <div className="tracking-summary-column">
+                    <div className="tracking-card">
+                        <h3>Dossier Metadata</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E293B', paddingBottom: '10px' }}>
+                                <span style={{ color: '#94A3B8', fontSize: '13px' }}>Reference:</span>
+                                <strong style={{ color: '#F1F5F9', fontSize: '13px' }}>{dossierRef}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E293B', paddingBottom: '10px' }}>
+                                <span style={{ color: '#94A3B8', fontSize: '13px' }}>Destination:</span>
+                                <strong style={{ color: '#F1F5F9', fontSize: '13px' }}>{dossier?.country?.nameEn || 'Hungary'}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1E293B', paddingBottom: '10px' }}>
+                                <span style={{ color: '#94A3B8', fontSize: '13px' }}>Status:</span>
+                                <strong style={{ color: '#3B82F6', fontSize: '13px' }}>{dossier?.status || 'UNDER_REVIEW'}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#94A3B8', fontSize: '13px' }}>Travelers:</span>
+                                <strong style={{ color: '#F1F5F9', fontSize: '13px' }}>{applicants.length} Applicant(s)</strong>
+                            </div>
+                        </div>
                     </div>
-                </aside>
+                </div>
             </div>
         </div>
     );

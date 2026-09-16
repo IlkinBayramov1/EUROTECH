@@ -33,6 +33,8 @@ import CorporateFinance from '@/modules/corporate/pages/Finance/CorporateFinance
 import CorporateWizard from '@/modules/corporate/wizard/CorporateWizard';
 import CorporateDelegation from '@/modules/corporate/pages/Delegation/CorporateDelegation';
 
+import { ProtectedRoute } from '@/shared/components/ProtectedRoute';
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -45,10 +47,24 @@ export default function App() {
         <Route path="/login/corporate" element={<AuthPage type="corporate" />} />
 
         {/* --- INDIVIDUAL APPLICATION WIZARD --- */}
-        <Route path="/individual/wizard" element={<IndividualWizard />} />
+        <Route
+          path="/individual/wizard"
+          element={
+            <ProtectedRoute allowedRoles={['INDIVIDUAL', 'ADMIN']} redirectPath="/login/individual">
+              <IndividualWizard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* --- CLIENT PORTAL ROUTES --- */}
-        <Route path="/client" element={<ClientLayout />}>
+        <Route
+          path="/client"
+          element={
+            <ProtectedRoute allowedRoles={['INDIVIDUAL', 'ADMIN']} redirectPath="/login/individual">
+              <ClientLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<ClientDashboard />} />
           <Route path="documents" element={<ClientDocuments />} />
           <Route path="application" element={<ClientApplication />} />
@@ -59,7 +75,14 @@ export default function App() {
         </Route>
 
         {/* --- AGENT PORTAL ROUTES --- */}
-        <Route path="/agent" element={<AgentLayout />}>
+        <Route
+          path="/agent"
+          element={
+            <ProtectedRoute allowedRoles={['AGENT', 'AGENT_TUR_OPERATOR', 'ADMIN']} redirectPath="/login/agent">
+              <AgentLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<AgentDashboard />} />
           <Route path="groups" element={<AgentGroups />} />
           <Route path="finance" element={<AgentFinance />} />
@@ -67,10 +90,24 @@ export default function App() {
         </Route>
 
         {/* --- AGENT GROUP CREATION WIZARD --- */}
-        <Route path="/agent/create-group" element={<AgentWizard />} />
+        <Route
+          path="/agent/create-group"
+          element={
+            <ProtectedRoute allowedRoles={['AGENT', 'AGENT_TUR_OPERATOR', 'ADMIN']} redirectPath="/login/agent">
+              <AgentWizard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* --- CORPORATE PORTAL ROUTES --- */}
-        <Route path="/corporate" element={<CorporateLayout />}>
+        <Route
+          path="/corporate"
+          element={
+            <ProtectedRoute allowedRoles={['CORPORATE', 'CORPORATE_HR', 'ADMIN']} redirectPath="/login/corporate">
+              <CorporateLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<CorporateDashboard />} />
           <Route path="batches" element={<CorporateBatches />} />
           <Route path="employees" element={<CorporateEmployees />} />
@@ -78,7 +115,14 @@ export default function App() {
           <Route path="finance" element={<CorporateFinance />} />
         </Route>
 
-        <Route path="/corporate/create-batch" element={<CorporateWizard />} />
+        <Route
+          path="/corporate/create-batch"
+          element={
+            <ProtectedRoute allowedRoles={['CORPORATE', 'CORPORATE_HR', 'ADMIN']} redirectPath="/login/corporate">
+              <CorporateWizard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* --- PUBLIC CORPORATE GUEST DELEGATION FORM --- */}
         <Route path="/corporate/delegation" element={<CorporateDelegation />} />
