@@ -22,5 +22,7 @@ router.post(
   requireRoles(['OPERATOR', 'MANAGER', 'ADMIN']),
   documentController.sendFeedback
 );
+router.get('/dossier/:dossierId/export-checklist', documentController.exportChecklist);
+router.delete('/:documentId', documentController.deleteDocument);
 
 module.exports = router;

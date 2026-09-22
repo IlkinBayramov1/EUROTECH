@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User, UserRole, LoginCredentials, RegisterPayload } from '../types/auth.types';
 import { storage } from '../utils/storage';
@@ -12,6 +13,7 @@ interface AuthContextType {
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => void;
   setRoleOverride: (role: UserRole) => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,23 +24,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // Initial sync
+    // Initial sync from tab-scoped sessionStorage
     const token = storage.getToken();
     const storedUser = storage.getUser<User>();
     const storedRole = storage.getRole() as UserRole;
 
-    if (token && storedUser) {
-      setUser(storedUser);
-      setRole(storedRole || storedUser.role);
+    if (!token || !storedUser) {
+      setUser(null);
+      setRole(null);
+      setIsLoading(false);
+      return;
     }
-    setIsLoading(false);
+
+    // Populate active tab state
+    setUser(storedUser);
+    setRole(storedRole || storedUser.role);
+
+    // Verify token with backend to ensure session is authentic and unexpired
+    apiClient.get('/auth/profile')
+      .then((res: any) => {
+        if (res.data?.user) {
+          const freshUser = res.data.user;
+          setUser(freshUser);
+          setRole(freshUser.role);
+          storage.setUser(freshUser);
+          storage.setRole(freshUser.role);
+        }
+      })
+      .catch((err: any) => {
+        // If 401/403 or invalid token, terminate session immediately
+        if (err?.status === 401 || err?.status === 403) {
+          storage.clearAll();
+          setUser(null);
+          setRole(null);
+        }
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   const login = async (credentials: LoginCredentials) => {
+    const rawId = (credentials.identifier || credentials.email || credentials.username || credentials.passportNumber || '').trim();
+    
+    const body: Record<string, any> = { 
+      password: credentials.password,
+      expectedRole: credentials.expectedRole,
+      portalRole: credentials.portalRole,
+    };
+    if (rawId.includes('@')) {
+      body.email = rawId;
+    } else if (rawId.toUpperCase().startsWith('EUR')) {
+      body.username = rawId;
+    } else {
+      body.loginIdentifier = rawId;
+      body.passportNumber = rawId;
+    }
+
+    if (credentials.rememberMe && rawId) {
+      storage.saveRememberMe(rawId);
+    } else if (credentials.rememberMe === false) {
+      storage.clearRememberMe();
+    }
+
     try {
-      const res = await apiClient.post('/auth/login', credentials);
+      const res = await apiClient.post('/auth/login', body);
       if (res.success && res.data) {
         const { user: authUser, accessToken } = res.data;
+
+        // Strict defense-in-depth portal validation
+        if (credentials.expectedRole && authUser.role !== 'ADMIN') {
+          const isMatching = 
+            (credentials.expectedRole === 'AGENT_TUR_OPERATOR' && (authUser.role === 'AGENT_TUR_OPERATOR' || authUser.role === 'AGENT')) ||
+            (credentials.expectedRole === 'CORPORATE_HR' && (authUser.role === 'CORPORATE_HR' || authUser.role === 'CORPORATE')) ||
+            (credentials.expectedRole === 'INDIVIDUAL' && authUser.role === 'INDIVIDUAL');
+
+          if (!isMatching) {
+            storage.clearAll();
+            throw new Error('Invalid email, passport number or password.');
+          }
+        }
+
         storage.setToken(accessToken);
         storage.setUser(authUser);
         storage.setRole(authUser.role);
@@ -47,21 +113,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
     } catch (error: any) {
-      // If it's an explicit 400/401/403 credentials error, rethrow so UI can notify
-      if (error?.status && error.status < 500) {
-        throw error;
-      }
-      console.warn('Backend login request fallback:', error);
-      const mockUser: User = {
-        id: 'mock-user-1',
-        email: credentials.email,
-        role: role || 'INDIVIDUAL',
-        fullName: credentials.email.split('@')[0],
-        firstName: credentials.email.split('@')[0],
-      };
-      storage.setToken('mock-dev-token');
-      storage.setUser(mockUser);
-      setUser(mockUser);
+      // Ensure failed logins rethrow to display error toast
+      storage.clearAll();
+      setUser(null);
+      setRole(null);
+      throw error;
     }
   };
 
@@ -134,8 +190,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const setRoleOverride = (newRole: UserRole) => {
-    storage.setRole(newRole);
-    setRole(newRole);
+    if (!user) {
+      storage.setRole(newRole);
+      setRole(newRole);
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+      const res: any = await apiClient.get('/auth/profile');
+      if (res.data?.user) {
+        const freshUser = res.data.user;
+        setUser(freshUser);
+        storage.setUser(freshUser);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh user profile:', err);
+    }
   };
 
   return (
@@ -149,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         register,
         logout,
         setRoleOverride,
+        refreshUser,
       }}
     >
       {children}

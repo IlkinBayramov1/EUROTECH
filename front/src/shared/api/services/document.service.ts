@@ -24,4 +24,11 @@ export const documentService = {
 
   getSignedUrl: (documentId: string) =>
     apiClient.get(`/documents/${documentId}/signed-url`),
+
+  deleteDocument: (documentId: string) =>
+    apiClient.delete(`/documents/${documentId}`),
+
+  exportChecklist: (dossierId: string, format: 'pdf' | 'excel' = 'pdf') =>
+    apiClient.get(`/documents/dossier/${dossierId}/export-checklist?format=${format}`),
 };
+

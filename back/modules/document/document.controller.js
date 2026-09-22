@@ -75,10 +75,44 @@ async function downloadDocument(req, res, next) {
   }
 }
 
+async function deleteDocument(req, res, next) {
+  try {
+    const { documentId } = req.params;
+    const result = await documentService.deleteDocument(documentId, req.user);
+    return ApiResponse.success(res, result, 'Document deleted successfully');
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
+async function exportChecklist(req, res, next) {
+  try {
+    const { dossierId } = req.params;
+    const format = (req.query.format || 'pdf').toLowerCase();
+
+    if (format === 'excel' || format === 'csv') {
+      const { csvContent, fileName } = await documentService.exportChecklistExcel(dossierId, req.user);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      return res.send(csvContent);
+    } else {
+      const { filePath, fileName } = await documentService.generateChecklistPdf(dossierId, req.user);
+      return res.download(filePath, fileName);
+    }
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
 module.exports = {
   uploadDocument,
   reviewDocument,
   getSignedUrl,
   downloadDocument,
   sendFeedback,
+  deleteDocument,
+  exportChecklist,
 };
+

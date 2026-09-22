@@ -5,15 +5,21 @@ const { getText } = require('../i18n');
 
 module.exports = async function authMiddleware(req, res, next) {
   try {
+    let token = null;
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query && req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: getText('UNAUTHORIZED', req.lang),
       });
     }
 
-    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, env.JWT_SECRET);
 
     const user = await prisma.user.findUnique({

@@ -271,11 +271,16 @@
     letter-spacing: -0.5px;
 }
 
+.app-step-desc,
 .step-desc {
     color: var(--color-neutral);
     font-size: 0.95rem;
     margin: 0 0 32px 0;
     line-height: 1.5;
+    max-width: 100%;
+    width: 100%;
+    text-align: left;
+    display: block;
 }
 
 /* Form Grid & Inputs */

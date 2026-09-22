@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import type { ApplicantData } from '../AgentWizard';
+import { useToast } from '@/shared/context/ToastContext';
 
 interface Step3Props {
     data: {
@@ -10,6 +11,8 @@ interface Step3Props {
 }
 
 export default function Step3GroupApplicants({ data, updateData }: Step3Props) {
+    const { showSuccess, showError } = useToast();
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
     
     // Function to add a new empty applicant
     const handleAddApplicant = () => {
@@ -42,6 +45,51 @@ export default function Step3GroupApplicants({ data, updateData }: Step3Props) {
         updateData('applicants', updated);
     };
 
+    // CSV File Upload Parser for Tour Groups
+    const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const text = event.target?.result as string;
+                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length < 2) {
+                    showError('CSV file is empty or missing header row.');
+                    return;
+                }
+
+                const newApplicants: ApplicantData[] = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+                    if (cols.length >= 2) {
+                        newApplicants.push({
+                            id: `app-csv-${Date.now()}-${i}`,
+                            firstName: cols[0] || 'Traveler',
+                            lastName: cols[1] || '',
+                            dob: cols[2] || '1995-05-15',
+                            passportNumber: (cols[3] || `C${Math.floor(1000000 + Math.random() * 9000000)}`).toUpperCase(),
+                            issueDate: cols[4] || '2021-01-01',
+                            expiryDate: cols[5] || '2031-01-01',
+                            documents: { passport: false, photo: false }
+                        });
+                    }
+                }
+
+                if (newApplicants.length > 0) {
+                    updateData('applicants', [...data.applicants, ...newApplicants]);
+                    showSuccess(`Successfully imported ${newApplicants.length} applicant(s) from CSV!`);
+                } else {
+                    showError('No valid applicant rows found in CSV.');
+                }
+            } catch (err) {
+                showError('Failed to parse CSV file.');
+            }
+        };
+        reader.readAsText(file);
+    };
+
     return (
         <div className="step-content fade-in">
             <h1 className="step-title">Group & Applicants Form</h1>
@@ -62,12 +110,25 @@ export default function Step3GroupApplicants({ data, updateData }: Step3Props) {
             </div>
 
             {/* Section Divider */}
-            <div className="section-divider">
+            <div className="section-divider" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3>Group Members ({data.applicants.length})</h3>
-                <button className="btn-add-applicant" onClick={handleAddApplicant} type="button">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    Add Applicant
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleCsvUpload} 
+                        style={{ display: 'none' }} 
+                        accept=".csv" 
+                    />
+                    <button className="btn-add-applicant" onClick={() => fileInputRef.current?.click()} type="button" style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Upload CSV
+                    </button>
+                    <button className="btn-add-applicant" onClick={handleAddApplicant} type="button">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Applicant
+                    </button>
+                </div>
             </div>
 
             {/* 2. Applicant List */}

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { appointmentService } from '@/shared/api/services/appointment.service';
 
 interface Step4Props {
     data: {
@@ -12,14 +13,30 @@ interface Step4Props {
 export default function Step4Appointments({ data, updateData }: Step4Props) {
     // Calendar State
     const [currentViewDate, setCurrentViewDate] = useState(new Date());
+    const [timeSlots, setTimeSlots] = useState<{ id: string; label: string; status: 'available' | 'full' }[]>([
+        { id: '09:00 AM', label: '09:00 AM', status: 'available' },
+        { id: '10:30 AM', label: '10:30 AM', status: 'available' },
+        { id: '13:00 PM', label: '13:00 PM', status: 'available' },
+        { id: '14:30 PM', label: '14:30 PM', status: 'available' },
+        { id: '16:00 PM', label: '16:00 PM', status: 'available' },
+    ]);
 
-    // Time slots (Simple format)
-    const timeSlots = [
-        { id: '09:00', label: '09:00', status: 'available' },
-        { id: '13:00', label: '13:00', status: 'available' },
-        { id: '14:30', label: '14:30', status: 'available' },
-        { id: '16:00', label: '16:00', status: 'available' },
-    ];
+    useEffect(() => {
+        if (!data.appointmentDate) return;
+        appointmentService.getSlots(data.appointmentDate)
+            .then(res => {
+                if (res.data?.slots && res.data.slots.length > 0) {
+                    const mapped = res.data.slots.map((s: any) => ({
+                        id: s.startTime,
+                        label: s.startTime,
+                        status: s.bookedCount >= s.capacity ? 'full' : 'available',
+                    }));
+                    setTimeSlots(mapped);
+                }
+            })
+            .catch(() => {});
+    }, [data.appointmentDate]);
+
 
     const groupSize = data.applicants?.length || 1;
 

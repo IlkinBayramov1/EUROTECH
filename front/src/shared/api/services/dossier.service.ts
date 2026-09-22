@@ -35,4 +35,20 @@ export const dossierService = {
 
   getVisaCategories: (countryId: string) =>
     apiClient.get(`/templates/visa-categories/${countryId}`),
+
+  updateApplicantForm: (dossierId: string, applicantId: string, formData: any) =>
+    apiClient.patch(`/dossiers/${dossierId}/applicants/${applicantId}/form`, { formData }),
+
+  deleteApplicant: (dossierId: string, applicantId: string) =>
+    apiClient.delete(`/dossiers/${dossierId}/applicants/${applicantId}`),
+
+  getApplicationFormPdf: (dossierId: string, applicantId: string, customData?: any) =>
+    apiClient.post(`/dossiers/${dossierId}/applicants/${applicantId}/application-pdf`, customData || {}),
+
+  getDossierSummaryPdf: (dossierId: string) =>
+    apiClient.get(`/dossiers/${dossierId}/summary-pdf`),
+
+  getTracking: (dossierIdOrRef: string) =>
+    apiClient.get(`/dossiers/track/${dossierIdOrRef}`),
 };
+

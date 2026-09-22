@@ -26,29 +26,33 @@ export default function CorporateDelegation() {
   const [passportExpiry, setPassportExpiry] = useState('');
   const [phone, setPhone] = useState('');
 
+  const [tokenError, setTokenError] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadProfile() {
       if (!token) {
+        setTokenError('No delegation token provided. Please use the complete link sent by your HR team.');
         setLoading(false);
         return;
       }
       try {
         const res = await apiClient.get(`/corporate/delegation/profile?token=${token}`);
-        if (res && res.data && res.data.profile) {
-          setProfile(res.data.profile);
-          if (res.data.profile.passportNumber) {
-            setPassportNumber(res.data.profile.passportNumber);
+        if (res && res.data) {
+          const prof = res.data.profile || res.data;
+          setProfile(prof);
+          if (prof.passportNumber) {
+            setPassportNumber(prof.passportNumber);
+          }
+          if (prof.passportExpiry) {
+            setPassportExpiry(String(prof.passportExpiry).split('T')[0]);
+          }
+          if (prof.phone) {
+            setPhone(prof.phone);
           }
         }
       } catch (err: any) {
         console.warn('Delegation profile load error:', err);
-        // Fallback mock profile
-        setProfile({
-          firstName: 'Corporate',
-          lastName: 'Guest',
-          companyName: 'EuroTech Partner LLC',
-          jobTitle: 'Delegated Employee',
-        });
+        setTokenError(err.message || 'This employee delegation link is invalid or has expired. Please contact your company HR.');
       } finally {
         setLoading(false);
       }
@@ -58,14 +62,21 @@ export default function CorporateDelegation() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!token) return;
+
     setSubmitting(true);
     try {
-      // Simulate or submit profile update
-      await new Promise((r) => setTimeout(r, 1000));
-      showSuccess('Your application details have been submitted to HR.');
+      await apiClient.post('/corporate/delegation/submit', {
+        token,
+        passportNumber,
+        dob,
+        passportExpiry,
+        phone,
+      });
+      showSuccess('Your application details have been saved to your corporate file.');
       setIsCompleted(true);
     } catch (err: any) {
-      showError(err.message || 'Submission failed.');
+      showError(err.message || 'Submission failed. Please check your data and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -75,6 +86,27 @@ export default function CorporateDelegation() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spinner />
+      </div>
+    );
+  }
+
+  if (tokenError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+        <Card style={{ maxWidth: '500px', textAlign: 'center', padding: '40px 30px' }}>
+          <div style={{ color: '#EF4444', marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
+            <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-primary)' }}>
+            Invalid or Expired Delegation Link
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', margin: '12px 0 24px', lineHeight: 1.6 }}>
+            {tokenError}
+          </p>
+          <Button variant="outline" onClick={() => navigate('/')}>
+            Back to Portal Home
+          </Button>
+        </Card>
       </div>
     );
   }

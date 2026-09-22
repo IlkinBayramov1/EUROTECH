@@ -8,71 +8,62 @@ import { useToast } from '@/shared/context/ToastContext';
 import './ClientPrivacy.css';
 
 export default function ClientPrivacy() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { showSuccess, showError } = useToast();
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
-  const [isExportingJson, setIsExportingJson] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [anonymizing, setAnonymizing] = useState(false);
   const [confirmedName, setConfirmedName] = useState('');
 
-  // Fetch GDPR data payload with safe fallback
+  // Format Helpers
+  const formatDocType = (rawType: string) => {
+    switch (rawType) {
+      case 'PASSPORT': return 'International Passport Scan';
+      case 'FLIGHT_ITINERARY': return 'Roundtrip Flight Reservation';
+      case 'BIOMETRIC_PHOTO': return 'ICAO Biometric Photograph';
+      case 'INSURANCE': return 'Schengen Travel Medical Insurance';
+      case 'FINANCIAL': return 'Bank Statement & Solvency Proof';
+      case 'EMPLOYMENT': return 'Employment & Income Verification';
+      case 'HOTEL_BOOKING': return 'Accommodation / Hotel Voucher';
+      default: return String(rawType || 'DOCUMENT').replace(/_/g, ' ');
+    }
+  };
+
+  const formatServiceTitle = (serviceType: string) => {
+    switch (serviceType) {
+      case 'PREMIUM_LOUNGE': return 'Premium VIP Consular Lounge Access';
+      case 'FILE_PREPARATION': return 'Professional File & Dossier Preparation';
+      case 'BIOMETRIC_PHOTO': return 'ICAO Standard Biometric Photography';
+      case 'EXPRESS_PROCESSING': return 'Consular Express Fast-Track Service';
+      case 'TRAVEL_INSURANCE': return 'Schengen Travel Medical Insurance (30k EUR)';
+      case 'TRANSLATION_APOSTILLE': return 'Certified Translation & Legal Apostille';
+      case 'COURIER': return 'Secure Passport Courier Delivery';
+      case 'FLIGHT_BOOKING': return 'Confirmed Flight Reservation Voucher';
+      case 'HOTEL_BOOKING': return 'Confirmed Hotel Accommodation Voucher';
+      default: return String(serviceType || '').replace(/_/g, ' ');
+    }
+  };
+
+  // Fetch GDPR data payload from real backend database
   const fetchGdprData = async () => {
     try {
-      const res = await apiClient.get('/privacy/export-data');
+      const res: any = await apiClient.get('/privacy/export-data');
       if (res && res.data) {
         return res.data;
       }
-    } catch (e) {
-      console.warn('API export error, using active session data:', e);
+      throw new Error('No data received from GDPR export service.');
+    } catch (e: any) {
+      console.error('API export error:', e);
+      showError(e?.message || 'Failed to fetch personal GDPR data.');
+      throw e;
     }
-
-    // Fallback data package from current session
-    return {
-      gdprNotice: 'EuroTech GDPR Personal Data Portability Archive',
-      exportedAt: new Date().toISOString(),
-      user: {
-        id: user?.id || 'EUR-AZ-64764',
-        fullName: user?.fullName || `${user?.firstName || 'İlkin'} ${user?.lastName || 'Bayramov'}`.trim(),
-        email: user?.email || 'bayramovilkin500@gmail.com',
-        phone: user?.phone || '+994 50 123 45 67',
-        role: user?.role || 'CLIENT',
-        createdAt: user?.createdAt || new Date().toISOString(),
-        dossiers: [
-          {
-            id: 'dossier-01',
-            dossierNumber: 'HU-AZ-2026-91529',
-            status: 'RECEIVED',
-            countryId: 'Hungary',
-            visaCategoryId: 'Schengen C (Short Stay)',
-            createdAt: new Date().toISOString(),
-            applicants: [
-              {
-                id: 'app-01',
-                firstName: user?.firstName || 'İlkin',
-                lastName: user?.lastName || 'Bayramov',
-                passportNumber: 'C1234567',
-                nationality: 'AZ',
-                birthDate: '1995-06-15',
-              },
-            ],
-            documents: [
-              { type: 'PASSPORT_SCAN', fileName: 'passport_scan_az.pdf', status: 'VERIFIED', createdAt: new Date().toISOString() },
-              { type: 'BANK_STATEMENT', fileName: 'pashabank_statement_3m.pdf', status: 'VERIFIED', createdAt: new Date().toISOString() },
-            ],
-            transactions: [
-              { id: 'TRX-101', description: 'Consular Visa Processing Fee', amount: 80.0, currency: 'EUR', paymentMethod: 'Card', status: 'COMPLETED', createdAt: new Date().toISOString() },
-            ],
-          },
-        ],
-      },
-    };
   };
 
-  // 1. EXPORT TO MICROSOFT EXCEL (.xls SpreadsheetML Multi-Sheet Workbook)
+  // 1. EXPORT TO MICROSOFT EXCEL (.xls SpreadsheetML Multi-Sheet Workbook with EuroTech Luxury Navy Design)
   const handleExportExcel = async () => {
     setIsExportingExcel(true);
     try {
@@ -94,121 +85,283 @@ export default function ClientPrivacy() {
       const cell = (val: any, styleId = 'Cell', type = 'String') =>
         `<Cell ss:StyleID="${styleId}"><Data ss:Type="${type}">${esc(val)}</Data></Cell>`;
 
-      const row = (cells: string[]) => `<Row>${cells.join('')}</Row>`;
+      const row = (cells: string[]) => `<Row ss:AutoFitHeight="1">${cells.join('')}</Row>`;
 
-      // Sheet 1: User Profile
+      // Sheet 1: User Profile & System Metadata
       const profileRows = [
-        row([cell('EUROTECH SERVICES - PERSONAL DATA EXPORT (GDPR ARTICLE 20)', 'Title')]),
-        row([cell(`Export Generated: ${exportedAt} | Encryption Standard: AES-256-GCM`, 'Sub')]),
+        row([cell('EUROTECH IMMIGRATION & MOBILITY — ŞƏXSİ VERİLƏNLƏRİN İXRACI (GDPR ARTICLE 20)', 'Title')]),
+        row([cell(`İxrac Tarixi: ${exportedAt} | Şifrələmə Standartı: AES-256-GCM / ISO-27001`, 'Sub')]),
         row([]),
-        row([cell('Data Field', 'Header'), cell('Stored Value', 'Header'), cell('Legal Category', 'Header')]),
-        row([cell('Full Name'), cell(userData.fullName || 'N/A'), cell('Identity PII')]),
-        row([cell('Email Address'), cell(userData.email || 'N/A'), cell('Contact PII')]),
-        row([cell('Phone Number'), cell(userData.phone || 'N/A'), cell('Contact PII')]),
-        row([cell('Client System ID'), cell(userData.id || 'N/A'), cell('System Identifier')]),
-        row([cell('System Role'), cell(userData.role || 'CLIENT'), cell('Authorization')]),
-        row([cell('Account Registered Date'), cell(userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : 'N/A'), cell('Audit Timestamp')]),
-        row([cell('Data Protection Standard'), cell('AES-256-GCM at rest, HMAC Blind Index, TLS 1.3'), cell('Cryptographic Spec')]),
+        row([cell('Məlumat Sahəsi', 'HeaderNavy'), cell('Saxlanılan Dəyər', 'HeaderNavy'), cell('Hüquqi Kateqoriya / Standart', 'HeaderNavy')]),
+        row([cell('Tam Ad və Soyad', 'Cell'), cell(userData.fullName || '—', 'Cell'), cell('Şəxsi İdentifikator (PII)', 'Cell')]),
+        row([cell('E-poçt Ünvanı', 'CellZebra'), cell(userData.email || '—', 'CellZebra'), cell('Əlaqə Məlumatı (PII)', 'CellZebra')]),
+        row([cell('Əlaqə Telefonu', 'Cell'), cell(userData.phone || '—', 'Cell'), cell('Əlaqə Məlumatı (PII)', 'Cell')]),
+        row([cell('İstifadəçi Sistem ID', 'CellZebra'), cell(userData.id || '—', 'CellZebra'), cell('Sistem İdentifikatoru', 'CellZebra')]),
+        row([cell('Sistem Rolu', 'Cell'), cell(userData.role || 'CLIENT', 'Cell'), cell('Səlahiyyət Təyinatı', 'Cell')]),
+        row([cell('Seçilmiş Dil', 'CellZebra'), cell((userData.preferredLanguage || 'az').toUpperCase(), 'CellZebra'), cell('İstifadəçi Tərcihi', 'CellZebra')]),
+        row([cell('Hesab Qeydiyyat Tarixi', 'Cell'), cell(userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : '—', 'Cell'), cell('Audit Qeydiyyatı', 'Cell')]),
+        row([cell('Kriptoqrafik Qorunma', 'CellZebra'), cell('AES-256-GCM at rest, HMAC Blind Index, TLS 1.3', 'CellZebra'), cell('Maddə 32 Texniki Tələb', 'CellZebra')]),
+        row([cell('Hüquqi Əsas', 'Cell'), cell('Avropa İttifaqı GDPR Nizamnaməsi (EU 2016/679) Maddə 15 və Maddə 20', 'Cell'), cell('Hüquqi Reqlament', 'Cell')]),
       ];
 
       // Sheet 2: Dossiers & Applications
       const dossierRows = [
-        row([cell('IMMIGRATION DOSSIERS & APPLICATIONS', 'Title')]),
-        row([cell(`Total Dossiers: ${dossiers.length}`, 'Sub')]),
+        row([cell('VİZA VƏ İMMİQRASİYA FAYLLARI (IMMIGRATION DOSSIERS)', 'Title')]),
+        row([cell(`Qeydiyyatdakı Ümumi Fayl Sayı: ${dossiers.length}`, 'Sub')]),
         row([]),
-        row([cell('Dossier Ref', 'Header'), cell('Status', 'Header'), cell('Destination', 'Header'), cell('Visa Category', 'Header'), cell('Created Date', 'Header')]),
+        row([
+          cell('Dosye Nömrəsi', 'HeaderNavy'),
+          cell('Status', 'HeaderNavyCenter'),
+          cell('Təyinat Ölkəsi', 'HeaderNavy'),
+          cell('Viza Kateqoriyası', 'HeaderNavy'),
+          cell('Dövlət Rüsumu', 'HeaderNavyRight'),
+          cell('Xidmət Haqqı', 'HeaderNavyRight'),
+          cell('Əlavə Xidmətlər', 'HeaderNavyRight'),
+          cell('Cəmi Məbləğ', 'HeaderNavyRight'),
+          cell('Ödəniş Statusu', 'HeaderNavyCenter'),
+          cell('Müraciət Tarixi', 'HeaderNavyCenter'),
+        ]),
       ];
       if (dossiers.length === 0) {
-        dossierRows.push(row([cell('No active dossiers recorded', 'Cell')]));
+        dossierRows.push(row([cell('Qeydiyyatda heç bir aktiv viza dosyesi tapılmadı', 'Cell')]));
       } else {
-        dossiers.forEach((d: any) => {
+        dossiers.forEach((d: any, i: number) => {
+          const destCountry = d.country?.nameEn || d.country?.nameAz || d.countryId || '—';
+          const visaCat = d.visaCategory?.nameEn || d.visaCategory?.nameAz || d.visaCategoryId || '—';
+          const isZebra = i % 2 === 1;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const mStyle = isZebra ? 'MoneyCellZebra' : 'MoneyCell';
+          const payBadge = d.paymentStatus === 'PAID' ? 'BadgePaid' : 'BadgePending';
+
           dossierRows.push(
             row([
-              cell(d.dossierNumber || d.id),
-              cell(d.status || 'RECEIVED'),
-              cell(d.countryId || d.country?.nameEn || 'Hungary'),
-              cell(d.visaCategoryId || d.visaCategory?.nameEn || 'Schengen C'),
-              cell(d.createdAt ? new Date(d.createdAt).toLocaleDateString() : 'N/A'),
+              cell(d.dossierNumber || d.id, cStyle),
+              cell(d.status || 'RECEIVED', cCenter),
+              cell(destCountry, cStyle),
+              cell(visaCat, cStyle),
+              cell(d.governmentFee != null ? Number(d.governmentFee).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(d.serviceFee != null ? Number(d.serviceFee).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(d.extraServicesFee != null ? Number(d.extraServicesFee).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(d.totalAmount != null ? Number(d.totalAmount).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(d.paymentStatus || 'PENDING', payBadge),
+              cell(d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—', cCenter),
             ])
           );
         });
       }
 
-      // Sheet 3: Applicants
+      // Sheet 3: Applicants & Travelers
       const applicantRows = [
-        row([cell('REGISTERED APPLICANTS & TRAVELERS', 'Title')]),
+        row([cell('QEYDİYYATDA OLAN ƏRİZƏÇİLƏR VƏ SƏYAHƏTÇİLƏR', 'Title')]),
+        row([cell('Bütün qeydiyyatdan keçmiş əsas ərizəçilər və ailə üzvləri', 'Sub')]),
         row([]),
-        row([cell('Applicant ID', 'Header'), cell('Full Name', 'Header'), cell('Passport No.', 'Header'), cell('Nationality', 'Header'), cell('Birth Date', 'Header'), cell('Dossier Ref', 'Header')]),
+        row([
+          cell('Ərizəçi ID', 'HeaderNavy'),
+          cell('Tam Ad və Soyad', 'HeaderNavy'),
+          cell('Xarici Pasport', 'HeaderNavyCenter'),
+          cell('Vətəndaşlıq', 'HeaderNavyCenter'),
+          cell('Doğum Tarixi', 'HeaderNavyCenter'),
+          cell('Cins', 'HeaderNavyCenter'),
+          cell('Müraciət Rolu', 'HeaderNavy'),
+          cell('Əlaqəli Dosye', 'HeaderNavy'),
+        ]),
       ];
       let hasApplicants = false;
+      let appIdx = 0;
       dossiers.forEach((d: any) => {
-        (d.applicants || []).forEach((a: any) => {
+        (d.applicants || []).forEach((a: any, idx: number) => {
           hasApplicants = true;
+          const isZebra = appIdx % 2 === 1;
+          appIdx++;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const fullName = [a.firstName, a.lastName].filter(Boolean).join(' ') || (userData.fullName || '—');
+          const pass = a.passportNumber || (a.passportNumberEncrypted ? 'ENCRYPTED (AES-256)' : '—');
+
           applicantRows.push(
             row([
-              cell(a.id || 'APP-01'),
-              cell(`${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Applicant'),
-              cell(a.passportNumber || 'ENCRYPTED (AES-256)'),
-              cell(a.nationality || 'AZ'),
-              cell(a.birthDate ? new Date(a.birthDate).toLocaleDateString() : 'N/A'),
-              cell(d.dossierNumber || d.id),
+              cell(a.id ? a.id.substring(0, 10).toUpperCase() : `APP-${appIdx}`, cStyle),
+              cell(fullName, cStyle),
+              cell(pass, cCenter),
+              cell(a.nationality || '—', cCenter),
+              cell(a.birthDate ? new Date(a.birthDate).toLocaleDateString() : '—', cCenter),
+              cell(a.gender || '—', cCenter),
+              cell(idx === 0 ? 'Əsas Ərizəçi' : 'Birgə Səyahətçi', cStyle),
+              cell(d.dossierNumber || d.id, cStyle),
             ])
           );
         });
       });
       if (!hasApplicants) {
-        applicantRows.push(row([cell('No registered applicants', 'Cell')]));
+        applicantRows.push(row([cell('Qeydiyyatda ərizəçi tapılmadı', 'Cell')]));
       }
 
-      // Sheet 4: Documents
+      // Sheet 4: Uploaded Supporting Documents
       const docRows = [
-        row([cell('UPLOADED SUPPORTING DOCUMENTS', 'Title')]),
+        row([cell('TƏQDİM OLUNAN DƏSTƏKLƏYİCİ SƏNƏDLƏR', 'Title')]),
+        row([cell('Konsulluq yoxlaması üçün sistemə yüklənmiş sənədlər reyestri', 'Sub')]),
         row([]),
-        row([cell('Document Type', 'Header'), cell('File Name', 'Header'), cell('Verification Status', 'Header'), cell('Upload Date', 'Header'), cell('Dossier Ref', 'Header')]),
+        row([
+          cell('Sənəd Növü', 'HeaderNavy'),
+          cell('Faylın Adı', 'HeaderNavy'),
+          cell('Məcburilik', 'HeaderNavyCenter'),
+          cell('Yoxlama Statusu', 'HeaderNavyCenter'),
+          cell('Əlaqəli Dosye', 'HeaderNavy'),
+        ]),
       ];
       let hasDocs = false;
+      let docIdx = 0;
       dossiers.forEach((d: any) => {
         (d.documents || []).forEach((doc: any) => {
           hasDocs = true;
+          const isZebra = docIdx % 2 === 1;
+          docIdx++;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const docBadge = doc.status === 'VERIFIED' ? 'BadgeVerified' : (doc.status === 'PENDING' ? 'BadgePending' : cCenter);
+
           docRows.push(
             row([
-              cell(doc.type || 'SUPPORTING_DOC'),
-              cell(doc.originalName || doc.fileName || 'document.pdf'),
-              cell(doc.status || 'VERIFIED'),
-              cell(doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : 'N/A'),
-              cell(d.dossierNumber || d.id),
+              cell(formatDocType(doc.requiredDocumentType || doc.docType || doc.type), cStyle),
+              cell(doc.fileName || doc.originalName || '—', cStyle),
+              cell(doc.isMandatory !== false ? 'Məcburi' : 'Könüllü', cCenter),
+              cell(doc.status || 'PENDING', docBadge),
+              cell(d.dossierNumber || d.id, cStyle),
             ])
           );
         });
       });
       if (!hasDocs) {
-        docRows.push(row([cell('No uploaded documents recorded', 'Cell')]));
+        docRows.push(row([cell('Qeydiyyatda sənəd tapılmadı', 'Cell')]));
       }
 
-      // Sheet 5: Transactions
-      const txRows = [
-        row([cell('FINANCIAL TRANSACTIONS & SERVICES', 'Title')]),
+      // Sheet 5: Consular Biometrics Appointments
+      const apptRows = [
+        row([cell('KONSULLUQ VƏ BİOMETRİYA GÖRÜŞLƏRİ', 'Title')]),
+        row([cell('Təyin olunmuş konsulluq müsahibələri və biometrik qəbullar', 'Sub')]),
         row([]),
-        row([cell('Transaction ID', 'Header'), cell('Description', 'Header'), cell('Amount', 'Header'), cell('Currency', 'Header'), cell('Status', 'Header'), cell('Date', 'Header')]),
+        row([
+          cell('Görüş Ref', 'HeaderNavy'),
+          cell('Tarix', 'HeaderNavyCenter'),
+          cell('Saat', 'HeaderNavyCenter'),
+          cell('Konsulluq Mərkəzi / Ünvan', 'HeaderNavy'),
+          cell('Status', 'HeaderNavyCenter'),
+          cell('Əlaqəli Dosye', 'HeaderNavy'),
+        ]),
+      ];
+      let hasAppts = false;
+      let apptIdx = 0;
+      dossiers.forEach((d: any) => {
+        (d.appointments || []).forEach((ap: any) => {
+          hasAppts = true;
+          const isZebra = apptIdx % 2 === 1;
+          apptIdx++;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const aDate = ap.timeSlot?.date ? new Date(ap.timeSlot.date).toLocaleDateString() : '—';
+          const aTime = ap.timeSlot?.startTime || '—';
+          const aLoc = ap.location || ap.timeSlot?.location || 'EuroTech Visa Center';
+          const aRef = ap.id ? `ET-APT-${ap.id.substring(0, 8).toUpperCase()}` : '—';
+          const apptBadge = ap.status === 'CONFIRMED' ? 'BadgePaid' : 'BadgePending';
+
+          apptRows.push(
+            row([
+              cell(aRef, cStyle),
+              cell(aDate, cCenter),
+              cell(aTime, cCenter),
+              cell(aLoc, cStyle),
+              cell(ap.status || 'PENDING', apptBadge),
+              cell(d.dossierNumber || d.id, cStyle),
+            ])
+          );
+        });
+      });
+      if (!hasAppts) {
+        apptRows.push(row([cell('Təyin olunmuş konsulluq görüşü tapılmadı', 'Cell')]));
+      }
+
+      // Sheet 6: Purchased Value-Added Services (VAS)
+      const srvRows = [
+        row([cell('ƏLAVƏ DƏYƏR XİDMƏTLƏRİ (VALUE-ADDED SERVICES)', 'Title')]),
+        row([cell('Seçilmiş və aktivləşdirilmiş konsulluq xidmət paketləri', 'Sub')]),
+        row([]),
+        row([
+          cell('Xidmət Paketi', 'HeaderNavy'),
+          cell('Qiymət', 'HeaderNavyRight'),
+          cell('Fulfillment Statusu', 'HeaderNavyCenter'),
+          cell('Qeydiyyat Tarixi', 'HeaderNavyCenter'),
+          cell('Əlaqəli Dosye', 'HeaderNavy'),
+        ]),
+      ];
+      let hasSrv = false;
+      let srvIdx = 0;
+      dossiers.forEach((d: any) => {
+        (d.services || []).forEach((s: any) => {
+          hasSrv = true;
+          const isZebra = srvIdx % 2 === 1;
+          srvIdx++;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const mStyle = isZebra ? 'MoneyCellZebra' : 'MoneyCell';
+
+          srvRows.push(
+            row([
+              cell(formatServiceTitle(s.serviceType), cStyle),
+              cell(s.price != null ? Number(s.price).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(s.status || 'ACTIVE', 'BadgePaid'),
+              cell(s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—', cCenter),
+              cell(d.dossierNumber || d.id, cStyle),
+            ])
+          );
+        });
+      });
+      if (!hasSrv) {
+        srvRows.push(row([cell('Heç bir əlavə xidmət qeydiyyatı tapılmadı', 'Cell')]));
+      }
+
+      // Sheet 7: Financial Transactions & Invoices
+      const txRows = [
+        row([cell('MALİYYƏ VƏ ÖDƏNİŞ ƏMƏLİYYATLARI (FINANCIAL TRANSACTIONS)', 'Title')]),
+        row([cell('Konsulluq ödənişləri və rüsum tranzaksiyaları reyestri', 'Sub')]),
+        row([]),
+        row([
+          cell('Əməliyyat ID', 'HeaderNavy'),
+          cell('Ödəniş Provayderi', 'HeaderNavy'),
+          cell('Məbləğ', 'HeaderNavyRight'),
+          cell('Valyuta', 'HeaderNavyCenter'),
+          cell('Hesablaşma Statusu', 'HeaderNavyCenter'),
+          cell('Tarix', 'HeaderNavyCenter'),
+          cell('Əlaqəli Dosye', 'HeaderNavy'),
+        ]),
       ];
       let hasTx = false;
+      let txIdx = 0;
       dossiers.forEach((d: any) => {
         (d.transactions || []).forEach((t: any) => {
           hasTx = true;
+          const isZebra = txIdx % 2 === 1;
+          txIdx++;
+          const cStyle = isZebra ? 'CellZebra' : 'Cell';
+          const cCenter = isZebra ? 'CellZebraCenter' : 'CellCenter';
+          const mStyle = isZebra ? 'MoneyCellZebra' : 'MoneyCell';
+          const txBadge = t.status === 'PAID' ? 'BadgePaid' : 'BadgePending';
+
           txRows.push(
             row([
-              cell(t.id || 'TRX-101'),
-              cell(t.description || 'Consular Visa Processing Fee'),
-              cell(t.amount ? Number(t.amount).toFixed(2) : '0.00', 'Cell', 'Number'),
-              cell(t.currency || 'EUR'),
-              cell(t.status || 'COMPLETED'),
-              cell(t.createdAt ? new Date(t.createdAt).toLocaleDateString() : 'N/A'),
+              cell(t.id || '—', cStyle),
+              cell(t.paymentProvider || 'Portal Ödənişi', cStyle),
+              cell(t.amount != null ? Number(t.amount).toFixed(2) : '0.00', mStyle, 'Number'),
+              cell(t.currency || 'AZN', cCenter),
+              cell(t.status || 'PAID', txBadge),
+              cell(t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—', cCenter),
+              cell(d.dossierNumber || d.id, cStyle),
             ])
           );
         });
       });
       if (!hasTx) {
-        txRows.push(row([cell('No financial transactions recorded', 'Cell')]));
+        txRows.push(row([cell('Heç bir maliyyə əməliyyatı qeydə alınmayıb', 'Cell')]));
       }
 
       const excelXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -220,54 +373,190 @@ export default function ClientPrivacy() {
  xmlns:html="http://www.w3.org/TR/REC-html40">
  <Styles>
   <Style ss:ID="Default" ss:Name="Normal">
-   <Alignment ss:Vertical="Bottom"/>
+   <Alignment ss:Vertical="Center"/>
    <Borders/>
-   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="10" ss:Color="#1E293B"/>
   </Style>
   <Style ss:ID="Title">
-   <Font ss:FontName="Calibri" ss:Size="14" ss:Bold="1" ss:Color="#1E3A8A"/>
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#0F2744"/>
   </Style>
   <Style ss:ID="Sub">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
    <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#64748B"/>
   </Style>
-  <Style ss:ID="Header">
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
-   <Interior ss:Color="#107C41" ss:Pattern="Solid"/>
+  <Style ss:ID="HeaderNavy">
    <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Interior ss:Color="#0F2744" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
    <Borders>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0F172A"/>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0A192F"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="HeaderNavyRight">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Interior ss:Color="#0F2744" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0A192F"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="HeaderNavyCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Interior ss:Color="#0F2744" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#0A192F"/>
    </Borders>
   </Style>
   <Style ss:ID="Cell">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
    <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
-   <Alignment ss:Vertical="Center"/>
    <Borders>
     <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
    </Borders>
   </Style>
+  <Style ss:ID="CellCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellZebra">
+   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="CellZebraCenter">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Color="#1E293B"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="MoneyCell">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <NumberFormat ss:Format="#,##0.00 &quot;AZN&quot;"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F2744"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="MoneyCellZebra">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/>
+   <NumberFormat ss:Format="#,##0.00 &quot;AZN&quot;"/>
+   <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#0F2744"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="BadgePaid">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#166534"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#BBF7D0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="BadgePending">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#92400E"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#FDE68A"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="BadgeVerified">
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Interior ss:Color="#E0F2FE" ss:Pattern="Solid"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Bold="1" ss:Color="#0369A1"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#BAE6FD"/>
+   </Borders>
+  </Style>
  </Styles>
- <Worksheet ss:Name="User Profile">
-  <Table ss:DefaultColumnWidth="190">
+ <Worksheet ss:Name="Xülasə &amp; Şəxsiyyət">
+  <Table ss:DefaultColumnWidth="180">
+   <Column ss:Width="190"/>
+   <Column ss:Width="280"/>
+   <Column ss:Width="230"/>
    ${profileRows.join('\n   ')}
   </Table>
  </Worksheet>
- <Worksheet ss:Name="Dossiers">
-  <Table ss:DefaultColumnWidth="170">
+ <Worksheet ss:Name="Fayllar (Dossiers)">
+  <Table ss:DefaultColumnWidth="140">
+   <Column ss:Width="140"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="110"/>
    ${dossierRows.join('\n   ')}
   </Table>
  </Worksheet>
- <Worksheet ss:Name="Applicants">
-  <Table ss:DefaultColumnWidth="170">
+ <Worksheet ss:Name="Ərizəçilər">
+  <Table ss:DefaultColumnWidth="140">
+   <Column ss:Width="120"/>
+   <Column ss:Width="180"/>
+   <Column ss:Width="150"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="110"/>
+   <Column ss:Width="90"/>
+   <Column ss:Width="140"/>
+   <Column ss:Width="140"/>
    ${applicantRows.join('\n   ')}
   </Table>
  </Worksheet>
- <Worksheet ss:Name="Documents">
-  <Table ss:DefaultColumnWidth="180">
+ <Worksheet ss:Name="Sənədlər">
+  <Table ss:DefaultColumnWidth="160">
+   <Column ss:Width="240"/>
+   <Column ss:Width="250"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="140"/>
    ${docRows.join('\n   ')}
   </Table>
  </Worksheet>
- <Worksheet ss:Name="Transactions">
-  <Table ss:DefaultColumnWidth="160">
+ <Worksheet ss:Name="Qəbullar">
+  <Table ss:DefaultColumnWidth="140">
+   <Column ss:Width="140"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="100"/>
+   <Column ss:Width="250"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="140"/>
+   ${apptRows.join('\n   ')}
+  </Table>
+ </Worksheet>
+ <Worksheet ss:Name="Əlavə Xidmətlər">
+  <Table ss:DefaultColumnWidth="140">
+   <Column ss:Width="260"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="130"/>
+   <Column ss:Width="140"/>
+   ${srvRows.join('\n   ')}
+  </Table>
+ </Worksheet>
+ <Worksheet ss:Name="Maliyyə Əməliyyatları">
+  <Table ss:DefaultColumnWidth="140">
+   <Column ss:Width="180"/>
+   <Column ss:Width="160"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="80"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="120"/>
+   <Column ss:Width="140"/>
    ${txRows.join('\n   ')}
   </Table>
  </Worksheet>
@@ -291,49 +580,247 @@ export default function ClientPrivacy() {
     }
   };
 
-  // 2. EXPORT TO CSV (Standard Spreadsheet)
+  // 2. EXPORT TO CSV (Universal Structured Tabular CSV with Clear Tables & UTF-8 BOM)
   const handleExportCsv = async () => {
     setIsExportingCsv(true);
     try {
       const data = await fetchGdprData();
       const userData = data?.user || {};
       const dossiers = userData?.dossiers || [];
-      const lines: string[] = [];
+      const exportedAt = data?.exportedAt ? new Date(data.exportedAt).toLocaleString('en-US') : new Date().toLocaleString('en-US');
 
-      lines.push('EUROTECH SERVICES - GDPR ARTICLE 20 PERSONAL DATA EXPORT');
-      lines.push(`"Export Date","${data?.exportedAt || new Date().toISOString()}"`);
+      const lines: string[] = [];
+      const esc = (val: any) => {
+        if (val === null || val === undefined) return '""';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      };
+
+      // Manifest Header
+      lines.push(esc('EUROTECH IMMIGRATION & MOBILITY — RƏSMİ GDPR VERİLƏNLƏRİN DAŞINMASI MANİFESTİ'));
+      lines.push(`${esc('Hüquqi Əsas')},${esc('Avropa İttifaqı GDPR Nizamnaməsi (EU 2016/679) Maddə 20 (Data Portability)')}`);
+      lines.push(`${esc('İxrac Tarixi')},${esc(exportedAt)}`);
+      lines.push(`${esc('Hesab Sahibi')},${esc(userData.fullName || '—')}`);
+      lines.push(`${esc('E-poçt Ünvanı')},${esc(userData.email || '—')}`);
+      lines.push(`${esc('Əlaqə Nömrəsi')},${esc(userData.phone || '—')}`);
+      lines.push(`${esc('Təhlükəsizlik Standartı')},${esc('AES-256-GCM / HMAC-SHA256 Blind Index / ISO-27001')}`);
       lines.push('');
-      lines.push('--- USER PROFILE ---');
-      lines.push('Field,Value,Category');
-      lines.push(`"Full Name","${userData.fullName || ''}","Identity PII"`);
-      lines.push(`"Email","${userData.email || ''}","Contact PII"`);
-      lines.push(`"Phone","${userData.phone || ''}","Contact PII"`);
-      lines.push(`"Role","${userData.role || 'CLIENT'}","System Role"`);
-      lines.push(`"Registration Date","${userData.createdAt || ''}","Metadata"`);
+
+      // Table 1: User Profile & System Metadata
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 1: HESAB VƏ ŞƏXSİYYƏT MƏLUMATLARI (USER PROFILE & SYSTEM METADATA)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([esc('Məlumat Sahəsi'), esc('Saxlanılan Dəyər'), esc('Kateqoriya'), esc('Hüquqi Əsas')].join(','));
+      lines.push([esc('Tam Ad və Soyad'), esc(userData.fullName || '—'), esc('Şəxsi İdentifikator (PII)'), esc('Maddə 6(1)(b) Müqavilə Öhdəliyi')].join(','));
+      lines.push([esc('E-poçt Ünvanı'), esc(userData.email || '—'), esc('Əlaqə Məlumatı (PII)'), esc('Maddə 6(1)(b) Əlaqə və Bildiriş')].join(','));
+      lines.push([esc('Əlaqə Telefonu'), esc(userData.phone || '—'), esc('Əlaqə Məlumatı (PII)'), esc('Maddə 6(1)(b) Təcili Əlaqə')].join(','));
+      lines.push([esc('İstifadəçi Sistem ID'), esc(userData.id || '—'), esc('Sistem İdentifikatoru'), esc('Hesab Qeydiyyatı')].join(','));
+      lines.push([esc('Sistem Rolu'), esc(userData.role || 'CLIENT'), esc('Səlahiyyət Təyinatı'), esc('İcazə İdarəetməsi')].join(','));
+      lines.push([esc('Seçilmiş Dil'), esc((userData.preferredLanguage || 'az').toUpperCase()), esc('İstifadəçi Tərcihi'), esc('Portal Fərdiləşdirməsi')].join(','));
+      lines.push([esc('Qeydiyyat Tarixi'), esc(userData.createdAt ? new Date(userData.createdAt).toLocaleDateString() : '—'), esc('Audit Qeydiyyatı'), esc('Sistem Jurnalı')].join(','));
+      lines.push([esc('Kriptoqrafik Qorunma'), esc('AES-256-GCM Şifrələmə, TLS 1.3'), esc('Texniki Təhlükəsizlik'), esc('Maddə 32 Təhlükəsizlik Tələbi')].join(','));
       lines.push('');
-      lines.push('--- IMMIGRATION DOSSIERS ---');
-      lines.push('Dossier Number,Status,Destination,Visa Category,Created Date');
+
+      // Table 2: Immigration Dossiers
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 2: VİZA VƏ İMMİQRASİYA FAYLLARI (IMMIGRATION & VISA DOSSIERS)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Dosye Nömrəsi'),
+        esc('Status'),
+        esc('Təyinat Ölkəsi'),
+        esc('Viza Kateqoriyası'),
+        esc('Dövlət Rüsumu (AZN)'),
+        esc('Xidmət Haqqı (AZN)'),
+        esc('Əlavə Xidmətlər (AZN)'),
+        esc('Cəmi Məbləğ (AZN)'),
+        esc('Ödəniş Statusu'),
+        esc('Müraciət Tarixi'),
+      ].join(','));
+
+      if (dossiers.length === 0) {
+        lines.push(esc('Qeydiyyatda heç bir aktiv viza müraciəti tapılmadı.'));
+      } else {
+        dossiers.forEach((d: any) => {
+          const dest = d.country?.nameEn || d.country?.nameAz || d.countryId || '—';
+          const visaCat = d.visaCategory?.nameEn || d.visaCategory?.nameAz || d.visaCategoryId || '—';
+          const gFee = d.governmentFee != null ? Number(d.governmentFee).toFixed(2) : '0.00';
+          const sFee = d.serviceFee != null ? Number(d.serviceFee).toFixed(2) : '0.00';
+          const eFee = d.extraServicesFee != null ? Number(d.extraServicesFee).toFixed(2) : '0.00';
+          const tFee = d.totalAmount != null ? Number(d.totalAmount).toFixed(2) : '0.00';
+          lines.push([
+            esc(d.dossierNumber || d.id),
+            esc(d.status || 'RECEIVED'),
+            esc(dest),
+            esc(visaCat),
+            esc(gFee),
+            esc(sFee),
+            esc(eFee),
+            esc(tFee),
+            esc(d.paymentStatus || 'PENDING'),
+            esc(d.createdAt ? new Date(d.createdAt).toLocaleDateString() : '—'),
+          ].join(','));
+        });
+      }
+      lines.push('');
+
+      // Table 3: Registered Applicants & Travelers
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 3: QEYDİYYATDA OLAN ƏRİZƏÇİLƏR VƏ SƏYAHƏTÇİLƏR (REGISTERED APPLICANTS)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Ərizəçi ID'),
+        esc('Tam Ad və Soyad'),
+        esc('Xarici Pasport'),
+        esc('Vətəndaşlıq'),
+        esc('Doğum Tarixi'),
+        esc('Cins'),
+        esc('Müraciət Rolu'),
+        esc('Əlaqəli Dosye'),
+      ].join(','));
+
+      let appCount = 0;
       dossiers.forEach((d: any) => {
-        lines.push(`"${d.dossierNumber || d.id}","${d.status || ''}","${d.countryId || 'Hungary'}","${d.visaCategoryId || 'Schengen C'}","${d.createdAt || ''}"`);
-      });
-      lines.push('');
-      lines.push('--- APPLICANTS ---');
-      lines.push('Name,Passport,Nationality,Birth Date,Dossier');
-      dossiers.forEach((d: any) => {
-        (d.applicants || []).forEach((a: any) => {
-          lines.push(`"${a.firstName || ''} ${a.lastName || ''}","${a.passportNumber || ''}","${a.nationality || 'AZ'}","${a.birthDate || ''}","${d.dossierNumber || ''}"`);
+        (d.applicants || []).forEach((a: any, idx: number) => {
+          appCount++;
+          const fullName = [a.firstName, a.lastName].filter(Boolean).join(' ') || (userData.fullName || '—');
+          const pass = a.passportNumber || (a.passportNumberEncrypted ? 'ENCRYPTED (AES-256)' : '—');
+          lines.push([
+            esc(a.id ? a.id.substring(0, 10).toUpperCase() : `APP-${appCount}`),
+            esc(fullName),
+            esc(pass),
+            esc(a.nationality || '—'),
+            esc(a.birthDate ? new Date(a.birthDate).toLocaleDateString() : '—'),
+            esc(a.gender || '—'),
+            esc(idx === 0 ? 'Əsas Ərizəçi' : 'Birgə Səyahətçi'),
+            esc(d.dossierNumber || d.id),
+          ].join(','));
         });
       });
+      if (appCount === 0) lines.push(esc('Qeydiyyatda ərizəçi tapılmadı.'));
       lines.push('');
-      lines.push('--- DOCUMENTS ---');
-      lines.push('Document Type,File Name,Status,Upload Date,Dossier');
+
+      // Table 4: Supporting Documents
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 4: TƏQDİM OLUNAN SƏNƏDLƏR (SUPPORTING DOCUMENTS)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Sənəd Növü'),
+        esc('Faylın Adı'),
+        esc('Məcburilik Tələbi'),
+        esc('Yoxlama Statusu'),
+        esc('Əlaqəli Dosye'),
+      ].join(','));
+
+      let docCount = 0;
       dossiers.forEach((d: any) => {
         (d.documents || []).forEach((doc: any) => {
-          lines.push(`"${doc.type || ''}","${doc.fileName || ''}","${doc.status || ''}","${doc.createdAt || ''}","${d.dossierNumber || ''}"`);
+          docCount++;
+          lines.push([
+            esc(formatDocType(doc.requiredDocumentType || doc.docType || doc.type)),
+            esc(doc.fileName || doc.originalName || '—'),
+            esc(doc.isMandatory !== false ? 'Məcburi' : 'Könüllü'),
+            esc(doc.status || 'PENDING'),
+            esc(d.dossierNumber || d.id),
+          ].join(','));
         });
       });
+      if (docCount === 0) lines.push(esc('Qeydiyyatda sənəd tapılmadı.'));
+      lines.push('');
 
-      // UTF-8 BOM ensures Excel opens international characters without encoding corruption
+      // Table 5: Consular Biometrics Appointments
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 5: KONSULLUQ VƏ BİOMETRİYA GÖRÜŞLƏRİ (CONSULAR APPOINTMENTS)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Görüş Ref'),
+        esc('Tarix'),
+        esc('Saat İntervalı'),
+        esc('Konsulluq Mərkəzi / Ünvan'),
+        esc('Status'),
+        esc('Əlaqəli Dosye'),
+      ].join(','));
+
+      let aptCount = 0;
+      dossiers.forEach((d: any) => {
+        (d.appointments || []).forEach((ap: any) => {
+          aptCount++;
+          const aDate = ap.timeSlot?.date ? new Date(ap.timeSlot.date).toLocaleDateString() : '—';
+          const aTime = ap.timeSlot?.startTime || '—';
+          const aLoc = ap.location || ap.timeSlot?.location || 'EuroTech Visa Center';
+          const aRef = ap.id ? `ET-APT-${ap.id.substring(0, 8).toUpperCase()}` : '—';
+          lines.push([
+            esc(aRef),
+            esc(aDate),
+            esc(aTime),
+            esc(aLoc),
+            esc(ap.status || 'PENDING'),
+            esc(d.dossierNumber || d.id),
+          ].join(','));
+        });
+      });
+      if (aptCount === 0) lines.push(esc('Təyin olunmuş konsulluq görüşü tapılmadı.'));
+      lines.push('');
+
+      // Table 6: Value-Added Services (VAS)
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 6: ƏLAVƏ DƏYƏR XİDMƏTLƏRİ (VALUE-ADDED SERVICES MANIFEST)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Xidmət Paketi'),
+        esc('Qiymət (AZN)'),
+        esc('Fulfillment Statusu'),
+        esc('Qeydiyyat Tarixi'),
+        esc('Əlaqəli Dosye'),
+      ].join(','));
+
+      let srvCount = 0;
+      dossiers.forEach((d: any) => {
+        (d.services || []).forEach((s: any) => {
+          srvCount++;
+          lines.push([
+            esc(formatServiceTitle(s.serviceType)),
+            esc(s.price != null ? Number(s.price).toFixed(2) : '0.00'),
+            esc(s.status || 'ACTIVE'),
+            esc(s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'),
+            esc(d.dossierNumber || d.id),
+          ].join(','));
+        });
+      });
+      if (srvCount === 0) lines.push(esc('Əlavə xidmət qeydiyyatı tapılmadı.'));
+      lines.push('');
+
+      // Table 7: Financial Transactions & Invoices
+      lines.push(esc('========================================================================================================'));
+      lines.push(esc('CƏDVƏL 7: MALİYYƏ VƏ ÖDƏNİŞ ƏMƏLİYYATLARI (FINANCIAL TRANSACTIONS & BILLING)'));
+      lines.push(esc('========================================================================================================'));
+      lines.push([
+        esc('Əməliyyat ID'),
+        esc('Ödəniş Provayderi'),
+        esc('Məbləğ (AZN)'),
+        esc('Valyuta'),
+        esc('Hesablaşma Statusu'),
+        esc('Tarix'),
+        esc('Əlaqəli Dosye'),
+      ].join(','));
+
+      let txCount = 0;
+      dossiers.forEach((d: any) => {
+        (d.transactions || []).forEach((t: any) => {
+          txCount++;
+          lines.push([
+            esc(t.id || '—'),
+            esc(t.paymentProvider || 'Portal Ödənişi'),
+            esc(t.amount != null ? Number(t.amount).toFixed(2) : '0.00'),
+            esc(t.currency || 'AZN'),
+            esc(t.status || 'PAID'),
+            esc(t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—'),
+            esc(d.dossierNumber || d.id),
+          ].join(','));
+        });
+      });
+      if (txCount === 0) lines.push(esc('Heç bir maliyyə əməliyyatı qeydə alınmayıb.'));
+
+      // UTF-8 BOM ensures Excel opens Azerbaijani and international characters perfectly
       const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -352,26 +839,39 @@ export default function ClientPrivacy() {
     }
   };
 
-  // 3. EXPORT TO JSON (Raw Cryptographic Archive)
-  const handleExportJson = async () => {
-    setIsExportingJson(true);
+  // 3. EXPORT TO OFFICIAL PDF DOSSIER (GDPR Article 15 & 20 DSAR Compliance Document)
+  const handleExportPdf = async () => {
+    setIsExportingPdf(true);
     try {
-      const data = await fetchGdprData();
-      const jsonStr = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `eurotech_gdpr_archive_${Date.now()}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showSuccess('GDPR JSON Kriptoqrafik Arxivi uğurla yükləndi.');
+      const res: any = await apiClient.get('/privacy/export-pdf');
+      const downloadUrl = res?.data?.downloadUrl || res?.downloadUrl;
+      const fileName = res?.data?.fileName || res?.fileName || `EuroTech_GDPR_Dossier_${Date.now()}.pdf`;
+
+      if (downloadUrl) {
+        const backendOrigin = import.meta.env.VITE_API_URL
+          ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '')
+          : 'http://localhost:5000';
+        const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `${backendOrigin}${downloadUrl}`;
+        const response = await fetch(fullUrl);
+        if (!response.ok) throw new Error('PDF faylını serverdən yükləmək mümkün olmadı.');
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(blobUrl);
+        showSuccess('GDPR Rəsmi Sertifikatlaşdırılmış PDF Dosyesi uğurla yükləndi.');
+      } else {
+        throw new Error('PDF yükləmə ünvanı əldə edilmədi.');
+      }
     } catch (err: any) {
-      showError(err.message || 'Export failed.');
+      console.error('Export PDF error:', err);
+      showError(err.message || 'PDF ixracı uğursuz oldu.');
     } finally {
-      setIsExportingJson(false);
+      setIsExportingPdf(false);
     }
   };
 
@@ -386,7 +886,8 @@ export default function ClientPrivacy() {
       showSuccess('Hesabınız və şəxsi məlumatlarınız GDPR əsasında uğurla anonimləşdirildi.');
       setIsModalOpen(false);
       setTimeout(() => {
-        window.location.href = '/';
+        logout();
+        window.location.href = '/login/individual';
       }, 1500);
     } catch (err: any) {
       showError(err.message || 'Anonimləşdirmə sorğusu uğursuz oldu.');
@@ -471,7 +972,6 @@ export default function ClientPrivacy() {
                 type="button"
                 title="Microsoft Excel Cədvəli kimi yüklə"
               >
-                {/* Excel Table Icon */}
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                   <polyline points="14 2 14 8 20 8"/>
@@ -499,16 +999,16 @@ export default function ClientPrivacy() {
                 {isExportingCsv ? '...' : 'CSV (.csv)'}
               </button>
 
-              {/* Tertiary: Raw JSON */}
+              {/* Tertiary: Official PDF Dossier */}
               <button
                 className="btn-export-alt"
-                onClick={handleExportJson}
-                disabled={isExportingJson}
+                onClick={handleExportPdf}
+                disabled={isExportingPdf}
                 type="button"
-                title="Kriptoqrafik JSON paketi"
+                title="Rəsmi PDF GDPR Dosyesi"
               >
                 <DownloadIcon size={16} />
-                {isExportingJson ? '...' : 'JSON (.json)'}
+                {isExportingPdf ? 'Hazırlanır...' : 'Rəsmi Dosye (.PDF)'}
               </button>
             </div>
             <p className="export-hint">

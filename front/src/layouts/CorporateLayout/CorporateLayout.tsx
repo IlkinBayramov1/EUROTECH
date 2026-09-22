@@ -61,13 +61,15 @@ export default function CorporateLayout() {
           </NavLink>
         </nav>
 
-        <div className="corp-sidebar-footer">
-          <div className="corp-profile">
-            <div className="corp-avatar">
-              {user?.companyName ? user.companyName[0].toUpperCase() : 'C'}
+        <div className="corporate-sidebar-footer">
+          <div className="corporate-profile">
+            <div className="corporate-avatar">
+              {user?.companyName?.trim()?.[0]?.toUpperCase() || user?.fullName?.trim()?.[0]?.toUpperCase() || 'C'}
             </div>
-            <div className="corp-info">
-              <h4>{user?.companyName || 'Corp Tech Azerbaijan MMC'}</h4>
+            <div className="corporate-info">
+              <h4 title={user?.companyName || user?.fullName || 'Corporate Client'}>
+                {user?.companyName || user?.fullName || 'Corporate Client'}
+              </h4>
               <span>Corporate HR</span>
             </div>
           </div>

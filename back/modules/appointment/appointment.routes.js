@@ -33,6 +33,11 @@ router.get('/manifest-pdf', optionalAuth, appointmentController.getManifestPdf);
 router.post('/manifest-pdf', optionalAuth, appointmentController.getManifestPdf);
 router.get('/:appointmentId/manifest-pdf', optionalAuth, appointmentController.getManifestPdf);
 
+// Individual Appointment Confirmation Letter PDF endpoints
+router.get('/confirmation-pdf', optionalAuth, appointmentController.getConfirmationLetterPdf);
+router.post('/confirmation-pdf', optionalAuth, appointmentController.getConfirmationLetterPdf);
+router.get('/:appointmentId/confirmation-pdf', optionalAuth, appointmentController.getConfirmationLetterPdf);
+
 // Protected appointment booking actions
 router.use(authMiddleware);
 
@@ -41,4 +46,5 @@ router.patch('/:appointmentId/reschedule', appointmentController.rescheduleAppoi
 router.delete('/:appointmentId/cancel', appointmentController.cancelAppointment);
 
 module.exports = router;
+
 

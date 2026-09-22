@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
@@ -6,6 +7,13 @@ import './AgentLayout.css';
 export default function AgentLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      navigate(`/agent/groups?search=${encodeURIComponent(searchQuery.trim())}`);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -57,10 +65,10 @@ export default function AgentLayout() {
         <div className="agent-sidebar-footer">
           <div className="agent-profile">
             <div className="agent-avatar">
-              {user?.agencyName ? user.agencyName[0].toUpperCase() : 'A'}
+              {(user?.companyName || user?.agencyName || user?.fullName || 'A')[0].toUpperCase()}
             </div>
             <div className="agent-info">
-              <h4>{user?.agencyName || 'SilkWay Travel MMC'}</h4>
+              <h4>{user?.companyName || user?.agencyName || user?.fullName || 'EuroTech Travel Partner'}</h4>
               <span>Agency Partner</span>
             </div>
           </div>
@@ -75,7 +83,13 @@ export default function AgentLayout() {
         <header className="agent-topbar">
           <div className="topbar-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" placeholder="Search group ID, client passport or booking reference..." />
+            <input 
+              type="text" 
+              placeholder="Search group ID, client passport or booking reference..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+            />
           </div>
 
           <div className="topbar-actions">

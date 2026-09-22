@@ -204,8 +204,10 @@
 }
 
 .status-label.processing { background-color: #EFF6FF; color: var(--color-secondary); }
+.status-label.submitted { background-color: #EFF6FF; color: var(--color-secondary); }
 .status-label.action-req { background-color: #FEF2F2; color: #DC2626; }
 .status-label.ready { background-color: #F0FDF4; color: var(--color-tertiary); }
+.status-label.draft { background-color: #F1F5F9; color: #475569; }
 
 .btn-icon-action {
     background: transparent;

@@ -24,3 +24,7 @@ Thumbs.db
 dist/
 build/
 
+# Temporary test scripts
+scratch/
+back/scratch/
+

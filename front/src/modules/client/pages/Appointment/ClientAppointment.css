@@ -138,30 +138,43 @@
 /* --- Aksiyalar (Düymələr) --- */
 .appt-actions {
     display: flex;
-    gap: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
     padding-top: 24px;
     border-top: 1px solid var(--color-border);
 }
 
-.btn-outline, .btn-danger-outline {
-    flex: 1;
-    display: flex;
+.appt-actions button {
+    flex: 1 1 180px;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 12px 18px;
     border-radius: 8px;
     font-family: var(--font-heading);
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     cursor: pointer;
     transition: all 0.2s ease;
-    background-color: transparent;
+    white-space: nowrap;
+}
+
+.appt-actions button svg {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    min-height: 18px !important;
+    max-width: 18px !important;
+    max-height: 18px !important;
+    flex-shrink: 0;
+    display: inline-block;
 }
 
 .btn-outline {
     border: 1px solid var(--color-border);
     color: var(--color-primary);
+    background-color: transparent;
 }
 
 .btn-outline:hover {
@@ -172,6 +185,7 @@
 .btn-danger-outline {
     border: 1px solid #FECACA;
     color: #DC2626;
+    background-color: transparent;
 }
 
 .btn-danger-outline:hover {
@@ -179,9 +193,142 @@
     background-color: #FEF2F2;
 }
 
-.btn-outline svg, .btn-danger-outline svg {
-    width: 18px;
-    height: 18px;
+/* --- Badges --- */
+.appt-badge.confirmed {
+    background-color: #F0FDF4;
+    color: var(--color-tertiary);
+}
+
+.appt-badge.rescheduled {
+    background-color: #EFF6FF;
+    color: #2563EB;
+}
+
+.appt-badge.cancelled {
+    background-color: #FEF2F2;
+    color: #DC2626;
+}
+
+.appt-badge.not-scheduled {
+    background-color: #FEF3C7;
+    color: #D97706;
+}
+
+/* --- Empty Not-Scheduled State --- */
+.not-scheduled-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 36px 20px;
+    gap: 16px;
+    background: rgba(245, 158, 11, 0.03);
+    border: 1px dashed rgba(245, 158, 11, 0.3);
+    border-radius: 12px;
+}
+
+.not-scheduled-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: rgba(245, 158, 11, 0.12);
+    color: #D97706;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.not-scheduled-icon svg {
+    width: 32px !important;
+    height: 32px !important;
+}
+
+.not-scheduled-box h4 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--color-primary);
+    font-weight: 700;
+}
+
+.not-scheduled-box p {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--color-neutral);
+    max-width: 480px;
+    line-height: 1.6;
+}
+
+/* --- Modal Slot Picker --- */
+.slot-picker-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 16px 0 24px 0;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.slot-date-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.slot-date-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #94A3B8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1E293B;
+}
+
+.slot-pills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+}
+
+.slot-pill {
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: #1E293B;
+    border: 1px solid #334155;
+    color: #E2E8F0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.slot-pill:hover:not(.disabled) {
+    border-color: #3B82F6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.slot-pill.selected {
+    border-color: #3B82F6;
+    background: #2563EB;
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.slot-pill.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #0F172A;
+}
+
+.slot-pill-capacity {
+    font-size: 0.72rem;
+    opacity: 0.85;
 }
 
 /* --- Xəbərdarlıq qutusu (Cancelled) --- */

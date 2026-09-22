@@ -67,8 +67,19 @@ export default function AgentWizard() {
                 travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
                 duration: formData.duration || 'short',
                 projectReason: formData.projectReason || 'Tourism',
+                package: formData.services.activePackage || 'standard',
+                appointmentDate: formData.appointmentDate || undefined,
+                appointmentTime: formData.appointmentTime || undefined,
+                applicants: formData.applicants.map(a => ({
+                    firstName: a.firstName,
+                    lastName: a.lastName,
+                    passportNumber: a.passportNumber,
+                    dob: a.dob,
+                    issueDate: a.issueDate,
+                    expiryDate: a.expiryDate,
+                })),
             });
-            showSuccess('Tour Group registered successfully!');
+            showSuccess('Tour Group registered successfully with all applicants in database!');
             navigate('/agent/groups');
         } catch (err: any) {
             console.error('Agent group create error:', err);

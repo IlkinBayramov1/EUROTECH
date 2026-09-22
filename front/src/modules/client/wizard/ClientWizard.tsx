@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/shared/context/AuthContext';
 import { dossierService, appointmentService, additionalService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { storage } from '@/shared/utils/storage';
 import './ClientWizard.css';
 
-// Yeni ardıcıllıqla addımların idxalı
+// Consular 5-Step Process Components
 import Step1Country from './Steps/Step1Country';
 import Step2Services from './Steps/Step2Services';
 import Step3Applicant from './Steps/Step3Applicant';
@@ -13,38 +15,84 @@ import Step5Confirm from './Steps/Step5Confirm';
 
 export default function IndividualWizard() {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const { showSuccess, showError } = useToast();
     const [currentStep, setCurrentStep] = useState(1);
     const [submitting, setSubmitting] = useState(false);
 
-    // Yenilənmiş məlumat strukturu (5 Addım üçün)
-    const [formData, setFormData] = useState({
-        // Step 1
-        country: '',
-        duration: '',
-        projectReason: '',
-        
-        // Step 2
-        services: {
-            activePackage: 'standard', // 'standard' | 'premium' | 'vip' | 'custom'
-            filePrep: false,
-            insurance: false,
-            formAssist: false,
-            photo: false,
-            lounge: false,
-            courier: false,
-            hotelFlight: false
-        },
+    // Initial applicant info from authenticated user if available
+    const [formData, setFormData] = useState(() => {
+        const names = (user?.fullName || '').trim().split(' ');
+        const initialFirstName = user?.firstName || names[0] || '';
+        const initialLastName = user?.lastName || names.slice(1).join(' ') || '';
+        const initialPassport = user?.passportNumber || '';
 
-        // Step 3
-        applicants: [
-            { id: 'app-main', firstName: '', lastName: '', dob: '', passportNumber: '', issueDate: '', expiryDate: '' }
-        ],
-        
-        // Step 4
-        appointmentDate: '',
-        appointmentTime: ''
+        return {
+            // Step 1
+            country: 'HU',
+            duration: 'short',
+            projectReason: 'tourism',
+            
+            // Step 2
+            services: {
+                activePackage: 'standard', // 'standard' | 'premium' | 'vip' | 'custom'
+                filePrep: false,
+                insurance: false,
+                formAssist: false,
+                photo: false,
+                lounge: false,
+                courier: false,
+                hotelFlight: false
+            },
+
+            // Step 3
+            applicants: [
+                {
+                    id: 'app-main',
+                    firstName: initialFirstName,
+                    lastName: initialLastName,
+                    dob: '',
+                    gender: 'MALE' as const,
+                    nationality: 'AZ',
+                    passportNumber: initialPassport,
+                    issueDate: '',
+                    expiryDate: ''
+                }
+            ],
+            
+            // Step 4
+            visaCenter: 'baku',
+            appointmentDate: '',
+            appointmentTime: '',
+
+            // Step 5
+            gdprConsent: false
+        };
     });
+
+    useEffect(() => {
+        if (user) {
+            setFormData(prev => {
+                const firstApp = prev.applicants[0];
+                if (!firstApp.firstName && !firstApp.passportNumber) {
+                    const names = (user.fullName || '').trim().split(' ');
+                    return {
+                        ...prev,
+                        applicants: [
+                            {
+                                ...firstApp,
+                                firstName: user.firstName || names[0] || '',
+                                lastName: user.lastName || names.slice(1).join(' ') || '',
+                                passportNumber: user.passportNumber || firstApp.passportNumber
+                            },
+                            ...prev.applicants.slice(1)
+                        ]
+                    };
+                }
+                return prev;
+            });
+        }
+    }, [user]);
 
     const updateFormData = (field: string, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -64,6 +112,7 @@ export default function IndividualWizard() {
                 const countriesRes = await dossierService.getCountries();
                 const countries = countriesRes.data?.countries || [];
                 const matchedCountry = countries.find((c: any) => 
+                    c.code?.toLowerCase() === formData.country.toLowerCase() ||
                     c.nameEn?.toLowerCase() === formData.country.toLowerCase() ||
                     c.nameAz?.toLowerCase() === formData.country.toLowerCase()
                 ) || countries[0];
@@ -92,13 +141,16 @@ export default function IndividualWizard() {
                 const dossierId = dossierRes.data?.dossier?.id;
 
                 if (dossierId) {
-                    localStorage.setItem('eurotech_active_dossier_id', dossierId);
+                    // Save in tab-scoped storage
+                    storage.setActiveDossierId(dossierId);
 
                     if (formData.applicants && formData.applicants.length > 0) {
                         const applicantsPayload = formData.applicants.map(app => ({
                             firstName: app.firstName,
                             lastName: app.lastName,
                             passportNumber: app.passportNumber,
+                            gender: app.gender || 'MALE',
+                            nationality: app.nationality || 'AZ',
                             birthDate: app.dob,
                             passportExpiry: app.expiryDate,
                         }));
@@ -106,13 +158,15 @@ export default function IndividualWizard() {
                     }
 
                     const s = formData.services;
-                    if (s.lounge) await additionalService.addService({ dossierId, serviceType: 'PREMIUM_LOUNGE' }).catch(() => {});
+                    if (s.lounge || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'PREMIUM_LOUNGE' }).catch(() => {});
                     if (s.insurance) await additionalService.addService({ dossierId, serviceType: 'TRAVEL_INSURANCE' }).catch(() => {});
-                    if (s.filePrep) await additionalService.addService({ dossierId, serviceType: 'FILE_PREPARATION' }).catch(() => {});
+                    if (s.filePrep || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'FILE_PREPARATION' }).catch(() => {});
+                    if (s.courier || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'COURIER' }).catch(() => {});
+                    if (s.photo || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'PHOTO' }).catch(() => {});
 
                     if (formData.appointmentDate) {
                         try {
-                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate);
+                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate, formData.visaCenter);
                             const slots = slotsRes.data?.slots || [];
                             const matchedSlot = slots.find((sl: any) => sl.startTime === formData.appointmentTime) || slots[0];
                             if (matchedSlot) {
@@ -127,12 +181,12 @@ export default function IndividualWizard() {
                     }
                 }
             }
-            showSuccess('Application submitted successfully!');
-            navigate('/client');
+            showSuccess('Application dossier submitted and slot confirmed!');
+            navigate('/client', { replace: true });
         } catch (err: any) {
             console.error('Submission error:', err);
             showError(err.message || 'Application submitted with offline backup.');
-            navigate('/client');
+            navigate('/client', { replace: true });
         } finally {
             setSubmitting(false);
         }
@@ -148,15 +202,16 @@ export default function IndividualWizard() {
 
     const isNextDisabled = () => {
         if (currentStep === 1) return !formData.country || !formData.duration || !formData.projectReason;
-        if (currentStep === 2) return false; // Xidmətlər məcbur deyil
+        if (currentStep === 2) return false; // Services are optional
         if (currentStep === 3) {
-            // Check if ANY applicant has an empty field
+            // Check if ANY applicant has an empty required field
             return formData.applicants.some(
-                app => !app.firstName.trim() || !app.lastName.trim() || !app.dob.trim() || 
-                       !app.passportNumber.trim() || !app.issueDate.trim() || !app.expiryDate.trim()
+                app => !app.firstName?.trim() || !app.lastName?.trim() || !app.dob?.trim() || 
+                       !app.passportNumber?.trim() || !app.issueDate?.trim() || !app.expiryDate?.trim()
             );
         }
         if (currentStep === 4) return !formData.appointmentDate || !formData.appointmentTime;
+        if (currentStep === 5) return !formData.gdprConsent;
         
         return false;
     };
@@ -167,7 +222,7 @@ export default function IndividualWizard() {
             case 2: return <Step2Services data={formData} updateData={updateFormData} />;
             case 3: return <Step3Applicant data={formData} updateData={updateFormData} />;
             case 4: return <Step4Appointment data={formData} updateData={updateFormData} />;
-            case 5: return <Step5Confirm data={formData} />;
+            case 5: return <Step5Confirm data={formData} updateData={updateFormData} />;
             default: return null;
         }
     };
@@ -179,7 +234,7 @@ export default function IndividualWizard() {
             <header className="wizard-header">
                 <div className="wizard-brand">
                     <span className="brand-badge">EUROTECH</span>
-                    <span className="brand-title">Individual Application</span>
+                    <span className="brand-title">Individual Application Portal</span>
                 </div>
                 <button className="btn-close" onClick={() => navigate('/')}>Exit Application</button>
             </header>
@@ -222,7 +277,11 @@ export default function IndividualWizard() {
                             onClick={handleNext}
                             disabled={isNextDisabled() || submitting}
                         >
-                            {submitting ? 'Submitting Application...' : currentStep === 5 ? 'Go to Dashboard' : 'Next Step \u2192'}
+                            {submitting 
+                                ? 'Authorizing & Submitting...' 
+                                : currentStep === 5 
+                                    ? 'Confirm & Finalize Dossier \u2192' 
+                                    : 'Next Step \u2192'}
                         </button>
                     </footer>
                 </section>

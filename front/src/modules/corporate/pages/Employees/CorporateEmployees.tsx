@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { corporateService } from '@/shared/api/services';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { corporateService, documentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import './CorporateEmployees.css';
 
 // --- Tiplər ---
-interface VisaRecord {
+export interface VisaRecord {
     id: string;
     country: string;
     type: string;
@@ -14,18 +14,21 @@ interface VisaRecord {
     batchRef: string;
 }
 
-interface ArchivedDoc {
+export interface ArchivedDoc {
     id: string;
     name: string;
     uploadDate: string;
+    fileUrl?: string;
     type: 'pdf' | 'image';
+    status?: string;
 }
 
-interface EmployeeProfile {
+export interface EmployeeProfile {
     id: string;
+    rawId: string;
     firstName: string;
     lastName: string;
-    image?: string; // Şəkil URL-i (olmadıqda inisiallar göstərilir)
+    image?: string;
     jobTitle: string;
     department: string;
     nationality: string;
@@ -35,15 +38,22 @@ interface EmployeeProfile {
     phone: string;
     visaHistory: VisaRecord[];
     documents: ArchivedDoc[];
+    dossierId?: string;
+    applicantId?: string;
 }
 
 export default function CorporateEmployees() {
     const { showSuccess, showError } = useToast();
     const [view, setView] = useState<'list' | 'dossier'>('list');
+    const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
     const [activeEmployee, setActiveEmployee] = useState<EmployeeProfile | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [loading, setLoading] = useState(true);
 
-    // Modal state for Add Employee
+    // Search & Filter state
+    const [searchQuery, setSearchQuery] = useState('');
+    const [departmentFilter, setDepartmentFilter] = useState('ALL');
+
+    // Add Employee Modal state
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newFirstName, setNewFirstName] = useState('');
     const [newLastName, setNewLastName] = useState('');
@@ -51,85 +61,110 @@ export default function CorporateEmployees() {
     const [newDepartment, setNewDepartment] = useState('Engineering');
     const [newNationality, setNewNationality] = useState('Azerbaijan');
     const [newPassport, setNewPassport] = useState('');
+    const [newPassportExpiry, setNewPassportExpiry] = useState('');
     const [newEmail, setNewEmail] = useState('');
     const [newPhone, setNewPhone] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Employees State
-    const [employees, setEmployees] = useState<EmployeeProfile[]>([
-        {
-            id: 'EMP-001', firstName: 'David', lastName: 'Smith', jobTitle: 'Senior Software Engineer', department: 'Engineering',
-            nationality: 'United Kingdom', passportNo: 'P1234567', passportExpiry: '2030-05-14', email: 'd.smith@techinnovators.com', phone: '+44 7700 900077',
-            image: 'https://i.pravatar.cc/150?img=11',
-            visaHistory: [
-                { id: 'V-882', country: 'Austria', type: 'Schengen C (Business)', issueDate: '2026-10-20', expiryDate: '2027-10-20', status: 'Processing', batchRef: 'BCH-2026-101' },
-                { id: 'V-551', country: 'Germany', type: 'Schengen C (Business)', issueDate: '2024-03-10', expiryDate: '2025-03-10', status: 'Expired', batchRef: 'BCH-2024-012' }
-            ],
-            documents: [
-                { id: 'D1', name: 'Passport_Copy_Smith.pdf', uploadDate: 'Sep 1, 2026', type: 'pdf' },
-                { id: 'D2', name: 'Employment_Contract.pdf', uploadDate: 'Sep 1, 2026', type: 'pdf' },
-                { id: 'D3', name: 'Biometric_Photo.jpg', uploadDate: 'Sep 2, 2026', type: 'image' }
-            ]
-        },
-        {
-            id: 'EMP-002', firstName: 'Sarah', lastName: 'Connor', jobTitle: 'Marketing Director', department: 'Marketing',
-            nationality: 'United States', passportNo: 'P9876543', passportExpiry: '2029-11-22', email: 's.connor@techinnovators.com', phone: '+1 555 0198 234',
-            visaHistory: [
-                { id: 'V-883', country: 'Austria', type: 'Schengen C (Business)', issueDate: '2026-10-20', expiryDate: '2027-10-20', status: 'Processing', batchRef: 'BCH-2026-101' }
-            ],
-            documents: [
-                { id: 'D4', name: 'Passport_Scan.pdf', uploadDate: 'Sep 3, 2026', type: 'pdf' }
-            ]
-        },
-        {
-            id: 'EMP-003', firstName: 'Michael', lastName: 'Chang', jobTitle: 'Operations Manager', department: 'Operations',
-            nationality: 'Canada', passportNo: 'P4567890', passportExpiry: '2031-01-10', email: 'm.chang@techinnovators.com', phone: '+1 416 555 0198',
-            image: 'https://i.pravatar.cc/150?img=13',
-            visaHistory: [
-                { id: 'V-901', country: 'Germany', type: 'National D (Work)', issueDate: '2026-09-01', expiryDate: '2027-09-01', status: 'Active', batchRef: 'BCH-2026-098' }
-            ],
-            documents: [
-                { id: 'D5', name: 'Passport_Chang.pdf', uploadDate: 'Aug 20, 2026', type: 'pdf' },
-                { id: 'D6', name: 'German_Work_Contract.pdf', uploadDate: 'Aug 21, 2026', type: 'pdf' }
-            ]
-        }
-    ]);
+    // Edit Employee Modal state
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editFirstName, setEditFirstName] = useState('');
+    const [editLastName, setEditLastName] = useState('');
+    const [editJobTitle, setEditJobTitle] = useState('');
+    const [editDepartment, setEditDepartment] = useState('');
+    const [editNationality, setEditNationality] = useState('');
+    const [editPassport, setEditPassport] = useState('');
+    const [editPassportExpiry, setEditPassportExpiry] = useState('');
+    const [editEmail, setEditEmail] = useState('');
+    const [editPhone, setEditPhone] = useState('');
 
-    useEffect(() => {
-        corporateService.getEmployees()
-            .then(res => {
-                if (res.data?.employees && res.data.employees.length > 0) {
-                    const mapped: EmployeeProfile[] = res.data.employees.map((e: any) => ({
-                        id: e.id?.substring(0, 8) || 'EMP-100',
-                        firstName: e.firstName,
-                        lastName: e.lastName,
+    // Hidden File Input for Document Upload
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+    // Real DB-dən İşçilərin Yüklənməsi
+    const fetchEmployees = async () => {
+        try {
+            setLoading(true);
+            const res = await corporateService.getEmployees();
+            if (res.data?.employees) {
+                const mapped: EmployeeProfile[] = res.data.employees.map((e: any) => {
+                    const visaList: VisaRecord[] = (e.visaHistory || []).map((v: any) => ({
+                        id: v.id,
+                        country: v.country || 'Europe / Schengen',
+                        type: v.type || 'Schengen C (Business)',
+                        issueDate: v.issueDate ? String(v.issueDate).split('T')[0] : 'N/A',
+                        expiryDate: v.expiryDate ? String(v.expiryDate).split('T')[0] : 'N/A',
+                        status: v.status === 'ACTIVE' ? 'Active' : v.status === 'PROCESSING' ? 'Processing' : 'Expired',
+                        batchRef: v.batchRef || 'DIRECT',
+                    }));
+
+                    const docList: ArchivedDoc[] = (e.documents || []).map((d: any) => ({
+                        id: d.id,
+                        name: d.originalFileName || d.fileName || `${d.requiredDocumentType || 'Document'}.pdf`,
+                        uploadDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently',
+                        fileUrl: d.fileUrl,
+                        type: (d.fileName || d.fileUrl)?.match(/\.(jpg|jpeg|png)$/i) ? 'image' : 'pdf',
+                        status: d.status,
+                    }));
+
+                    return {
+                        id: e.id?.length > 8 ? e.id.substring(0, 8).toUpperCase() : (e.id || 'EMP-001'),
+                        rawId: e.id,
+                        firstName: e.firstName || '',
+                        lastName: e.lastName || '',
                         jobTitle: e.jobTitle || 'Employee',
-                        department: e.department || 'Corporate Mobility',
+                        department: e.department || 'General',
                         nationality: e.nationality || 'Azerbaijan',
                         passportNo: e.passportNumber || 'P0000000',
-                        passportExpiry: e.passportExpiry ? String(e.passportExpiry).split('T')[0] : '2030-01-01',
-                        email: e.email || 'employee@company.com',
-                        phone: e.phone || '+994 50 000 00 00',
-                        visaHistory: e.visaRecords?.map((v: any) => ({
-                            id: v.id,
-                            country: v.country,
-                            type: v.type,
-                            issueDate: String(v.issueDate).split('T')[0],
-                            expiryDate: String(v.expiryDate).split('T')[0],
-                            status: v.status === 'ACTIVE' ? 'Active' : v.status === 'PROCESSING' ? 'Processing' : 'Expired',
-                            batchRef: v.batchRef || 'BCH-2026-ACTIVE',
-                        })) || [
-                            { id: 'V-1', country: 'Austria', type: 'Schengen C (Business)', issueDate: '2026-10-20', expiryDate: '2027-10-20', status: 'Processing', batchRef: 'BCH-2026-101' }
-                        ],
-                        documents: [
-                            { id: 'D1', name: 'Passport_Copy.pdf', uploadDate: 'Sep 2026', type: 'pdf' }
-                        ],
-                    }));
-                    setEmployees(mapped);
-                }
-            })
-            .catch(() => {});
+                        passportExpiry: e.passportExpiry ? String(e.passportExpiry).split('T')[0] : 'N/A',
+                        email: e.email || '',
+                        phone: e.phone || '',
+                        visaHistory: visaList,
+                        documents: docList,
+                        dossierId: e.dossierId,
+                        applicantId: e.applicantId,
+                    };
+                });
+                setEmployees(mapped);
+            } else {
+                setEmployees([]);
+            }
+        } catch (err: any) {
+            console.warn('Failed to load corporate employees from database:', err);
+            setEmployees([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchEmployees();
     }, []);
+
+    // Unikal Departamentlər siyahısı
+    const departments = useMemo(() => {
+        const set = new Set<string>();
+        employees.forEach(e => {
+            if (e.department) set.add(e.department);
+        });
+        return Array.from(set);
+    }, [employees]);
+
+    // Filtrlənmiş İşçilər
+    const filteredEmployees = useMemo(() => {
+        return employees.filter(emp => {
+            const matchesSearch = searchQuery === '' ||
+                `${emp.firstName} ${emp.lastName} ${emp.id} ${emp.passportNo} ${emp.jobTitle}`
+                    .toLowerCase()
+                    .includes(searchQuery.toLowerCase());
+
+            const matchesDept = departmentFilter === 'ALL' ||
+                emp.department.toLowerCase() === departmentFilter.toLowerCase();
+
+            return matchesSearch && matchesDept;
+        });
+    }, [employees, searchQuery, departmentFilter]);
 
     // --- Aksiyalar ---
     const handleViewDossier = (employee: EmployeeProfile) => {
@@ -142,17 +177,15 @@ export default function CorporateEmployees() {
         setActiveEmployee(null);
     };
 
-    const handleGenerateDelegation = async (employeeId: string) => {
+    const handleGenerateDelegation = async (rawEmployeeId: string) => {
         try {
-            const res = await corporateService.generateDelegationLink(employeeId);
-            const token = res.data?.rawToken;
-            const fullLink = `${window.location.origin}/corporate/delegation?token=${token}`;
+            const res = await corporateService.generateDelegationLink(rawEmployeeId);
+            const fullLink = res.data?.delegationUrl || `${window.location.origin}/corporate/delegation?token=${res.data?.delegationToken}`;
             await navigator.clipboard.writeText(fullLink);
             showSuccess('Magic Delegation Link copied to clipboard! Share it with the employee.');
         } catch (err: any) {
-            const fallbackLink = `${window.location.origin}/corporate/delegation?token=demo-token-${employeeId}`;
-            await navigator.clipboard.writeText(fallbackLink);
-            showSuccess('Delegation link copied to clipboard!');
+            console.warn('Error generating delegation link:', err);
+            showError(err.message || 'Failed to generate delegation link.');
         }
     };
 
@@ -160,51 +193,227 @@ export default function CorporateEmployees() {
         e.preventDefault();
         setIsSaving(true);
         try {
-            const res = await corporateService.addEmployee({
+            await corporateService.addEmployee({
                 firstName: newFirstName,
                 lastName: newLastName,
                 jobTitle: newJobTitle,
                 department: newDepartment,
                 nationality: newNationality,
                 passportNumber: newPassport,
+                passportExpiry: newPassportExpiry || undefined,
                 email: newEmail,
                 phone: newPhone,
             });
 
-            const newEmp: EmployeeProfile = {
-                id: res.data?.employee?.id?.substring(0, 8) || `EMP-${Date.now().toString().slice(-3)}`,
-                firstName: newFirstName,
-                lastName: newLastName,
-                jobTitle: newJobTitle || 'Employee',
-                department: newDepartment,
-                nationality: newNationality,
-                passportNo: newPassport || 'P1234567',
-                passportExpiry: '2030-01-01',
-                email: newEmail || 'emp@company.com',
-                phone: newPhone || '+994 50 123 45 67',
-                visaHistory: [],
-                documents: [],
-            };
-            setEmployees(prev => [newEmp, ...prev]);
-            showSuccess('Employee registered in corporate directory!');
+            showSuccess('Employee successfully registered in corporate database!');
             setIsAddModalOpen(false);
             setNewFirstName('');
             setNewLastName('');
             setNewJobTitle('');
             setNewPassport('');
+            setNewPassportExpiry('');
             setNewEmail('');
             setNewPhone('');
+            await fetchEmployees();
         } catch (err: any) {
-            showError(err.message || 'Employee added with local fallback.');
-            setIsAddModalOpen(false);
+            showError(err.message || 'Failed to register employee.');
         } finally {
             setIsSaving(false);
         }
     };
 
-    const filteredEmployees = employees.filter(emp => 
-        `${emp.firstName} ${emp.lastName} ${emp.id} ${emp.passportNo}`.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const openEditModal = (employee: EmployeeProfile) => {
+        setEditFirstName(employee.firstName);
+        setEditLastName(employee.lastName);
+        setEditJobTitle(employee.jobTitle);
+        setEditDepartment(employee.department);
+        setEditNationality(employee.nationality);
+        setEditPassport(employee.passportNo);
+        setEditPassportExpiry(employee.passportExpiry !== 'N/A' ? employee.passportExpiry : '');
+        setEditEmail(employee.email);
+        setEditPhone(employee.phone);
+        setIsEditModalOpen(true);
+    };
+
+    const handleEditEmployeeSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!activeEmployee) return;
+
+        setIsSaving(true);
+        try {
+            await corporateService.updateEmployee(activeEmployee.rawId, {
+                firstName: editFirstName,
+                lastName: editLastName,
+                jobTitle: editJobTitle,
+                department: editDepartment,
+                nationality: editNationality,
+                passportNumber: editPassport,
+                passportExpiry: editPassportExpiry || undefined,
+                email: editEmail,
+                phone: editPhone,
+            });
+
+            showSuccess('Employee profile successfully updated in database!');
+            setIsEditModalOpen(false);
+            await fetchEmployees();
+
+            // Active employee state-ni də yenilə
+            setActiveEmployee(prev => prev ? {
+                ...prev,
+                firstName: editFirstName,
+                lastName: editLastName,
+                jobTitle: editJobTitle,
+                department: editDepartment,
+                nationality: editNationality,
+                passportNo: editPassport,
+                passportExpiry: editPassportExpiry || 'N/A',
+                email: editEmail,
+                phone: editPhone,
+            } : null);
+        } catch (err: any) {
+            showError(err.message || 'Failed to update employee.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleDeleteEmployee = async () => {
+        if (!activeEmployee) return;
+        if (!window.confirm(`Are you sure you want to remove "${activeEmployee.firstName} ${activeEmployee.lastName}" from the company registry? This action cannot be undone.`)) return;
+
+        setIsSaving(true);
+        try {
+            await corporateService.deleteEmployee(activeEmployee.rawId);
+            showSuccess('Employee removed from corporate directory.');
+            setIsEditModalOpen(false);
+            handleBackToList();
+            await fetchEmployees();
+        } catch (err: any) {
+            showError(err.message || 'Failed to delete employee.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleExportRosterExcel = () => {
+        const list = filteredEmployees.length > 0 ? filteredEmployees : employees;
+        const headers = [
+            'Employee ID',
+            'First Name',
+            'Last Name',
+            'Department',
+            'Job Title',
+            'Nationality',
+            'Passport No',
+            'Passport Expiry',
+            'Email',
+            'Phone',
+            'Active Visa Country',
+            'Active Visa Type',
+            'Active Visa Status'
+        ];
+
+        const escapeCsv = (str: any) => `"${String(str || '').replace(/"/g, '""')}"`;
+
+        const rows = list.map(emp => {
+            const activeVisa = emp.visaHistory.find(v => v.status === 'Active') || emp.visaHistory[0] || {} as any;
+            return [
+                escapeCsv(emp.id),
+                escapeCsv(emp.firstName),
+                escapeCsv(emp.lastName),
+                escapeCsv(emp.department),
+                escapeCsv(emp.jobTitle),
+                escapeCsv(emp.nationality),
+                escapeCsv(emp.passportNo),
+                escapeCsv(emp.passportExpiry),
+                escapeCsv(emp.email),
+                escapeCsv(emp.phone),
+                escapeCsv(activeVisa.country || 'N/A'),
+                escapeCsv(activeVisa.type || 'N/A'),
+                escapeCsv(activeVisa.status || 'N/A'),
+            ].join(',');
+        });
+
+        const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `corporate_employee_roster_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showSuccess('İşçi siyahısı Excel (CSV) formatında uğurla yükləndi!');
+    };
+
+    const handleDownloadEmployeeDoc = (doc: ArchivedDoc, emp: EmployeeProfile) => {
+        if (doc.fileUrl) {
+            const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl}`;
+            const link = document.createElement('a');
+            link.href = fullUrl;
+            link.download = doc.name;
+            link.target = '_blank';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showSuccess(`${doc.name} faylı endirilir...`);
+            return;
+        }
+
+        showError('Sənəd faylının URL ünvanı tapılmadı.');
+    };
+
+    const triggerUploadNewDoc = () => {
+        if (!activeEmployee) return;
+        if (!activeEmployee.applicantId || !activeEmployee.dossierId) {
+            showError('Bu işçinin birbaşa viza partiyası (dossier) tapılmadı. Sənədlər "Visa Batches" bölməsində əlavə olunur.');
+            return;
+        }
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !activeEmployee) return;
+
+        setIsUploadingDoc(true);
+        try {
+            await documentService.uploadDocument({
+                dossierId: activeEmployee.dossierId || '',
+                applicantId: activeEmployee.applicantId || '',
+                requiredDocumentType: 'OTHER',
+                isMandatory: false,
+                file,
+            });
+            showSuccess(`"${file.name}" sənədi uğurla sistemə yükləndi!`);
+            await fetchEmployees();
+
+            // Active employee sənədlərini yenilə
+            const refreshed = await corporateService.getEmployees();
+            if (refreshed.data?.employees) {
+                const found = refreshed.data.employees.find((emp: any) => emp.id === activeEmployee.rawId);
+                if (found) {
+                    const docList: ArchivedDoc[] = (found.documents || []).map((d: any) => ({
+                        id: d.id,
+                        name: d.originalFileName || d.fileName || 'Document.pdf',
+                        uploadDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recently',
+                        fileUrl: d.fileUrl,
+                        type: (d.fileName || d.fileUrl)?.match(/\.(jpg|jpeg|png)$/i) ? 'image' : 'pdf',
+                        status: d.status,
+                    }));
+                    setActiveEmployee(prev => prev ? { ...prev, documents: docList } : null);
+                }
+            }
+        } catch (err: any) {
+            showError(err.message || 'Sənəd yükləmək mümkün olmadı.');
+        } finally {
+            setIsUploadingDoc(false);
+        }
+    };
 
     // ==========================================
     // RENDER 1: EMPLOYEE DIRECTORY (LIST)
@@ -217,10 +426,16 @@ export default function CorporateEmployees() {
                         <h1 className="dash-title">Employee Directory</h1>
                         <p className="dash-subtitle">Manage your corporate workforce, view individual visa histories, and access document archives.</p>
                     </div>
-                    <button className="btn-primary" onClick={() => setIsAddModalOpen(true)}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-                        Add New Employee
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <button className="btn-secondary" onClick={handleExportRosterExcel} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', border: '1px solid #cbd5e1', padding: '0.6rem 1rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, color: '#1e293b' }}>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                            Export Roster (Excel)
+                        </button>
+                        <button className="btn-primary" onClick={() => setIsAddModalOpen(true)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                            Add New Employee
+                        </button>
+                    </div>
                 </div>
 
                 <div className="corp-filter-bar">
@@ -234,166 +449,218 @@ export default function CorporateEmployees() {
                         />
                     </div>
                     <div className="filter-select-wrapper">
-                        <select><option>All Departments</option><option>Engineering</option><option>Marketing</option></select>
+                        <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
+                            <option value="ALL">All Departments</option>
+                            {departments.map(d => (
+                                <option key={d} value={d}>{d}</option>
+                            ))}
+                        </select>
                     </div>
+                    {(searchQuery || departmentFilter !== 'ALL') && (
+                        <button 
+                            type="button" 
+                            onClick={() => { setSearchQuery(''); setDepartmentFilter('ALL'); }}
+                            style={{ background: 'transparent', border: 'none', color: 'var(--color-secondary)', fontWeight: 600, cursor: 'pointer', padding: '0 8px' }}
+                        >
+                            Reset
+                        </button>
+                    )}
                 </div>
 
-                <div className="corp-panel-card table-wrapper fade-in">
-                    <div className="corp-table-container">
-                        <table className="corp-table">
-                            <thead>
-                                <tr>
-                                    <th>Employee</th>
-                                    <th>Department</th>
-                                    <th>Passport No.</th>
-                                    <th>Active Visa Status</th>
-                                    <th className="text-right">Dossier</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredEmployees.map(emp => {
-                                    const activeVisa = emp.visaHistory.find(v => v.status === 'Active' || v.status === 'Processing');
-                                    
-                                    return (
-                                        <tr key={emp.id} className="emp-row" onClick={() => handleViewDossier(emp)}>
-                                            <td>
-                                                <div className="emp-cell-profile">
-                                                    {emp.image ? (
-                                                        <img src={emp.image} alt={emp.firstName} className="emp-avatar-sm" />
-                                                    ) : (
-                                                        <div className="emp-avatar-sm text-avatar">{emp.firstName[0]}{emp.lastName[0]}</div>
-                                                    )}
-                                                    <div className="emp-cell-info">
-                                                        <strong>{emp.firstName} {emp.lastName}</strong>
-                                                        <span>{emp.jobTitle} • {emp.id}</span>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td>{emp.department}</td>
-                                            <td className="cell-passport">{emp.passportNo}</td>
-                                            <td>
-                                                {activeVisa ? (
-                                                    <div className="visa-quick-status">
-                                                        <span className={`corp-badge ${activeVisa.status === 'Active' ? 'badge-success' : 'badge-processing'}`}>
-                                                            {activeVisa.status}
-                                                        </span>
-                                                        <span className="visa-country">{activeVisa.country}</span>
-                                                    </div>
-                                                ) : (
-                                                    <span className="corp-badge badge-neutral">No Active Visa</span>
-                                                )}
-                                            </td>
-                                            <td className="text-right">
-                                                <button className="btn-outline-secondary btn-sm" onClick={(e) => { e.stopPropagation(); handleViewDossier(emp); }}>
-                                                    Open Archive
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                        {filteredEmployees.length === 0 && (
-                            <div className="empty-state-box">No employees found matching your search.</div>
-                        )}
+                {loading ? (
+                    <div style={{ textAlign: 'center', padding: '48px', color: 'var(--color-neutral)' }}>
+                        <p>Connecting to database and fetching corporate employee registry...</p>
                     </div>
-                </div>
+                ) : filteredEmployees.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '56px 24px', backgroundColor: 'var(--color-surface)', borderRadius: '12px', border: '1px solid var(--color-border)' }}>
+                        <div style={{ width: '56px', height: '56px', margin: '0 auto 16px auto', borderRadius: '50%', backgroundColor: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-secondary)' }}>
+                            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </div>
+                        <h3 style={{ margin: '0 0 8px 0', color: 'var(--color-primary)' }}>No employees registered</h3>
+                        <p style={{ margin: '0 0 20px 0', color: 'var(--color-neutral)', fontSize: '0.95rem' }}>
+                            {employees.length === 0 ? 'Your company employee directory is currently empty. Click "Add New Employee" to register staff.' : 'No employees match your search criteria.'}
+                        </p>
+                        <button className="btn-primary" onClick={() => setIsAddModalOpen(true)} style={{ margin: '0 auto' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                            Add First Employee
+                        </button>
+                    </div>
+                ) : (
+                    <div className="corp-panel-card table-wrapper fade-in">
+                        <div className="corp-table-container">
+                            <table className="corp-table">
+                                <thead>
+                                    <tr>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Passport No.</th>
+                                        <th>Active Visa Status</th>
+                                        <th className="text-right">Dossier</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredEmployees.map(emp => {
+                                        const activeVisa = emp.visaHistory.find(v => v.status === 'Active' || v.status === 'Processing');
+                                        
+                                        return (
+                                            <tr key={emp.rawId} className="emp-row" onClick={() => handleViewDossier(emp)}>
+                                                <td>
+                                                    <div className="emp-cell-profile">
+                                                        <div className="emp-avatar-sm text-avatar">
+                                                            {emp.firstName?.[0] || 'E'}{emp.lastName?.[0] || ''}
+                                                        </div>
+                                                        <div className="emp-cell-info">
+                                                            <strong>{emp.firstName} {emp.lastName}</strong>
+                                                            <span>{emp.jobTitle} • {emp.id}</span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>{emp.department}</td>
+                                                <td className="cell-passport">{emp.passportNo}</td>
+                                                <td>
+                                                    {activeVisa ? (
+                                                        <div className="visa-quick-status">
+                                                            <span className={`corp-badge ${activeVisa.status === 'Active' ? 'badge-success' : 'badge-processing'}`}>
+                                                                {activeVisa.status}
+                                                            </span>
+                                                            <span className="visa-country">{activeVisa.country}</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="corp-badge badge-neutral">No Active Visa</span>
+                                                    )}
+                                                </td>
+                                                <td className="text-right">
+                                                    <button className="btn-outline-secondary btn-sm" onClick={(e) => { e.stopPropagation(); handleViewDossier(emp); }}>
+                                                        Open Archive
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
 
                 {/* Add Employee Modal */}
                 {isAddModalOpen && (
-                    <div className="modal-backdrop" onClick={() => setIsAddModalOpen(false)} style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999
-                    }}>
-                        <div className="modal-card" onClick={e => e.stopPropagation()} style={{
-                            background: '#131B2E', border: '1px solid #1E293B', borderRadius: '16px',
-                            padding: '28px', maxWidth: '520px', width: '90%', color: '#fff'
-                        }}>
-                            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>Add New Employee</h3>
-                            <p style={{ fontSize: '13px', color: '#94A3B8', marginBottom: '20px' }}>
-                                Register a corporate employee to manage their visa applications and mobility documents.
-                            </p>
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsAddModalOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Company Registry</span>
+                                    <h2>Add New Employee</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsAddModalOpen(false)}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
 
-                            <form onSubmit={handleAddEmployeeSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>First Name</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newFirstName} 
-                                        onChange={e => setNewFirstName(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Last Name</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newLastName} 
-                                        onChange={e => setNewLastName(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Job Title</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newJobTitle} 
-                                        onChange={e => setNewJobTitle(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Department</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newDepartment} 
-                                        onChange={e => setNewDepartment(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Passport Number</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newPassport} 
-                                        onChange={e => setNewPassport(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Nationality</label>
-                                    <input 
-                                        type="text" 
-                                        required 
-                                        value={newNationality} 
-                                        onChange={e => setNewNationality(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', gridColumn: 'span 2' }}>
-                                    <label style={{ fontSize: '12px', color: '#94A3B8' }}>Corporate Email</label>
-                                    <input 
-                                        type="email" 
-                                        required 
-                                        value={newEmail} 
-                                        onChange={e => setNewEmail(e.target.value)} 
-                                        style={{ background: '#1E293B', border: '1px solid #334155', color: '#fff', borderRadius: '8px', padding: '8px 12px' }} 
-                                    />
-                                </div>
+                            <div className="modal-body">
+                                <form id="addEmpForm" onSubmit={handleAddEmployeeSubmit} className="corp-form-grid">
+                                    <div className="corp-input-group">
+                                        <label>First Name</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            placeholder="e.g. Ali"
+                                            value={newFirstName} 
+                                            onChange={e => setNewFirstName(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Last Name</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            placeholder="e.g. Mammadov"
+                                            value={newLastName} 
+                                            onChange={e => setNewLastName(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Job Title / Position</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            placeholder="e.g. Senior Software Engineer"
+                                            value={newJobTitle} 
+                                            onChange={e => setNewJobTitle(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Department</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            placeholder="e.g. Engineering"
+                                            value={newDepartment} 
+                                            onChange={e => setNewDepartment(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Passport Number</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            placeholder="e.g. C12345678"
+                                            value={newPassport} 
+                                            onChange={e => setNewPassport(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Passport Expiry Date</label>
+                                        <input 
+                                            type="date" 
+                                            className="corp-input" 
+                                            value={newPassportExpiry} 
+                                            onChange={e => setNewPassportExpiry(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Nationality</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            value={newNationality} 
+                                            onChange={e => setNewNationality(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Phone Number</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            placeholder="e.g. +994 50 123 45 67"
+                                            value={newPhone} 
+                                            onChange={e => setNewPhone(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group full-width">
+                                        <label>Corporate Email</label>
+                                        <input 
+                                            type="email" 
+                                            className="corp-input" 
+                                            placeholder="e.g. employee@company.com"
+                                            value={newEmail} 
+                                            onChange={e => setNewEmail(e.target.value)} 
+                                        />
+                                    </div>
+                                </form>
+                            </div>
 
-                                <div style={{ gridColumn: 'span 2', display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '12px' }}>
-                                    <button type="button" className="btn-secondary" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
-                                    <button type="submit" className="btn-primary" disabled={isSaving}>
-                                        {isSaving ? 'Registering...' : 'Register Employee'}
-                                    </button>
-                                </div>
-                            </form>
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsAddModalOpen(false)}>Cancel</button>
+                                <button type="submit" form="addEmpForm" className="btn-modal-primary" disabled={isSaving}>
+                                    {isSaving ? 'Registering...' : 'Register Employee'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -407,17 +674,26 @@ export default function CorporateEmployees() {
     if (view === 'dossier' && activeEmployee) {
         return (
             <div className="corp-emp-content fade-in">
+                {/* Hidden File Input */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    style={{ display: 'none' }} 
+                    accept=".pdf,.jpg,.jpeg,.png" 
+                    onChange={handleFileSelected} 
+                />
+
                 <div className="manage-view-header">
                     <button className="btn-back-link" onClick={handleBackToList}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
                         Back to Directory
                     </button>
                     <div className="manage-employee-info" style={{ display: 'flex', gap: '8px' }}>
-                        <button className="btn-primary btn-sm" onClick={() => handleGenerateDelegation(activeEmployee.id)}>
+                        <button className="btn-primary btn-sm" onClick={() => handleGenerateDelegation(activeEmployee.rawId)}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                             Copy Delegation Link
                         </button>
-                        <button className="btn-outline-secondary btn-sm">
+                        <button className="btn-outline-secondary btn-sm" onClick={() => openEditModal(activeEmployee)}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             Edit Profile
                         </button>
@@ -429,11 +705,7 @@ export default function CorporateEmployees() {
                     <div className="dossier-cover-bg"></div>
                     <div className="dossier-profile-content">
                         <div className="dossier-avatar-large">
-                            {activeEmployee.image ? (
-                                <img src={activeEmployee.image} alt={activeEmployee.firstName} />
-                            ) : (
-                                <span>{activeEmployee.firstName[0]}{activeEmployee.lastName[0]}</span>
-                            )}
+                            <span>{activeEmployee.firstName?.[0] || 'E'}{activeEmployee.lastName?.[0] || ''}</span>
                         </div>
                         <div className="dossier-main-info">
                             <h2>{activeEmployee.firstName} {activeEmployee.lastName}</h2>
@@ -467,12 +739,16 @@ export default function CorporateEmployees() {
                                     <strong className="info-value">{activeEmployee.passportExpiry}</strong>
                                 </div>
                                 <div className="info-row">
+                                    <span className="info-label">Nationality</span>
+                                    <strong className="info-value">{activeEmployee.nationality}</strong>
+                                </div>
+                                <div className="info-row">
                                     <span className="info-label">Email Address</span>
-                                    <strong className="info-value">{activeEmployee.email}</strong>
+                                    <strong className="info-value">{activeEmployee.email || '—'}</strong>
                                 </div>
                                 <div className="info-row">
                                     <span className="info-label">Phone Number</span>
-                                    <strong className="info-value">{activeEmployee.phone}</strong>
+                                    <strong className="info-value">{activeEmployee.phone || '—'}</strong>
                                 </div>
                             </div>
                         </div>
@@ -480,26 +756,46 @@ export default function CorporateEmployees() {
                         {/* Document Archive Box */}
                         <div className="corp-panel-card">
                             <div className="panel-header">
-                                <h3>Document Archive</h3>
-                                <button className="btn-text-link">Upload New</button>
+                                <h3>Document Archive ({activeEmployee.documents.length})</h3>
+                                {activeEmployee.dossierId && (
+                                    <button 
+                                        className="btn-text-link" 
+                                        onClick={triggerUploadNewDoc}
+                                        disabled={isUploadingDoc}
+                                    >
+                                        {isUploadingDoc ? 'Uploading...' : 'Upload New'}
+                                    </button>
+                                )}
                             </div>
                             <div className="doc-archive-list">
-                                {activeEmployee.documents.map(doc => (
-                                    <div key={doc.id} className="archive-doc-item">
-                                        <div className="doc-icon-sm">
-                                            {doc.type === 'pdf' ? (
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                                            ) : (
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                                            )}
-                                        </div>
-                                        <div className="doc-info-sm">
-                                            <h4>{doc.name}</h4>
-                                            <span>Uploaded: {doc.uploadDate}</span>
-                                        </div>
-                                        <button className="btn-icon-action" title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+                                {activeEmployee.documents.length === 0 ? (
+                                    <div style={{ color: 'var(--color-neutral)', fontStyle: 'italic', fontSize: '0.9rem', textAlign: 'center', padding: '16px' }}>
+                                        No uploaded documents registered for this employee yet.
                                     </div>
-                                ))}
+                                ) : (
+                                    activeEmployee.documents.map(doc => (
+                                        <div key={doc.id} className="archive-doc-item">
+                                            <div className="doc-icon-sm">
+                                                {doc.type === 'pdf' ? (
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                                ) : (
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                )}
+                                            </div>
+                                            <div className="doc-info-sm">
+                                                <h4>{doc.name}</h4>
+                                                <span>Uploaded: {doc.uploadDate}</span>
+                                            </div>
+                                            <button 
+                                                className="btn-icon-action" 
+                                                title="Download Document" 
+                                                onClick={() => activeEmployee && handleDownloadEmployeeDoc(doc, activeEmployee)}
+                                            >
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </div>
                     </div>
@@ -513,9 +809,9 @@ export default function CorporateEmployees() {
                             
                             <div className="visa-history-timeline">
                                 {activeEmployee.visaHistory.length === 0 ? (
-                                    <div className="empty-state-box">No visa history found for this employee.</div>
+                                    <div className="empty-state-box">No official visa history recorded for this employee.</div>
                                 ) : (
-                                    activeEmployee.visaHistory.map((visa, idx) => (
+                                    activeEmployee.visaHistory.map((visa) => (
                                         <div key={visa.id} className="history-timeline-item">
                                             <div className={`history-dot ${visa.status === 'Active' ? 'success' : visa.status === 'Processing' ? 'processing' : 'expired'}`}></div>
                                             
@@ -541,6 +837,136 @@ export default function CorporateEmployees() {
                     </div>
 
                 </div>
+
+                {/* Edit Employee Modal */}
+                {isEditModalOpen && (
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsEditModalOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={e => e.stopPropagation()} style={{ maxWidth: '580px' }}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Employee Profile</span>
+                                    <h2>Edit Employee Details</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsEditModalOpen(false)}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+
+                            <div className="modal-body">
+                                <form id="editEmpForm" onSubmit={handleEditEmployeeSubmit} className="corp-form-grid">
+                                    <div className="corp-input-group">
+                                        <label>First Name</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            value={editFirstName} 
+                                            onChange={e => setEditFirstName(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Last Name</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            value={editLastName} 
+                                            onChange={e => setEditLastName(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Job Title</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            value={editJobTitle} 
+                                            onChange={e => setEditJobTitle(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Department</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            value={editDepartment} 
+                                            onChange={e => setEditDepartment(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Passport Number</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            required 
+                                            value={editPassport} 
+                                            onChange={e => setEditPassport(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Passport Expiry</label>
+                                        <input 
+                                            type="date" 
+                                            className="corp-input" 
+                                            value={editPassportExpiry} 
+                                            onChange={e => setEditPassportExpiry(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Nationality</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            value={editNationality} 
+                                            onChange={e => setEditNationality(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group">
+                                        <label>Phone Number</label>
+                                        <input 
+                                            type="text" 
+                                            className="corp-input" 
+                                            value={editPhone} 
+                                            onChange={e => setEditPhone(e.target.value)} 
+                                        />
+                                    </div>
+                                    <div className="corp-input-group full-width">
+                                        <label>Corporate Email</label>
+                                        <input 
+                                            type="email" 
+                                            className="corp-input" 
+                                            value={editEmail} 
+                                            onChange={e => setEditEmail(e.target.value)} 
+                                        />
+                                    </div>
+                                </form>
+
+                                <div className="settings-danger-zone" style={{ marginTop: '8px' }}>
+                                    <div className="danger-info">
+                                        <h4>Remove Employee</h4>
+                                        <p>Permanently remove this employee from your company corporate mobility records.</p>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        className="btn-danger-outline" 
+                                        onClick={handleDeleteEmployee}
+                                        disabled={isSaving}
+                                    >
+                                        {isSaving ? 'Deleting...' : 'Delete Employee'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                                <button type="submit" form="editEmpForm" className="btn-modal-primary" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }

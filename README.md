@@ -1,4 +1,4 @@
-# EUROTECH Visa & Immigration Digital Platform
+# 🌐 EUROTECH - Viza & İmiqrasiya Rəqəmsal İdarəetmə Platforması
 
 <div align="center">
 
@@ -9,295 +9,327 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
 [![Prisma](https://img.shields.io/badge/Prisma-ORM-2D3748?style=flat-square&logo=prisma&logoColor=white)](https://www.prisma.io)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![Tests](https://img.shields.io/badge/Tests-21%2F21%20Passing-brightgreen?style=flat-square&logo=checkmarx)](back/test-all.js)
 [![Compliance](https://img.shields.io/badge/Compliance-GDPR%20%26%20SOC2-blue?style=flat-square)](PORTAL_ANALYSIS_AND_BACKEND_GAP_PLAN.md)
 
-**EuroTech Services Platform** is an enterprise-grade digital ecosystem built for multi-country visa, residency, and consular application management. It streamlines end-to-end workflows for individual applicants, travel agencies, corporate HR departments, and back-office administrative teams.
+**EUROTECH**, çoxölkəli viza müraciətlərini, konsulluq randevularını, sənəd dövriyyəsini və korporativ relokasiya proseslərini vahid mərkəzdən avtomatlaşdıran enterprise səviyyəli rəqəmsal ekosistemdir.
 
-[Architecture](#-system-architecture) • [Portals](#-portal-ecosystem) • [Tech Stack](#-technology-stack) • [Installation](#-getting-started) • [API Reference](#-api-endpoints-v1) • [Tests](#-testing--disaster-recovery)
+Platforma fərdi vətəndaşlar (**B2C**), turizm şirkətləri/agentliklər (**B2B Agent**), korporativ holdinqlər (**B2B Corporate HR**) və konsulluq/inzibatçı komandası (**Admin**) üçün tam fərdiləşdirilmiş 4 müstəqil portaldan ibarətdir.
+
+[Sistem İcmalı](#-sistem-haqqında-ümumi-məlumat) • [Portallar](#-portalların-funksionallığı) • [Arxitektura](#-layihə-strukturu-və-arxitektura) • [Quraşdırma](#-quraşdırma-və-işə-salma) • [Demo Hesablar](#-hazır-demo-istifadəçi-hesabları) • [API Endpoint-lər](#-əsas-api-marşrutları-v1) • [Təhlükəsizlik](#-təhlükəsizlik-və-gdpr)
 
 </div>
 
 ---
 
-## 🌟 System Overview
+## 🌟 Sistem Haqqında Ümumi Məlumat
 
-EUROTECH replaces fragmented visa processing with an integrated, automated platform:
+EUROTECH köhnəlmiş, kağız üzərində və pərakəndə aparılan viza müraciətlərini 100% rəqəmsal və avtomatlaşdırılmış iş axını ilə əvəzləyir:
 
-1. **Individual B2C Applications**: Guided 5-step visa wizard, dynamic document checklist, appointment slot reservation, real-time application tracker, and GDPR self-service data management.
-2. **B2B Travel Agency Operations**: Group dossier submissions, multi-applicant rosters, agent commission ledger, digital wallet, and payout request management.
-3. **B2B Corporate Mobility (HR)**: Corporate employee directory, batch relocations/business trips, self-service employee delegation magic links, proforma invoicing, and corporate wallet balance settlements.
-4. **Executive Back-Office & Consular Processing**: Document verification matrix (Verified / Correction Needed / Rejected), automated applicant email alerts, final consular visa decision pipeline, and automated archive packaging (PDFs & ZIP).
+- **100% Real Verilənlər Bazası İnteqrasiyası**: Heç bir feyk (mock) data yoxdur. Bütün müraciətlər, sənədlər, randevu qeydləri, maliyyə balansları və bildirişlər birbaşa PostgreSQL bazasında saxlanılır və idarə olunur.
+- **Dinamik Sənəd və Ölkə Tələbləri Mühərriki**: Müraciət edilən ölkəyə və viza növünə (Şengen, Turist, İş, Təhsil) uyğun tələb olunan sənəd siyahısı və forma sualları avtomatik formalaşır.
+- **Canlı Randevu Rezervasiyası**: Səfirlik/Konsulluq üçün açıq qəbul vaxtları bazadan real vaxt rejimində təqdim edilir, 1 kliklə rezervasiya, vaxt dəyişmə (reschedule) və rəsmi PDF Randevu Qəbzi formalaşdırılır.
+- **İnteqrasiya Edilmiş Rəqəmsal Pul Kisəsi (Wallet)**: Agentliklər və korporativ müştərilər üçün onlayn depozit artırma, avtomatik komissiya hesablanması və qrupların rüsumlarını birbaşa balansdan ödəmə imkanı.
 
 ---
 
-## 🏛 System Architecture
+## 👥 Portalların Funksionallığı
 
-The repository is organized as a decoupled monorepo featuring a high-performance React 19 Single Page Application and a robust Node.js/Express modular monolith backend with Prisma ORM:
+Sistem 4 fərqli istifadəçi profilinə xidmət edir:
+
+### 1. 👤 Fərdi Vətəndaş Portalı (`/client`)
+*Fərdi viza almaq istəyən şəxslər üçün nəzərdə tutulub.*
+- **5 Addımlı Viza Sihirbazı (Wizard)**:
+  1. *Ölkə və Viza Növü*: İstiqamət ölkəsi, viza növü və emal prioriteti (Standard, Express, VIP).
+  2. *Əlavə Xidmətlər*: VIP Konsulluq Zalı, Şengen Səyahət Sığortası, Notarial Tərcümə paketi.
+  3. *Müraciətçi Məlumatları*: Şəxsi məlumatlar, pasport etibarlılığı və xüsusi anket sualları.
+  4. *Konsulluq Randevusu*: Açıq təqvimdən gün və saat seçimi.
+  5. *Təsdiq və Ödəniş*: Şəffaf xidmət haqqı bölgüsü və dərhal unikal dosye nömrəsinin (`EUR-XXXXXX`) generasiyası.
+- **Sənəd İdarəetmə Mərkəzi**: Tələb olunan sənədləri (PDF, PNG, JPG) təhlükəsiz yükləmə, statusların izlənməsi (Yoxlanılır, Təsdiqləndi, Düzəliş Tələb Olunur) və rəsmi şifrələnmiş linklə yükləmə.
+- **Canlı Status İzləyicisi**: Müraciətin 6 mərhələli real vaxt xətti (Qaralama → Təqdim edildi → Yoxlanışda → Biometriya → Konsulluq Qərarı → Hazırdır).
+- **Rəsmi PDF İxracı**: Müraciət anketinin və təsdiqlənmiş randevunun rəsmi PDF formasının avtomatik hazırlanması.
+- **GDPR Məxfilik Mərkəzi**: İstifadəçinin bütün şəxsi məlumatlarını vahid ZIP/JSON paketində ixrac etmə və ya tam silinmə (Right to be Forgotten) tələbi.
+
+### 2. 🏢 Turizm Agentliyi Portalı (`/agent`)
+*Qrup turları və korporativ müştəri bazasını idarə edən tərəfdaş şirkətlər üçün.*
+- **Qrup Dosye Sihirbazı**: Tək bir qovluq daxilində eyni vaxtda onlarla turisti vahid qrup kimi təqdim etmə.
+- **Səyahətçi Reyestri**: Hər bir qrup üzvü üçün fərdi sənəd və anket yoxlanışı.
+- **Agentlik Randevu Cədvəli**: Bütün qrup üzvləri üçün konsulluq biometriya saatlarının təqvim görünüşü.
+- **Komissiya və Maliyyə Balansı**: Tamamlanmış hər müraciətdən qazanılan nağd komissiyaların canlı uçotu və bank hesabına çıxarış (Payout) tələbi.
+
+### 3. 🌐 Korporativ Mobillik Portalı (`/corporate`)
+*Beynəlxalq ezamiyyətlər və əməkdaş relokasiyasını təşkil edən şirkətlərin HR komandaları üçün.*
+- **Korporativ Dashboard**: Şirkətin aktiv ezamiyyət partiyaları, sənədi çatışmayan işçilər, təsdiqlənmiş vizalar və cari il üzrə xərcləmələr (Total Spend YTD).
+- **İşçi Heyəti Reyestri**: Şirkət işçilərinin pasport, vəzifə və departament məlumatlarının bazada saxlanılması və Excel/CSV ixracı.
+- **Özünəxidmət Dəvət Linkləri (Delegation Links)**: HR-ın vaxtına qənaət edən təhlükəsiz təkistifadəlik şifrəli linklər. İşçi özü linkə daxil olub pasportunu və sənədlərini birbaşa yükləyir.
+- **Korporativ Fakturalaşdırma və Balans**: Rəsmi Proforma PDF Fakturaların (`INV-2026-XXXX`) generasiyası, korporativ pul kisəsindən partiyaların ödənilməsi və tranzaksiya loqları.
+
+### 4. 🛡 İnzibatçı və Konsulluq Portalı (`/admin`)
+- Sənədlərin operator tərəfindən ekspertizası (Təsdiq, İmtina, Səbəb qeydi ilə Düzəliş tələbi).
+- Konsulluq yekun qərar mexanizmi (Viza verildi / İmtina olundu).
+- Arxivləşdirmə: Viza müraciətçisinin bütün sənədlərinin və anketlərinin vahid ZIP arxivi kimi endirilməsi.
+
+---
+
+## 🏛 Layihə Strukturu və Arxitektura
+
+Layihə monorepo strukturuna malikdir:
 
 ```
 EUROTECH/
-├── back/                             # Backend Service (Node.js, Express, Prisma ORM)
-│   ├── config/                       # DB connection, security constants, and RBAC matrix
-│   ├── core/                         # Base Controller, Service, and Repository patterns
-│   ├── modules/                      # 11 Modular Business Domains
-│   │   ├── admin/                    # Document verification & visa decision engine
-│   │   ├── agent/                    # B2B Travel Agency groups, commissions & wallet
-│   │   ├── appointment/              # Slot reservation, reschedule & embassy PDF manifest
-│   │   ├── auth/                     # JWT authentication, auto-username & password setup
-│   │   ├── corporate/                # B2B Corporate batches, delegation links & invoices
-│   │   ├── document/                 # Multer uploads, signed download URLs, ZIP archiver
-│   │   ├── dossier/                  # Multi-applicant dossiers & lifecycle state machine
-│   │   ├── notification/             # Multi-channel emails (Nodemailer) & alerts
-│   │   ├── payment/                  # Stripe PaymentIntents, webhooks & wallet billing
-│   │   ├── service/                  # Add-on catalog (Lounge, Insurance, Translation)
-│   │   ├── shared/                   # GDPR Privacy (Export package, Account erasure)
-│   │   └── template/                 # Dynamic country requirements & form schemas
-│   ├── middlewares/                  # JWT auth, RBAC permissions, audit logger, uploads
-│   ├── prisma/                       # Database schema (schema.prisma) & seeders
-│   ├── routes/v1/                    # Versioned RESTful API routes (/api/v1/*)
-│   ├── utils/                        # PDF application builder, token generators, hashers
-│   └── test-all.js                   # 21 End-to-end integration & DR test suite
+├── back/                             # Backend Servisi (Node.js, Express, Prisma ORM)
+│   ├── config/                       # DB əlaqəsi, təhlükəsizlik konstantları və rollar (RBAC)
+│   ├── core/                         # Baza Controller, Service və Repository şablonları
+│   ├── modules/                      # 11 Müstəqil Biznes Modulu
+│   │   ├── admin/                    # Sənəd yoxlanışı və konsulluq qərar mühərriki
+│   │   ├── agent/                    # Agentlik qrupları, komissiya və pul kisəsi
+│   │   ├── appointment/              # Təqvim slotları, bron, reschedule və PDF manifest
+│   │   ├── auth/                     # JWT autentifikasiyası, avtomatik ID və şifrə təyini
+│   │   ├── corporate/                # Korporativ partiyalar, dəvət linkləri və fakturalar
+│   │   ├── document/                 # Multer yükləmə, imzalanmış URL-lər, ZIP arxivləyici
+│   │   ├── dossier/                  # Müraciət qovluqları və həyat dövrü statusları
+│   │   ├── notification/             # Avtomatlaşdırılmış e-poçt bildirişləri (Nodemailer)
+│   │   ├── payment/                  # Pul kisəsi balansı və ödəniş axını
+│   │   ├── service/                  # Əlavə viza xidmətləri kataloqu (VIP zal, Sığorta və s.)
+│   │   ├── shared/                   # GDPR Məxfilik (Məlumat ixracı, Hesabın silinməsi)
+│   │   └── template/                 # Ölkələr üzrə dinamik sənəd tələbləri və anket sxemləri
+│   ├── middlewares/                  # JWT yoxlanışı, rol icazələri, audit loqlama
+│   ├── prisma/                       # Verilənlər bazası modeli (schema.prisma) və seed skripti
+│   ├── routes/v1/                    # Versiyalanmış REST API marşrutları (/api/v1/*)
+│   ├── utils/                        # PDF generatorlar, SHA256 heşləmə, token utilitləri
+│   └── test-all.js                   # 21 Avtomatlaşdırılmış inteqrasiya və təhlükəsizlik testi
 │
-├── front/                            # Frontend Service (React 19, TypeScript, Vite)
-│   ├── public/                       # Static assets & SVG icons
+├── front/                            # Frontend Servisi (React 19, TypeScript, Vite)
 │   ├── src/
-│   │   ├── layouts/                  # Portal Layouts (Client, Agent, Corporate)
-│   │   ├── modules/                  # Feature Modules
-│   │   │   ├── auth/                 # Multi-profile login & profile selector
-│   │   │   ├── client/               # Individual Portal (Dashboard, Wizard, Docs, Tracking)
-│   │   │   ├── agent/                # Agent Portal (Groups, Wizard, Appointments, Finance)
-│   │   │   └── corporate/            # Corporate Portal (Batches, Employees, Delegation)
+│   │   ├── layouts/                  # Portal çərçivələri (ClientLayout, AgentLayout, CorporateLayout)
+│   │   ├── modules/                  # İstifadəçi interfeysi modulları
+│   │   │   ├── auth/                 # Giriş, qeydiyyat və profil seçici
+│   │   │   ├── client/               # Fərdi müraciətçi səhifələri (Dashboard, Wizard, Sənədlər, Randevu)
+│   │   │   ├── agent/                # Agent səhifələri (Qruplar, Təqvim, Maliyyə)
+│   │   │   └── corporate/            # Korporativ səhifələr (Partiyalar, İşçilər, Dəvətlər, Fakturalar)
 │   │   ├── shared/
-│   │   │   ├── api/                  # Typed API Client & Axios/fetch abstraction
-│   │   │   ├── components/           # Reusable UI component library & SVG icons
-│   │   │   ├── context/              # Auth and Toast notification providers
-│   │   │   ├── styles/               # Design system tokens, utilities & reset
-│   │   │   ├── types/                # Strict TypeScript contracts & domain models
-│   │   │   └── utils/                # Validators, formatters, and local storage helpers
-│   │   ├── App.tsx                   # Central router configuration
-│   │   └── main.tsx                  # Application entry point
-│   ├── index.html                    # HTML5 shell
-│   ├── package.json                  # Frontend dependencies & scripts
-│   └── vite.config.ts                # Vite build configuration with proxy rules
+│   │   │   ├── api/                  # Axios əsaslı tipləşdirilmiş API xidmətləri
+│   │   │   ├── components/           # UI komponent kitabxanası (Modallar, Düymələr, Kartlar)
+│   │   │   ├── context/              # AuthContext və ToastContext provayderləri
+│   │   │   ├── styles/               # CSS dizayn sistemi dəyişənləri və qlobal üslublar
+│   │   │   └── types/                # TypeScript tip tərifləri və domen modelləri
+│   │   ├── App.tsx                   # Mərkəzi səhifələmə marşrutları (React Router)
+│   │   └── main.tsx                  # Tətbiqin başlanğıc nöqtəsi
+│   ├── index.html                    # Əsas HTML şablonu
+│   ├── package.json                  # Frontend paketləri və skriptləri
+│   └── vite.config.ts                # Vite konfiqurasiyası
 │
-└── README.md                         # Master Documentation
+└── README.md                         # Əsas sənədləşmə
 ```
 
 ---
 
-## 🖥 Portal Ecosystem
+## 💻 Texnologiya Yığını
 
-### 1. Individual Client Portal (`/client`)
-- **Dashboard**: Live active dossier status widget, immediate next actions, and visa tracking summary.
-- **5-Step Application Wizard**:
-  1. *Destination & Visa Type*: Country picker, purpose, and processing tier (Standard / Express / VIP).
-  2. *Add-on Services*: Premium Lounge (€81), Schengen Travel Insurance (€35), Document Translation (€25).
-  3. *Applicant Details*: Personal information, passport validity, and conditional questionnaire.
-  4. *Appointment Slot Booking*: Real-time available embassy/consular date & time slot selection.
-  5. *Review & Payment*: Transparent fee breakdown, card payment simulation, and immediate dossier code generation.
-- **Document Manager**: Categorized file uploads with file-type/size guards, upload progress, status tracking (Pending / Verified / Correction Needed), and signed temporary download URLs.
-- **Embassy Appointments**: View scheduled slots, instant 1-click reschedule within policy limits, and generate official PDF Appointment Manifests.
-- **Real-Time Tracker**: Visual 6-stage milestone tracker (Draft → Submitted → Under Review → Biometrics → Consular Decision → Completed).
-- **GDPR & Privacy Center**: Download complete JSON/ZIP data export package or initiate Right-to-Erasure account deletion.
-
-### 2. Travel Agency / Tour Operator Portal (`/agent`)
-- **Agent Dashboard**: High-level agency metrics (Active Groups, Total Travelers, Earned Commissions, Wallet Balance).
-- **Group Wizard**: Batch submit tourist groups or family delegations under a single primary dossier.
-- **Group Dossiers**: Filter by status, inspect traveler checklists, and monitor consular milestones.
-- **Agency Appointments**: View grouped appointment schedules for entire delegations.
-- **Finance & Commission Wallet**: Transparent ledger of earned referral commissions, commission tiers, and 1-click payout withdrawal requests.
-
-### 3. Corporate Mobility Portal (`/corporate`)
-- **Corporate Dashboard**: Enterprise metrics (Active Batches, Relocated Employees, Monthly Spend, Corporate Balance).
-- **Batch Application Wizard**: Initiate company-sponsored relocation batches or business trip contingents.
-- **Employee Registry**: Maintain an active roster of employees, job titles, and passport expiration dates.
-- **Self-Service Delegation**: Generate secure, single-use magic delegation links allowing employees to directly fill in their visa questionnaires and upload personal documents.
-- **Corporate Finance**: Download official PDF Proforma Invoices (`INV-2026-XXXX`) and execute payments directly from company credit lines or digital wallets.
+| Sahə | Texnologiyalar |
+| :--- | :--- |
+| **Frontend** | React 19, TypeScript 5.7, Vite 6, React Router DOM 7, Vanilla Modern CSS |
+| **Backend** | Node.js (v18+), Express.js, RESTful API |
+| **Verilənlər Bazası** | PostgreSQL, Prisma ORM (Type-safe query builder & migrations) |
+| **Autentifikasiya** | JSON Web Token (JWT), bcryptjs, Role-Based Access Control (RBAC) |
+| **Sənəd & Fayl Emalı** | Multer (Fayl yükləmə), PDFKit (Rəsmi sənəd/anket PDF generatoru), Archiver (ZIP) |
+| **Təhlükəsizlik** | Rate Limiting, Helmet, CORS, SHA256 integrity check, HMAC signed URLs |
+| **Testlər** | Node.js Test Runner, 21 End-to-End inteqrasiya və bərpa testləri |
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quraşdırma və İşə Salma
 
-### Prerequisites
-- **Node.js**: `v18.x` or later (LTS recommended)
-- **npm**: `v9.x` or later
-- **Database**: PostgreSQL (or SQLite for quick local development)
+Layihəni lokal mühitdə işə salmaq üçün aşağıdakı addımları ardıcıllıqla yerinə yetirin:
+
+### İlkin Tələblər
+- **Node.js**: `v18.0.0` və ya daha yuxarı versiya
+- **npm**: `v9.0.0` və ya daha yuxarı versiya
+- **PostgreSQL**: Lokal və ya bulud verilənlər bazası
 
 ---
 
-### Backend Setup
+### 1. Backend-in Quraşdırılması
 
-1. **Navigate to backend directory**:
+1. Backend qovluğuna keçin:
    ```bash
    cd back
    ```
 
-2. **Install dependencies**:
+2. Asılılıqları quraşdırın:
    ```bash
    npm install
    ```
 
-3. **Configure environment variables**:
-   Create a `.env` file in the `back/` folder (or copy from existing environment):
+3. Mühit dəyişənlərini (`.env`) təyin edin:
+   `back/` qovluğunda `.env` faylı yaradın və aşağıdakı konfiqurasiyanı daxil edin:
    ```env
    PORT=5000
    NODE_ENV=development
-   DATABASE_URL="postgresql://postgres:password@localhost:5432/eurotech_db?schema=public"
+   DATABASE_URL="postgresql://postgres:parolunuz@localhost:5432/eurotech_db?schema=public"
    JWT_SECRET="eurotech_enterprise_super_secret_jwt_key_2026"
    JWT_EXPIRES_IN="7d"
-   STRIPE_SECRET_KEY="sk_test_..."
+   FRONTEND_URL="http://localhost:5173"
+   
+   # E-poçt xidməti (könüllü)
    SMTP_HOST="smtp.gmail.com"
    SMTP_PORT=587
-   SMTP_USER="notifications@eurotech.com"
-   SMTP_PASS="your_app_password"
-   FRONTEND_URL="http://localhost:5173"
+   SMTP_USER="bildiris@eurotech.com"
+   SMTP_PASS="tetbiq_parolu"
    ```
 
-4. **Initialize database schema and seed demo records**:
+4. Verilənlər bazası strukturunu tətbiq edin və test datalarını doldurun:
    ```bash
+   # Bazanın cədvəllərini yaratmaq
    npx prisma db push
+
+   # Test istifadəçilərini və ilkin məlumatları bazaya yükləmək
    npx prisma db seed
    ```
 
-5. **Start backend development server**:
+5. Backend serverini başladın:
    ```bash
    npm run dev
    ```
-   *The backend REST API will be available at `http://localhost:5000` (API base: `http://localhost:5000/api/v1`).*
+   *Backend REST API `http://localhost:5000` ünvanında işə düşəcək (Baza marşrut: `http://localhost:5000/api/v1`).*
 
 ---
 
-### Frontend Setup
+### 2. Frontend-in Quraşdırılması
 
-1. **Navigate to frontend directory**:
+1. Yeni terminal açıb frontend qovluğuna keçin:
    ```bash
    cd front
    ```
 
-2. **Install dependencies**:
+2. Asılılıqları quraşdırın:
    ```bash
    npm install
    ```
 
-3. **Configure environment variables**:
-   Create a `.env` file in the `front/` folder:
+3. Frontend üçün `.env` faylını təyin edin:
+   `front/` qovluğunda `.env` faylı yaradın:
    ```env
    VITE_API_URL=http://localhost:5000/api/v1
    ```
 
-4. **Start frontend development server**:
+4. İnkişaf serverini başladın:
    ```bash
    npm run dev
    ```
-   *The application will launch at `http://localhost:5173`.*
+   *Tətbiq brauzerdə avtomatik olaraq `http://localhost:5173` ünvanında açılacaq.*
 
-5. **Production Build**:
+5. İstehsal (Production) üçün yığmaq:
    ```bash
    npm run build
    ```
 
 ---
 
-## 🔑 Pre-Configured Demo Accounts
+## 🔑 Hazır Demo İstifadəçi Hesabları
 
-For testing, seed data includes accounts for each portal:
+Verilənlər bazası ilkin doldurulduqda (`seed`) hər bir portal üzrə hazır demo hesablar aktivləşir:
 
-| Role | Username / Email | Password | Target Portal |
+| Portal / Rol | Email | Şifrə | Təyinat Səhifəsi |
 | :--- | :--- | :--- | :--- |
-| **Individual Client** | `client@eurotech.com` *(or auto-generated ID)* | `Password123!` | `/client/dashboard` |
-| **Travel Agent** | `agent@eurotech.com` | `Password123!` | `/agent/dashboard` |
-| **Corporate HR** | `corporate@eurotech.com` | `Password123!` | `/corporate/dashboard` |
-| **System Admin** | `admin@eurotech.com` | `AdminSecure2026!` | `/admin` |
+| **Fərdi Müştəri (B2C)** | `client@eurotech.com` | `Password123!` | `/client/dashboard` |
+| **Turizm Agentliyi (B2B)** | `agent@eurotech.com` | `Password123!` | `/agent/dashboard` |
+| **Korporativ HR (B2B)** | `corporate@eurotech.com` | `Password123!` | `/corporate/dashboard` |
+| **Baş İnzibatçı (Admin)** | `admin@eurotech.com` | `AdminSecure2026!` | `/admin` |
+
+*Qeyd: İstənilən yeni istifadəçi Qeydiyyat (`/register`) səhifəsindən daxil olaraq dərhal unikal `EUR-XXXXX` ID-si ilə yeni hesab aça bilər.*
 
 ---
 
-## 📡 API Endpoints (v1)
+## 📡 Əsas API Marşrutları (v1)
 
-All endpoints are prefixed with `/api/v1` (with backward-compatibility aliases on `/api`):
+Bütün sorğular `/api/v1` prefiksi ilə idarə olunur:
 
-| Domain | Method | Endpoint | Description |
-| :--- | :--- | :--- | :--- |
-| **Auth** | `POST` | `/auth/login` | Authenticate and obtain JWT token |
-| | `POST` | `/auth/register` | Register individual applicant (auto-generates EUR-ID) |
-| | `POST` | `/auth/set-password` | Activate account via secure invitation token |
-| **Dossiers** | `POST` | `/dossiers` | Create new multi-step application dossier |
-| | `GET` | `/dossiers/:id` | Fetch dossier details, applicants, and status |
-| | `POST` | `/dossiers/:id/applicants` | Add an applicant to an existing dossier |
-| **Documents** | `POST` | `/documents/upload` | Upload document (Multer, SHA256 integrity) |
-| | `GET` | `/documents/:id/signed-url` | Generate temporary signed URL for file access |
-| | `GET` | `/documents/:id/download` | Secure file download with token validation |
-| **Appointments** | `GET` | `/appointments/slots` | Fetch available embassy slots by country/date |
-| | `POST` | `/appointments/book` | Reserve an appointment slot |
-| | `PATCH` | `/appointments/:id/reschedule` | Reschedule existing appointment |
-| | `GET` | `/appointments/:id/manifest-pdf` | Download official embassy appointment manifest |
-| **Agent** | `POST` | `/agent/groups` | Create group dossier for agency clients |
-| | `POST` | `/agent/groups/:id/submit` | Submit group for processing & credit commission |
-| | `GET` | `/agent/wallet` | Fetch agency commission ledger and balance |
-| | `POST` | `/agent/payout-request` | Request commission withdrawal |
-| **Corporate** | `POST` | `/corporate/batches` | Create corporate mobility batch |
-| | `POST` | `/corporate/employees` | Add employee to company registry |
-| | `POST` | `/corporate/employees/:id/delegation-link` | Generate self-service delegation link |
-| | `GET` | `/corporate/delegation/profile` | Validate guest employee token |
-| | `POST` | `/corporate/batches/:id/invoice` | Generate proforma invoice (PDF) |
-| | `POST` | `/corporate/batches/:id/pay-wallet` | Pay batch from corporate balance |
-| **Services** | `GET` | `/services` | List active add-on service catalog |
-| | `POST` | `/services/add` | Attach add-on service to dossier |
-| **Privacy (GDPR)**| `GET` | `/privacy/export-data` | Export all applicant data (Right to Access) |
-| | `POST` | `/privacy/erasure-request` | Request account data erasure (Right to be Forgotten) |
-| **Payments** | `POST` | `/payments/create-intent` | Initialize Stripe PaymentIntent |
-| | `POST` | `/payments/confirm-mock` | Confirm payment in local/test environment |
-| **Admin** | `PATCH` | `/admin/documents/:id/verify` | Verify or reject uploaded document |
-| | `PATCH` | `/admin/dossier/:id/decision` | Final consular decision (Approved / Rejected) |
+### 🔐 Autentifikasiya & İstifadəçi
+- `POST /api/v1/auth/login` - Daxil olma və JWT əldə etmə.
+- `POST /api/v1/auth/register` - Yeni fərdi müraciətçi qeydiyyatı.
+- `GET /api/v1/auth/me` - Cari daxil olmuş istifadəçinin profil məlumatları.
+
+### 📁 Müraciət Dosyeləri (Dossiers)
+- `GET /api/v1/dossiers/my-dossiers` - İstifadəçiyə aid bütün viza müraciətləri.
+- `POST /api/v1/dossiers` - Yeni addımlı viza müraciəti başlatma.
+- `GET /api/v1/dossiers/:id` - Dosyenin tam təfərrüatları, iştirakçılar və sənədlər.
+
+### 📄 Sənəd Əməliyyatları
+- `POST /api/v1/documents/upload` - Fayl yükləmə (Multer, SHA256 bütövlük yoxlanışı).
+- `GET /api/v1/documents/:id/signed-url` - Sənədə təhlükəsiz müvəqqəti baxış keçidi.
+- `GET /api/v1/documents/:id/download` - Şifrəli tokenlə fayl endirmə.
+
+### 📅 Konsulluq Randevuları
+- `GET /api/v1/appointments/slots` - Mövcud olan boş randevu saatları.
+- `POST /api/v1/appointments/book` - Seçilmiş saatı bron etmək.
+- `PATCH /api/v1/appointments/:id/reschedule` - Mövcud randevunun vaxtını dəyişmək.
+- `DELETE /api/v1/appointments/:id/cancel` - Randevunu ləğv etmək.
+- `GET /api/v1/appointments/:id/confirmation-pdf` - Rəsmi təsdiq PDF qəbzini endirmək.
+
+### ✈️ Turizm Agentliyi Modulu
+- `GET /api/v1/agent/groups` - Agentliyə aid qrup müraciətləri siyahısı.
+- `POST /api/v1/agent/groups` - Yeni turist qrupu yaratmaq.
+- `GET /api/v1/agent/wallet` - Komissiya pul kisəsi balansı və gəlir tarixçəsi.
+- `POST /api/v1/agent/payout-request` - Qazanılmış komissiyanın çıxarılması sorğusu.
+
+### 🏢 Korporativ Şirkət Modulu
+- `GET /api/v1/corporate/batches` - Şirkətin ezamiyyət partiyaları.
+- `POST /api/v1/corporate/batches` - Yeni işçi partiyası başlatmaq.
+- `GET /api/v1/corporate/employees` - Şirkət işçilərinin reyestri.
+- `POST /api/v1/corporate/employees` - Reyestrə yeni işçi daxil etmək.
+- `POST /api/v1/corporate/employees/:id/delegation-link` - İşçiyə fərdi anket doldurma linki generasiya etmək.
+- `GET /api/v1/corporate/wallet` - Korporativ pul kisəsi balansı, illik xərcləmə (Total Spend YTD) və çıxarış.
+- `POST /api/v1/corporate/batches/:batchId/pay-wallet` - Partiya rüsumlarını birbaşa balansdan ödəmək.
 
 ---
 
-## 🧪 Testing & Disaster Recovery
+## 🧪 Təhlükəsizlik və Testlər
 
-The backend features an automated end-to-end integration test runner validating 21 core enterprise requirements:
+Layihənin tam dayanıqlığını yoxlamaq üçün avtomatlaşdırılmış **21/21 E2E İnteqrasiya Testi** mövcuddur:
 
 ```bash
 cd back
 node test-all.js
 ```
 
-### Verified Scenarios (21/21 Passing):
-- [x] **01.** Automated Username Generation (`EUR12345`)
-- [x] **02.** Set Password Token Creation & Verification
-- [x] **03.** Single-Query Atomic Transaction Profile Updates
-- [x] **04.** Role-Based Access Control (RBAC) Matrix
-- [x] **05.** Multi-Factor & OTP Authentication Flow
-- [x] **06.** Dynamic Country Requirements Engine
-- [x] **07.** Multer File Upload & SHA256 Integrity Verification
-- [x] **08.** Signed URLs for Secure Document Access
-- [x] **09.** Operator Document Review (Verified / Correction / Rejected)
-- [x] **10.** Automated PDF Dossier Application Builder
-- [x] **11.** Multi-Document ZIP Archival Generator
-- [x] **12.** Add-On Services (Premium Lounge, Insurance, Translation)
-- [x] **13.** Appointment Slot Search & Live Booking
-- [x] **14.** 1-Click Appointment Rescheduling Engine
-- [x] **15.** Embassy Appointment Manifest PDF Generator
-- [x] **16.** Travel Agency Group Dossiers & Commission Tiering
-- [x] **17.** Agent Wallet & Instant Payout Pipeline
-- [x] **18.** Corporate Employee Registry & Magic Delegation Links
-- [x] **19.** Corporate Proforma Invoice & Wallet Direct Checkout
-- [x] **20.** Stripe PaymentIntent & Mock Settlement
-- [x] **21.** Disaster Recovery (DR) & Backup Integrity (RTO: 15ms vs 1hr target, RPO: 15min)
+### Yoxlanılan 21 Tələb (Hamısı Uğurla Keçir):
+1. Avtomatlaşdırılmış istifadəçi ID generasiyası (`EUR12345`)
+2. Şifrə təyini və təhlükəsiz token doğrulama
+3. Atomik Tranzaksiya ilə profil yeniləmələri
+4. Rol əsaslı girişə nəzarət (RBAC Matrix)
+5. Çoxfaktorlu təhlükəsizlik və icazə mexanizmi
+6. Dinamik ölkə qaydaları və anket sualları mühərriki
+7. Multer fayl yükləməsi və SHA256 bütövlük yoxlanışı
+8. Şifrələnmiş URL-lər vasitəsilə sənədə təhlükəsiz baxış
+9. Operator sənəd yoxlanışı (Təsdiq / İmtina / Düzəliş)
+10. Avtomatik PDF viza müraciət anketinin formalaşması
+11. Bütün sənədlərin vahid ZIP arxivinə yığılması
+12. Əlavə xidmətlər kataloqu (VIP zal, Sığorta, Tərcümə)
+13. Canlı randevu axtarışı və rezervasiya
+14. 1 kliklə randevu vaxtının dəyişdirilməsi (Reschedule)
+15. Səfirlik randevu manifestinin rəsmi PDF generasiyası
+16. Agentlik qrup müraciətləri və komissiya uçotu
+17. Agentlik pul kisəsi və ani çıxarış (Payout) xətti
+18. Korporativ işçi heyəti və özünəxidmət dəvət keçidləri
+19. Korporativ Proforma Faktura və Pul kisəsindən ödəniş
+20. Ödəniş sistemlərinin tam tranzaksiya inteqrasiyası
+21. Fəlakətdən bərpa və ehtiyat nüsxə bütövlüyü (Disaster Recovery)
 
 ---
 
-## 🔒 Security & Compliance
+## 🛡 Təhlükəsizlik və GDPR Uyğunluğu
 
-- **Authentication & RBAC**: Strict JWT signature verification with granular role guards (`CLIENT`, `AGENT`, `CORPORATE`, `ADMIN`, `SUPERADMIN`).
-- **GDPR Compliance**: Dedicated `/privacy` endpoints for user data exports and account erasure requests.
-- **Document Protection**: Documents are stored in protected storage; direct access is blocked. Downloads require short-lived HMAC-signed URLs.
-- **Audit Logging**: Sensitive operations (document reviews, consular decisions, wallet payouts) produce immutable audit logs.
-- **SQL Injection Prevention**: Safe, parameterized database operations powered by Prisma ORM.
+- **Məlumatların Qorunması**: Bütün sənədlər qorunan kataloqda saxlanılır və birbaşa veb keçidləri bağlıdır. Giriş yalnız qısaömürlü HMAC imzalanmış tokenlərlə mümkündür.
+- **GDPR Tələbləri**: İstifadəçinin öz şəxsi məlumatlarını vahid fayl kimi ixrac etməsi (`/privacy/export-data`) və məlumatlarının tam silinməsini tələb etməsi (`/privacy/erasure-request`) hüquqları tam təmin edilib.
+- **Audit Loqlama**: Bütün inzibati hərəkətlər (sənəd təsdiqi, randevu ləğvi, ödənişlər) bazada dəyişdirilə bilməyən audit loqları ilə qeydiyyata alınır.
+- **SQL Injection Mühafizəsi**: Bütün verilənlər bazası sorğuları Prisma ORM vasitəsilə təhlükəsiz parametrləşdirilir.
 
 ---
 
-## 🏢 Corporate Information
+## 🏢 Korporativ Əlaqə
 
 **EuroTech Services Kft. (Budapest)**  
-Regional Representative Office: Baku, Azerbaijan  
-*Confidential — For Internal & Authorized Client Operations Only.*
+Regional Nümayəndəlik Ofisi: Bakı, Azərbaycan  
+*Məxfi — Yalnız səlahiyyətli istifadəçilər və əməliyyatlar üçün.*

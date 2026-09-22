@@ -308,8 +308,9 @@ async function runAllTests() {
     console.log('\n[16/21] Appointments: Slot Axtarisi, Bron ve Reschedule Testi...');
     const slotsRes = await request('GET', '/appointments/slots');
     const availableSlots = slotsRes.body.data.slots;
-    timeSlotId = availableSlots[0].id;
-    console.log(`  -> Movcud slotlar: ${availableSlots.length} eded | Slot vaxti: ${availableSlots[0].startTime}`);
+    const freeSlot = availableSlots.find((s) => s.availableCapacity > 0) || availableSlots[0];
+    timeSlotId = freeSlot.id;
+    console.log(`  -> Movcud slotlar: ${availableSlots.length} eded | Secilen Slot vaxti: ${freeSlot.startTime}`);
 
     // Book appointment
     const bookRes = await request('POST', '/appointments/book', {
@@ -320,9 +321,10 @@ async function runAllTests() {
     console.log(`  -> STATUS: ${bookRes.status} | Gorus bron edildi (ID: ${appointmentId}) ✔️`);
 
     // Reschedule appointment to second slot
-    if (availableSlots.length > 1) {
+    const nextFreeSlot = availableSlots.find((s) => s.id !== timeSlotId && s.availableCapacity > 0);
+    if (nextFreeSlot) {
       const rescheduleRes = await request('PATCH', `/appointments/${appointmentId}/reschedule`, {
-        newTimeSlotId: availableSlots[1].id,
+        newTimeSlotId: nextFreeSlot.id,
       }, token);
       console.log(`  -> Reschedule STATUS: ${rescheduleRes.status} | Yeni slot teyin olundu ✔️`);
     }
@@ -351,14 +353,17 @@ async function runAllTests() {
     const walletRes = await request('GET', '/agent/wallet', null, agentToken);
     console.log(`  -> Agent Pul Kisesi Balansi: €${walletRes.body.data.wallet.balance} ✔️`);
 
-    // Request Payout
+    // Request Payout (within available balance)
+    const availableBal = walletRes.body.data.wallet.balance;
+    const payoutReqAmount = availableBal >= 20.0 ? 20.0 : availableBal;
     const payoutRes = await request('POST', '/agent/payout-request', {
-      amount: 100.0,
+      amount: payoutReqAmount,
       bankName: 'International Bank of Azerbaijan',
       iban: 'AZ21IBAZ38019440333322221111',
       swiftBic: 'IBAZAZ2X',
     }, agentToken);
-    console.log(`  -> Cixaris Sorgusu STATUS: ${payoutRes.status} | Payout ID: ${payoutRes.body.data.payout.id} ✔️`);
+    console.log(`  -> Cixaris Sorgusu STATUS: ${payoutRes.status} | Payout ID: ${payoutRes.body?.data?.payout?.id} ✔️`);
+
 
     // 19. Corporate HR Portal Endpoints Test
     console.log('\n[19/21] Corporate Portal: Partiyalar, Nümayəndəlik Linki ve Fakturalar...');

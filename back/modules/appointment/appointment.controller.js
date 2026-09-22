@@ -73,10 +73,27 @@ async function getManifestPdf(req, res, next) {
   }
 }
 
+async function getConfirmationLetterPdf(req, res, next) {
+  try {
+    const appointmentId = req.params.appointmentId || req.body?.appointmentId || req.query?.appointmentId;
+    const customAppointmentInfo = req.body?.appointmentInfo || req.query;
+    const result = await appointmentService.generateConfirmationLetterPdf({
+      appointmentId,
+      customAppointmentInfo,
+      currentUser: req.user,
+    });
+    return ApiResponse.success(res, result, 'Official appointment confirmation letter generated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   getAvailableSlots,
   bookAppointment,
   rescheduleAppointment,
   cancelAppointment,
   getManifestPdf,
+  getConfirmationLetterPdf,
 };
+

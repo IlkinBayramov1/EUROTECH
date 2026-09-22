@@ -40,4 +40,11 @@ export const appointmentService = {
 
   generateManifestPdf: (payload?: { appointmentId?: string; groupBatchId?: string; groupInfo?: any }) =>
     apiClient.post('/appointments/manifest-pdf', payload || {}),
+
+  getConfirmationPdf: (appointmentId: string) =>
+    apiClient.get(`/appointments/${appointmentId}/confirmation-pdf`),
+
+  generateConfirmationPdf: (payload?: { appointmentId?: string; appointmentInfo?: any }) =>
+    apiClient.post('/appointments/confirmation-pdf', payload || {}),
 };
+

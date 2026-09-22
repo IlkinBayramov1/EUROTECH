@@ -19,7 +19,7 @@ function createHybridRateLimiter(options = {}) {
 
   return (req, res, next) => {
     const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
-    const account = req.body?.email || req.body?.phone || 'anonymous';
+    const account = req.body?.loginIdentifier || req.body?.email || req.body?.username || req.body?.passportNumber || req.body?.phone || 'anonymous';
     const endpoint = req.originalUrl || req.path;
     const userAgent = req.headers['user-agent'] || 'unknown-device';
 

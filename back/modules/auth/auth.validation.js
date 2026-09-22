@@ -5,7 +5,7 @@ const preRegisterValidation = [
   body('fullName').notEmpty().withMessage('Full name is required'),
   body('role')
     .optional()
-    .isIn(['INDIVIDUAL', 'AGENT_TUR_OPERATOR', 'CORPORATE_HR'])
+    .isIn(['INDIVIDUAL', 'AGENT', 'AGENT_TUR_OPERATOR', 'CORPORATE', 'CORPORATE_HR'])
     .withMessage('Invalid profile role'),
 ];
 
@@ -22,14 +22,21 @@ const registerValidation = [
   body('fullName').notEmpty().withMessage('Full name is required'),
   body('role')
     .optional()
-    .isIn(['INDIVIDUAL', 'AGENT_TUR_OPERATOR', 'CORPORATE_HR'])
+    .isIn(['INDIVIDUAL', 'AGENT', 'AGENT_TUR_OPERATOR', 'CORPORATE', 'CORPORATE_HR'])
     .withMessage('Invalid profile role'),
 ];
 
 const loginValidation = [
-  body('email').optional().isEmail().withMessage('Valid email is required if provided'),
-  body('username').optional().notEmpty().withMessage('Username must not be empty if provided'),
   body('password').notEmpty().withMessage('Password is required'),
+  body('expectedRole').optional().isString(),
+  body('portalRole').optional().isString(),
+  body().custom((_, { req }) => {
+    const id = req.body.email || req.body.username || req.body.passportNumber || req.body.loginIdentifier;
+    if (!id || typeof id !== 'string' || !id.trim()) {
+      throw new Error('Email, username, or passport number is required');
+    }
+    return true;
+  }),
 ];
 
 const sendOtpValidation = [body('email').isEmail().withMessage('Valid email is required')];

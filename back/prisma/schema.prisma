@@ -426,6 +426,10 @@ model Wallet {
   balance        Float               @default(0.0)
   pendingBalance Float               @default(0.0)
   currency       String              @default("EUR")
+  bankName       String?
+  iban           String?
+  swiftBic       String?
+  accountHolder  String?
   transactions   WalletTransaction[]
   payoutRequests PayoutRequest[]
   createdAt      DateTime            @default(now())

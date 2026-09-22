@@ -1,6 +1,15 @@
 const serviceService = require('./service.service');
 const ApiResponse = require('../../core/api.response');
 
+async function getServiceCatalog(req, res, next) {
+  try {
+    const catalog = serviceService.getServiceCatalog();
+    return ApiResponse.success(res, { catalog }, 'Service catalog retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
 async function addService(req, res, next) {
   try {
     const { dossierId, applicantId, serviceType, metadataJson } = req.body;
@@ -12,6 +21,21 @@ async function addService(req, res, next) {
     });
 
     return ApiResponse.success(res, { service }, 'Service added successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function checkoutServices(req, res, next) {
+  try {
+    const { dossierId, items } = req.body;
+    const result = await serviceService.checkoutServices({
+      dossierId,
+      userId: req.user?.id,
+      items,
+    });
+
+    return ApiResponse.success(res, result, 'Services purchased successfully', 201);
   } catch (error) {
     return ApiResponse.error(res, error.message, 400);
   }
@@ -29,6 +53,8 @@ async function removeService(req, res, next) {
 }
 
 module.exports = {
+  getServiceCatalog,
   addService,
+  checkoutServices,
   removeService,
 };

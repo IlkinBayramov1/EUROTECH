@@ -6,20 +6,128 @@ function generateGroupCode() {
   return `GRP-${digits}`;
 }
 
-async function createGroup({ userId, name, destination, travelDate, duration, projectReason }) {
+async function createGroup({ userId, name, destination, travelDate, duration, projectReason, applicants, package: pkg, appointmentDate, appointmentTime }) {
   const code = generateGroupCode();
-  return prisma.groupBatch.create({
-    data: {
-      code,
-      portalType: 'GROUP_AGENT',
-      userId,
-      name,
-      destination: destination || 'Europe / Schengen',
-      travelDate: travelDate ? new Date(travelDate) : null,
-      duration: duration || 'short',
-      projectReason: projectReason || 'Tourism',
-      status: 'DRAFT',
-    },
+  
+  return await prisma.$transaction(async (tx) => {
+    const group = await tx.groupBatch.create({
+      data: {
+        code,
+        portalType: 'GROUP_AGENT',
+        userId,
+        name,
+        destination: destination || 'Europe / Schengen',
+        travelDate: travelDate ? new Date(travelDate) : null,
+        duration: duration || 'short',
+        projectReason: projectReason || 'Tourism',
+        status: 'DRAFT',
+      },
+    });
+
+    let country = await tx.country.findFirst({
+      where: {
+        OR: [
+          { nameEn: { contains: destination || 'Hungary' } },
+          { nameAz: { contains: destination || 'Macaristan' } },
+          { code: 'HU' },
+        ],
+      },
+    });
+    if (!country) {
+      country = await tx.country.findFirst();
+    }
+    if (!country) {
+      country = await tx.country.create({
+        data: { code: 'HU', nameAz: 'Macarıstan', nameEn: 'Hungary', nameRu: 'Vengriya' },
+      });
+    }
+
+    let category = await tx.visaCategory.findFirst({ where: { countryId: country.id } });
+    if (!category) {
+      category = await tx.visaCategory.create({
+        data: { countryId: country.id, code: 'SCHENGEN_TOURIST', nameAz: 'Şengen Turist', nameEn: 'Schengen Tourist', nameRu: 'Schengen Tourist' },
+      });
+    }
+
+    const dossier = await tx.dossier.create({
+      data: {
+        dossierNumber: `GRP-${code}-${Date.now().toString().slice(-4)}`,
+        portalType: 'GROUP_AGENT',
+        userId,
+        groupBatchId: group.id,
+        countryId: country.id,
+        visaCategoryId: category.id,
+        status: 'RECEIVED',
+        currentStep: 1,
+        appointmentDate: appointmentDate ? new Date(appointmentDate) : null,
+        appointmentLocation: 'EuroTech Main Center, Port Baku Towers',
+      },
+    });
+
+    if (applicants && Array.isArray(applicants) && applicants.length > 0) {
+      for (const app of applicants) {
+        await tx.applicant.create({
+          data: {
+            dossierId: dossier.id,
+            firstName: app.firstName || app.fullName?.split(' ')[0] || 'Applicant',
+            lastName: app.lastName || app.fullName?.split(' ').slice(1).join(' ') || '',
+            passportNumber: app.passportNumber || app.passport || 'P0000000',
+            birthDate: app.dob ? new Date(app.dob) : null,
+            formDataJson: {
+              dob: app.dob,
+              issueDate: app.issueDate,
+              expiryDate: app.expiryDate,
+              package: pkg || 'standard',
+              ...(app.formDataJson || {}),
+            },
+          },
+        });
+      }
+    }
+
+    if (appointmentDate) {
+      const apptDateTime = new Date(`${appointmentDate}T${appointmentTime || '10:00'}:00.000Z`);
+      let timeSlot = await tx.timeSlot.findFirst({
+        where: { isActive: true },
+      });
+      if (!timeSlot) {
+        timeSlot = await tx.timeSlot.create({
+          data: {
+            date: apptDateTime,
+            startTime: appointmentTime || '10:00',
+            capacity: 20,
+            bookedCount: 1,
+            isActive: true,
+            location: 'EuroTech Main Center, Port Baku Towers',
+          },
+        });
+      }
+      await tx.appointment.create({
+        data: {
+          timeSlotId: timeSlot.id,
+          userId,
+          dossierId: dossier.id,
+          groupBatchId: group.id,
+          status: 'CONFIRMED',
+          location: 'EuroTech Main Center, Port Baku Towers',
+          notes: `Group Batch: ${name} (${code})`,
+        },
+      });
+    }
+
+    return await tx.groupBatch.findUnique({
+      where: { id: group.id },
+      include: {
+        dossiers: {
+          include: {
+            applicants: {
+              include: { documents: true },
+            },
+          },
+        },
+        appointments: true,
+      },
+    });
   });
 }
 
@@ -60,6 +168,92 @@ async function getAgentGroups(userId) {
       verifiedApplicants,
       formProgress,
       applicants: allApplicants,
+    };
+  });
+}
+
+async function getAgentAppointments(userId) {
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      OR: [
+        { groupBatch: { userId } },
+        { userId, groupBatchId: { not: null } },
+      ],
+      status: { not: 'CANCELLED' },
+    },
+    include: {
+      timeSlot: true,
+      groupBatch: {
+        include: {
+          dossiers: {
+            include: {
+              applicants: {
+                include: { documents: true },
+              },
+            },
+          },
+        },
+      },
+      dossier: {
+        include: {
+          applicants: {
+            include: { documents: true },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { timeSlot: { date: 'asc' } },
+      { timeSlot: { startTime: 'asc' } },
+    ],
+  });
+
+  return appointments.map((appt) => {
+    let applicants = [];
+    if (appt.groupBatch?.dossiers) {
+      appt.groupBatch.dossiers.forEach((d) => {
+        if (d.applicants) applicants.push(...d.applicants);
+      });
+    }
+    if (applicants.length === 0 && appt.dossier?.applicants) {
+      applicants.push(...appt.dossier.applicants);
+    }
+
+    const totalApplicants = applicants.length;
+    const verifiedApplicants = applicants.filter((a) =>
+      a.documents?.length > 0 && a.documents.every((doc) => doc.status === 'VERIFIED')
+    ).length;
+
+    const group = appt.groupBatch;
+    return {
+      id: appt.id,
+      timeSlotId: appt.timeSlotId,
+      status: appt.status,
+      location: appt.location || appt.timeSlot?.location || 'EuroTech Main Center, Port Baku Towers',
+      notes: appt.notes,
+      timeSlot: {
+        id: appt.timeSlot?.id,
+        date: appt.timeSlot?.date,
+        startTime: appt.timeSlot?.startTime,
+        capacity: appt.timeSlot?.capacity || 10,
+        bookedCount: appt.timeSlot?.bookedCount || 0,
+        location: appt.timeSlot?.location,
+      },
+      groupInfo: {
+        id: group?.code || 'GROUP',
+        dbId: group?.id,
+        name: group?.name || 'Group Delegation',
+        destination: group?.destination || '',
+        package: group?.dossiers?.[0]?.applicants?.[0]?.formDataJson?.package || 'Standard',
+        passportStatus: verifiedApplicants === totalApplicants && totalApplicants > 0 ? 'Documents Ready' : 'Pending Action',
+        size: totalApplicants,
+        applicants: applicants.map((a) => ({
+          id: a.id,
+          name: `${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Applicant',
+          passport: a.passportNumber || '—',
+          docsStatus: a.documents?.length > 0 && a.documents.every((doc) => doc.status === 'VERIFIED') ? 'Verified' : 'Pending',
+        })),
+      },
     };
   });
 }
@@ -185,7 +379,7 @@ async function getAgentWallet(userId) {
 
   if (!wallet) {
     wallet = await prisma.wallet.create({
-      data: { userId, balance: 480.0, pendingBalance: 1250.0, currency: 'EUR' },
+      data: { userId, balance: 0.0, pendingBalance: 0.0, currency: 'EUR' },
       include: {
         transactions: true,
         payoutRequests: true,
@@ -193,13 +387,13 @@ async function getAgentWallet(userId) {
     });
   }
 
-  // Calculate YTD earned
+  // Calculate real YTD earned from database CREDIT transactions
   const creditAgg = await prisma.walletTransaction.aggregate({
     _sum: { amount: true },
     where: { walletId: wallet.id, type: 'CREDIT' },
   });
 
-  const totalEarnedYtd = creditAgg._sum.amount || wallet.balance;
+  const totalEarnedYtd = creditAgg._sum.amount || 0.0;
 
   return {
     ...wallet,
@@ -276,12 +470,225 @@ async function exportTransactionsCsv(userId) {
   return rows.join('\n');
 }
 
+async function saveBankDetails(userId, { bankName, iban, swiftBic, accountHolder }) {
+  let wallet = await prisma.wallet.findUnique({ where: { userId } });
+  if (!wallet) {
+    wallet = await prisma.wallet.create({
+      data: {
+        userId,
+        balance: 0.0,
+        pendingBalance: 0.0,
+        currency: 'EUR',
+        bankName,
+        iban,
+        swiftBic,
+        accountHolder,
+      },
+    });
+  } else {
+    wallet = await prisma.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        bankName,
+        iban,
+        swiftBic,
+        accountHolder,
+      },
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: 'UPDATE_BANK_DETAILS',
+      details: { bankName, iban: iban ? `***${iban.slice(-4)}` : '', swiftBic, accountHolder },
+    },
+  });
+
+  return {
+    success: true,
+    bankName: wallet.bankName,
+    iban: wallet.iban,
+    swiftBic: wallet.swiftBic,
+    accountHolder: wallet.accountHolder,
+  };
+}
+
+async function addApplicantToGroup(groupId, userId, applicantData) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: { dossiers: true },
+  });
+
+  if (!group) {
+    const error = new Error('Group not found or unauthorized');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let dossier = group.dossiers[0];
+  if (!dossier) {
+    let country = await prisma.country.findFirst();
+    if (!country) {
+      country = await prisma.country.create({
+        data: { code: 'HU', nameAz: 'Macaristan', nameEn: 'Hungary', nameRu: 'Vengriya' },
+      });
+    }
+    let category = await prisma.visaCategory.findFirst({ where: { countryId: country.id } });
+    if (!category) {
+      category = await prisma.visaCategory.create({
+        data: { countryId: country.id, code: 'SCHENGEN_TOURIST', nameAz: 'Sengen Turist', nameEn: 'Schengen Tourist', nameRu: 'Sengen Turist' },
+      });
+    }
+
+    dossier = await prisma.dossier.create({
+      data: {
+        dossierNumber: `GRP-${group.code}-${Date.now().toString().slice(-4)}`,
+        portalType: 'GROUP_AGENT',
+        userId,
+        groupBatchId: group.id,
+        countryId: country.id,
+        visaCategoryId: category.id,
+      },
+    });
+  }
+
+  const applicant = await prisma.applicant.create({
+    data: {
+      dossierId: dossier.id,
+      firstName: applicantData.firstName || applicantData.name?.split(' ')[0] || 'Applicant',
+      lastName: applicantData.lastName || applicantData.name?.split(' ').slice(1).join(' ') || '',
+      passportNumber: applicantData.passportNumber || applicantData.passport || 'P0000000',
+      formDataJson: applicantData.formData || null,
+    },
+  });
+
+  return applicant;
+}
+
+async function removeApplicantFromGroup(groupId, applicantId, userId) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: { dossiers: { include: { applicants: true } } },
+  });
+
+  if (!group) {
+    const error = new Error('Group not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const belongs = group.dossiers.some((d) => d.applicants.some((a) => a.id === applicantId));
+  if (!belongs) {
+    const error = new Error('Applicant does not belong to this group');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return prisma.applicant.delete({
+    where: { id: applicantId },
+  });
+}
+
+async function saveApplicantFormInGroup(groupId, applicantId, formData, userId) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: { dossiers: { include: { applicants: true } } },
+  });
+
+  if (!group) {
+    const error = new Error('Group not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const targetApplicant = group.dossiers
+    .flatMap((d) => d.applicants)
+    .find((a) => a.id === applicantId);
+
+  if (!targetApplicant) {
+    const error = new Error('Applicant not found in this group');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const existingForm = targetApplicant.formDataJson && typeof targetApplicant.formDataJson === 'object'
+    ? targetApplicant.formDataJson
+    : {};
+
+  return prisma.applicant.update({
+    where: { id: applicantId },
+    data: {
+      formDataJson: {
+        ...existingForm,
+        ...formData,
+        lastSavedAt: new Date().toISOString(),
+      },
+    },
+  });
+}
+
+async function updateGroup(groupId, userId, { name }) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+  });
+  if (!group) {
+    const error = new Error('Group not found or unauthorized');
+    error.statusCode = 404;
+    throw error;
+  }
+  return prisma.groupBatch.update({
+    where: { id: groupId },
+    data: {
+      name: name !== undefined ? name : group.name,
+    },
+  });
+}
+
+async function deleteGroup(groupId, userId) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: { dossiers: { include: { applicants: true } } },
+  });
+  if (!group) {
+    const error = new Error('Group not found or unauthorized');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    await tx.appointment.deleteMany({ where: { groupBatchId: groupId } });
+
+    for (const d of group.dossiers) {
+      for (const app of d.applicants) {
+        await tx.applicantDocument.deleteMany({ where: { applicantId: app.id } });
+      }
+      await tx.applicant.deleteMany({ where: { dossierId: d.id } });
+      await tx.applicantDocument.deleteMany({ where: { dossierId: d.id } });
+      await tx.additionalService.deleteMany({ where: { dossierId: d.id } });
+      await tx.dossierStatusHistory.deleteMany({ where: { dossierId: d.id } });
+      await tx.dossier.delete({ where: { id: d.id } });
+    }
+
+    return tx.groupBatch.delete({ where: { id: groupId } });
+  });
+}
+
 module.exports = {
   createGroup,
   getAgentGroups,
+  getAgentAppointments,
   getGroupById,
+  updateGroup,
+  deleteGroup,
   submitGroup,
   getAgentWallet,
   requestPayout,
   exportTransactionsCsv,
+  saveBankDetails,
+  addApplicantToGroup,
+  removeApplicantFromGroup,
+  saveApplicantFormInGroup,
 };
+
+

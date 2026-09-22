@@ -57,10 +57,87 @@ async function getMyDossiers(req, res, next) {
   }
 }
 
+async function updateApplicantForm(req, res, next) {
+  try {
+    const { dossierId, applicantId } = req.params;
+    const applicant = await dossierService.updateApplicantForm(dossierId, applicantId, req.body.formData || req.body);
+    return ApiResponse.success(res, { applicant }, 'Applicant form draft saved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function getApplicationFormPdf(req, res, next) {
+  try {
+    const { dossierId, applicantId } = req.params;
+    const customData = { ...req.query, ...req.body };
+    const result = await dossierService.generateApplicationFormPdf(dossierId, applicantId, customData);
+
+    if (req.query.download === 'true' || req.query.download === '1') {
+      return res.download(result.filePath, result.fileName);
+    }
+
+    return ApiResponse.success(res, {
+      fileName: result.fileName,
+      downloadUrl: result.downloadUrl,
+      fileSize: result.pdfBytes.length,
+    }, 'Application form PDF generated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function getDossierSummaryPdf(req, res, next) {
+  try {
+    const { dossierId } = req.params;
+    const result = await dossierService.generateDossierSummaryPdf(dossierId);
+
+    if (req.query.download === 'true' || req.query.download === '1') {
+      return res.download(result.filePath, result.fileName);
+    }
+
+    return ApiResponse.success(res, {
+      fileName: result.fileName,
+      downloadUrl: result.downloadUrl,
+      fileSize: result.pdfBytes.length,
+    }, 'Dossier summary PDF generated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function deleteApplicant(req, res, next) {
+  try {
+    const { dossierId, applicantId } = req.params;
+    const result = await dossierService.deleteApplicant(dossierId, applicantId, req.user);
+    return ApiResponse.success(res, result, 'Applicant deleted successfully');
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
+async function getDossierTracking(req, res, next) {
+  try {
+    const identifier = req.params.referenceNumber || req.params.dossierId || req.query.ref;
+    const result = await dossierService.getDossierTracking(identifier, req.user);
+    return ApiResponse.success(res, result, 'Tracking data retrieved successfully');
+  } catch (error) {
+    const statusCode = error.message.includes('not found') ? 404 : 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
 module.exports = {
   createDossier,
   addApplicants,
   updateStep,
   getDossier,
   getMyDossiers,
+  updateApplicantForm,
+  deleteApplicant,
+  getApplicationFormPdf,
+  getDossierSummaryPdf,
+  getDossierTracking,
 };
+

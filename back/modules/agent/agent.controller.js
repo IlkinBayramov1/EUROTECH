@@ -22,6 +22,15 @@ async function getAgentGroups(req, res, next) {
   }
 }
 
+async function getAgentAppointments(req, res, next) {
+  try {
+    const appointments = await agentService.getAgentAppointments(req.user.id);
+    return ApiResponse.success(res, { appointments }, 'Agent appointments retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 async function getGroupById(req, res, next) {
   try {
     const isStaff = ['ADMIN', 'MANAGER', 'OPERATOR'].includes(req.user.role);
@@ -77,12 +86,81 @@ async function exportCsv(req, res, next) {
   }
 }
 
+async function saveBankDetails(req, res, next) {
+  try {
+    const { bankName, iban, swiftBic, accountHolder } = req.body;
+    const result = await agentService.saveBankDetails(req.user.id, { bankName, iban, swiftBic, accountHolder });
+    return ApiResponse.success(res, result, 'Bank details updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function addApplicant(req, res, next) {
+  try {
+    const applicant = await agentService.addApplicantToGroup(req.params.groupId, req.user.id, req.body);
+    return ApiResponse.success(res, { applicant }, 'Applicant added to group successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function removeApplicant(req, res, next) {
+  try {
+    await agentService.removeApplicantFromGroup(req.params.groupId, req.params.applicantId, req.user.id);
+    return ApiResponse.success(res, null, 'Applicant removed from group successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function saveApplicantForm(req, res, next) {
+  try {
+    const applicant = await agentService.saveApplicantFormInGroup(
+      req.params.groupId,
+      req.params.applicantId,
+      req.body.formData || req.body,
+      req.user.id
+    );
+    return ApiResponse.success(res, { applicant }, 'Applicant form saved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function updateGroup(req, res, next) {
+  try {
+    const group = await agentService.updateGroup(req.params.groupId, req.user.id, req.body);
+    return ApiResponse.success(res, { group }, 'Group updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function deleteGroup(req, res, next) {
+  try {
+    await agentService.deleteGroup(req.params.groupId, req.user.id);
+    return ApiResponse.success(res, null, 'Group deleted successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   createGroup,
   getAgentGroups,
+  getAgentAppointments,
   getGroupById,
+  updateGroup,
+  deleteGroup,
   submitGroup,
   getWallet,
   requestPayout,
   exportCsv,
+  saveBankDetails,
+  addApplicant,
+  removeApplicant,
+  saveApplicantForm,
 };
+
+

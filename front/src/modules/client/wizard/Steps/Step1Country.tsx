@@ -1,72 +1,165 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { dossierService } from '@/shared/api/services';
 
 interface Step1Props {
     data: {
         country: string;
+        countryId?: string;
         duration: string; // 'short' | 'long' | ''
+        visaCategoryId?: string;
         projectReason: string;
     };
-    updateData: (field: string, value: string) => void;
+    updateData: (field: string, value: any) => void;
 }
 
+interface DestinationCountry {
+    id: string;
+    code: string;
+    nameEn: string;
+    nameAz: string;
+    flag: string;
+    processingTime: string;
+    consularFee: string;
+}
+
+const DEFAULT_COUNTRIES: DestinationCountry[] = [
+    { id: 'cnt-hu', code: 'HU', nameEn: 'Hungary', nameAz: 'Macarıstan', flag: '🇭🇺', processingTime: '15 business days', consularFee: '€80' },
+    { id: 'cnt-at', code: 'AT', nameEn: 'Austria', nameAz: 'Avstriya', flag: '🇦🇹', processingTime: '15 business days', consularFee: '€80' },
+    { id: 'cnt-de', code: 'DE', nameEn: 'Germany', nameAz: 'Almaniya', flag: '🇩🇪', processingTime: '20 business days', consularFee: '€80' },
+    { id: 'cnt-it', code: 'IT', nameEn: 'Italy', nameAz: 'İtaliya', flag: '🇮🇹', processingTime: '15 business days', consularFee: '€80' },
+    { id: 'cnt-fr', code: 'FR', nameEn: 'France', nameAz: 'Fransa', flag: '🇫🇷', processingTime: '18 business days', consularFee: '€80' },
+    { id: 'cnt-pl', code: 'PL', nameEn: 'Poland', nameAz: 'Polşa', flag: '🇵🇱', processingTime: '15 business days', consularFee: '€80' },
+    { id: 'cnt-es', code: 'ES', nameEn: 'Spain', nameAz: 'İspaniya', flag: '🇪🇸', processingTime: '15 business days', consularFee: '€80' },
+];
+
 export default function Step1Country({ data, updateData }: Step1Props) {
-    
-    // Qısa müddətli (Schengen C) üçün layihə/səbəb seçimləri
+    const [countries, setCountries] = useState<DestinationCountry[]>(DEFAULT_COUNTRIES);
+    const [loadingCountries, setLoadingCountries] = useState(false);
+
+    useEffect(() => {
+        let isMounted = true;
+        setLoadingCountries(true);
+        dossierService.getCountries()
+            .then(res => {
+                if (isMounted && res.data?.countries && res.data.countries.length > 0) {
+                    const mapped: DestinationCountry[] = res.data.countries.map((c: any) => {
+                        const fallback = DEFAULT_COUNTRIES.find(dc => dc.code === c.code || dc.nameEn.toLowerCase() === c.nameEn?.toLowerCase());
+                        return {
+                            id: c.id,
+                            code: c.code || fallback?.code || 'EU',
+                            nameEn: c.nameEn || fallback?.nameEn || 'Schengen State',
+                            nameAz: c.nameAz || fallback?.nameAz || c.nameEn || 'Şengen Dövləti',
+                            flag: fallback?.flag || '🇪🇺',
+                            processingTime: fallback?.processingTime || '15 business days',
+                            consularFee: fallback?.consularFee || '€80'
+                        };
+                    });
+                    setCountries(mapped);
+                }
+            })
+            .catch(() => {
+                // Keep default countries
+            })
+            .finally(() => {
+                if (isMounted) setLoadingCountries(false);
+            });
+
+        return () => { isMounted = false; };
+    }, []);
+
+    // Short Stay (Schengen C) purposes
     const shortStayOptions = [
-        "Family or private settlement",
-        "Medical reasons",
-        "Official visit",
-        "Work",
-        "Family or private visit",
-        "Tourism",
-        "Studies"
+        "Tourism & Leisure Travel",
+        "Business & Commercial Delegation",
+        "Official Visit & Diplomatic Mission",
+        "Family or Private Visit",
+        "Medical Treatment",
+        "Short-term Studies / Cultural Exchange",
+        "Transit & Airport Layover"
     ];
 
-    // Uzun müddətli (National D) üçün layihə/səbəb seçimləri
+    // Long Stay (National D) purposes
     const longStayOptions = [
-        "Work",
-        "Family or private visit",
-        "Family or private settlement (minor)",
-        "Other",
-        "Return visa",
-        "Studies",
-        "Taking up official duties",
-        "Talent Cards",
-        "Visitor"
+        "Employment / Work Authorization",
+        "Higher Education / University Studies",
+        "Family Reunification & Settlement",
+        "EU Blue Card & Talent Relocation",
+        "Scientific Research & Academia",
+        "Long-term Resident / Guest Worker"
     ];
 
     const currentProjectOptions = data.duration === 'long' ? longStayOptions : shortStayOptions;
 
+    const handleCountrySelect = (c: DestinationCountry) => {
+        updateData('country', c.nameEn);
+        updateData('countryId', c.id);
+    };
+
     const handleDurationSelect = (duration: 'short' | 'long') => {
         updateData('duration', duration);
-        updateData('projectReason', ''); // Müddət dəyişəndə alt seçimi sıfırlayırıq
+        updateData('projectReason', '');
     };
 
     return (
         <div className="step-content fade-in">
-            <h1 className="step-title">Destination & Visa Type</h1>
-            <p className="step-subtitle">Select your destination and specify the duration and purpose of your travel.</p>
+            <h1 className="step-title">Destination & Visa Category</h1>
+            <p className="step-subtitle">Select your European destination country and specify the duration and purpose of your travel.</p>
             
+            {/* --- COUNTRY CARDS GRID --- */}
             <div className="wizard-input-group" style={{ marginBottom: '32px' }}>
-                <label>Destination Country</label>
-                <div className="premium-select-wrapper">
-                    <select 
-                        value={data.country} 
-                        onChange={(e) => updateData('country', e.target.value)}
-                        className={data.country ? 'selected' : ''}
-                    >
-                        <option value="" disabled>Select a destination...</option>
-                        <option value="Hungary">Hungary</option>
-                        <option value="Austria">Austria</option>
-                        <option value="Germany">Germany</option>
-                        <option value="Italy">Italy</option>
-                        <option value="France">France</option>
-                    </select>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <label style={{ margin: 0, fontWeight: 700 }}>Destination Country (Schengen / EU)</label>
+                    <span style={{ fontSize: '0.85rem', color: '#94A3B8' }}>Select your primary entry country</span>
+                </div>
+
+                <div className="country-cards-grid" style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+                    gap: '14px',
+                    marginBottom: '16px'
+                }}>
+                    {countries.map(c => {
+                        const isSelected = data.country.toLowerCase() === c.nameEn.toLowerCase();
+                        return (
+                            <div 
+                                key={c.id} 
+                                onClick={() => handleCountrySelect(c)}
+                                style={{
+                                    background: isSelected ? '#EFF6FF' : '#FFFFFF',
+                                    border: isSelected ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                                    borderRadius: '12px',
+                                    padding: '16px 14px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s ease',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    textAlign: 'center',
+                                    boxShadow: isSelected ? '0 4px 14px rgba(37, 99, 235, 0.15)' : '0 2px 6px rgba(15, 23, 42, 0.04)',
+                                }}
+                            >
+                                <span style={{ fontSize: '2.4rem', marginBottom: '8px', lineHeight: 1 }}>{c.flag}</span>
+                                <strong style={{ color: isSelected ? '#1E3A8A' : '#0F1E36', fontSize: '1rem', marginBottom: '4px', fontWeight: 700 }}>{c.nameEn}</strong>
+                                <span style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '8px' }}>{c.nameAz}</span>
+                                <span style={{ 
+                                    fontSize: '0.75rem', 
+                                    padding: '3px 10px', 
+                                    borderRadius: '12px', 
+                                    background: isSelected ? '#2563EB' : '#F1F5F9',
+                                    color: isSelected ? '#FFFFFF' : '#475569',
+                                    fontWeight: 600
+                                }}>
+                                    {c.processingTime}
+                                </span>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
+            {/* --- DURATION OF STAY --- */}
             <div className="wizard-input-group" style={{ marginBottom: '32px' }}>
-                <label>Duration of Stay</label>
+                <label style={{ fontWeight: 700, marginBottom: '12px', display: 'block' }}>Duration of Stay</label>
                 <div className="duration-cards-grid">
                     {/* Short Stay Card */}
                     <div 
@@ -78,7 +171,7 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                         </div>
                         <div className="duration-content">
                             <h3>Short Stay (≤ 90 days)</h3>
-                            <p>Up to 90 days within a 180-day period.</p>
+                            <p>Up to 90 days within any 180-day period across Schengen zone.</p>
                             <span className="visa-badge">Schengen C Visa</span>
                         </div>
                         <div className="duration-check">
@@ -96,7 +189,7 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                         </div>
                         <div className="duration-content">
                             <h3>Long Stay (&gt; 90 days)</h3>
-                            <p>Extended duration exceeding 90 days.</p>
+                            <p>Extended residence, work authorization, or university study.</p>
                             <span className="visa-badge">National D Visa</span>
                         </div>
                         <div className="duration-check">
@@ -106,9 +199,10 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                 </div>
             </div>
 
+            {/* --- TRAVEL PROJECT / PURPOSE --- */}
             <div className="wizard-input-group">
-                <label>Travel Project</label>
-                <p className="wizard-helper-text" style={{ marginTop: '-4px', marginBottom: '8px' }}>Please specify the primary reason for your trip based on your stay duration.</p>
+                <label style={{ fontWeight: 700 }}>Primary Travel Purpose</label>
+                <p className="wizard-helper-text" style={{ marginTop: '-4px', marginBottom: '8px' }}>Select the specific consular classification matching your intent.</p>
                 <div className="premium-select-wrapper">
                     <select 
                         value={data.projectReason} 
@@ -116,13 +210,13 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                         className={data.projectReason ? 'selected' : ''}
                         disabled={!data.duration}
                     >
-                        <option value="" disabled>Choose the category that applies to you</option>
+                        <option value="" disabled>Choose the category that applies to your travel</option>
                         {currentProjectOptions.map(option => (
                             <option key={option} value={option}>{option}</option>
                         ))}
                     </select>
                 </div>
-                {!data.duration && <span className="wizard-helper-text">Please select a duration of stay first to unlock travel categories.</span>}
+                {!data.duration && <span className="wizard-helper-text" style={{ color: '#F59E0B' }}>⚠️ Please choose your duration of stay first to unlock travel categories.</span>}
             </div>
         </div>
     );

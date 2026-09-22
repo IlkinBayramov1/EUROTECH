@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
+import { storage } from '@/shared/utils/storage';
 import type { UserRole } from '@/shared/types/auth.types';
 import './AuthPage.css';
 
@@ -13,12 +14,17 @@ interface AuthPageProps {
 }
 
 export default function AuthPage({ type }: AuthPageProps) {
-  const [mode, setMode] = useState<FormMode>('login');
+  const [searchParams] = useSearchParams();
+  const initialMode: FormMode = searchParams.get('mode') === 'register' ? 'register' : 'login';
+  const [mode, setMode] = useState<FormMode>(initialMode);
+  const [loginIdentifier, setLoginIdentifier] = useState(() => storage.getRememberedIdentifier() || '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [extraField, setExtraField] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => storage.isRememberEnabled());
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const navigate = useNavigate();
   const { login, register } = useAuth();
@@ -39,7 +45,7 @@ export default function AuthPage({ type }: AuthPageProps) {
       image: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=2071&auto=format&fit=crop',
       quote: '"Empowering travel agencies to deliver seamless experiences."',
       registerLabel: 'Agency Name',
-      targetRole: 'AGENT' as UserRole,
+      targetRole: 'AGENT_TUR_OPERATOR' as UserRole,
     },
     corporate: {
       title: 'Corporate Mobility',
@@ -47,7 +53,7 @@ export default function AuthPage({ type }: AuthPageProps) {
       image: 'https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=2069&auto=format&fit=crop',
       quote: '"Building borderless teams for the future of global business."',
       registerLabel: 'Company Name',
-      targetRole: 'CORPORATE' as UserRole,
+      targetRole: 'CORPORATE_HR' as UserRole,
     },
   };
 
@@ -55,39 +61,63 @@ export default function AuthPage({ type }: AuthPageProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    isSubmittingRef.current = true;
     setLoading(true);
 
     try {
       if (mode === 'login') {
-        await login({ email, password });
+        await login({ 
+          identifier: loginIdentifier, 
+          password, 
+          rememberMe,
+          expectedRole: currentContent.targetRole,
+          portalRole: type,
+        });
         showSuccess('Welcome back! Signed in successfully.');
+
+        // Login routes directly to the respective portal
+        if (type === 'individual') {
+          navigate('/client', { replace: true });
+        } else if (type === 'agent') {
+          navigate('/agent', { replace: true });
+        } else if (type === 'corporate') {
+          navigate('/corporate', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
       } else {
-        const names = fullName.split(' ');
+        const names = fullName.trim().split(' ');
         await register({
-          email,
+          email: email.trim(),
           password,
           role: currentContent.targetRole,
           firstName: names[0] || 'User',
           lastName: names.slice(1).join(' ') || '',
-          passportNumber: type === 'individual' ? extraField : undefined,
-          agencyName: type === 'agent' ? extraField : undefined,
-          companyName: type === 'corporate' ? extraField : undefined,
+          passportNumber: type === 'individual' ? extraField.trim().toUpperCase() : undefined,
+          agencyName: type === 'agent' ? extraField.trim() : undefined,
+          companyName: type === 'corporate' ? extraField.trim() : undefined,
         });
         showSuccess('Account created successfully! Welcome to EuroTech.');
-      }
 
-      if (type === 'individual') {
-        navigate('/individual/wizard');
-      } else if (type === 'agent') {
-        navigate('/agent');
-      } else if (type === 'corporate') {
-        navigate('/corporate');
-      } else {
-        navigate('/');
+        // Individual registration routes directly to the 5-step visa wizard
+        if (type === 'individual') {
+          navigate('/individual/wizard', { replace: true });
+        } else if (type === 'agent') {
+          navigate('/agent', { replace: true });
+        } else if (type === 'corporate') {
+          navigate('/corporate', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
       }
     } catch (err: any) {
-      showError(err.message || 'Authentication failed. Please check your credentials.');
+      if (err?.message?.includes('Security Error') || err?.status === 403) {
+        showError('Your account is pending password setup. Please check your email for the activation link.');
+      } else {
+        showError(err.message || 'Authentication failed. Please check your credentials.');
+      }
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -137,16 +167,31 @@ export default function AuthPage({ type }: AuthPageProps) {
               </>
             )}
 
-            <div className="input-group">
-              <label>Email Address</label>
-              <input
-                type="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+            {mode === 'login' ? (
+              <div className="input-group">
+                <label>Email, Passport Number, or EuroTech ID</label>
+                <input
+                  type="text"
+                  placeholder="name@example.com, C11223344, or EUR00001"
+                  value={loginIdentifier}
+                  onChange={(e) => setLoginIdentifier(e.target.value)}
+                  autoComplete="username"
+                  required
+                />
+              </div>
+            ) : (
+              <div className="input-group">
+                <label>Email Address</label>
+                <input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+            )}
 
             <div className="input-group">
               <label>Password</label>
@@ -155,6 +200,7 @@ export default function AuthPage({ type }: AuthPageProps) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 required
               />
             </div>
@@ -162,10 +208,14 @@ export default function AuthPage({ type }: AuthPageProps) {
             {mode === 'login' && (
               <div className="auth-options">
                 <label className="remember-me">
-                  <input type="checkbox" defaultChecked />
-                  <span>Remember me</span>
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  <span>Remember me on this device</span>
                 </label>
-                <a href="#" className="forgot-password" onClick={(e) => e.preventDefault()}>
+                <a href="#" className="forgot-password" onClick={(e) => { e.preventDefault(); alert('Please contact EuroTech Support (+994 12 400 00 00) or check the activation email sent to your inbox.'); }}>
                   Forgot password?
                 </a>
               </div>

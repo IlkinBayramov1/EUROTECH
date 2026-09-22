@@ -108,14 +108,155 @@ async function getInvoices(req, res, next) {
   }
 }
 
+async function remindEmployee(req, res, next) {
+  try {
+    const result = await corporateService.remindEmployee(req.user.id, req.params.employeeId);
+    return ApiResponse.success(res, result, result.message);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function topupWallet(req, res, next) {
+  try {
+    const { amount } = req.body;
+    const result = await corporateService.topupCorporateWallet(req.user.id, amount);
+    return ApiResponse.success(res, result, 'Corporate wallet balance topped up successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function submitBatch(req, res, next) {
+  try {
+    const result = await corporateService.submitBatch(req.user.id, req.params.batchId);
+    return ApiResponse.success(res, result, 'Batch submitted for processing successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function saveEmployeeForm(req, res, next) {
+  try {
+    const result = await corporateService.saveEmployeeFormInBatch(
+      req.user.id,
+      req.params.batchId,
+      req.params.employeeId,
+      req.body.formData || req.body
+    );
+    return ApiResponse.success(res, result, 'Employee application form saved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getInvoicePdf(req, res, next) {
+  try {
+    const result = await corporateService.getInvoicePdf(req.user.id, req.params.invoiceId);
+    return ApiResponse.success(res, result, 'Invoice PDF retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function updateBatch(req, res, next) {
+  try {
+    const result = await corporateService.updateCorporateBatch(req.user.id, req.params.batchId, req.body);
+    return ApiResponse.success(res, result, 'Batch updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function deleteBatch(req, res, next) {
+  try {
+    const result = await corporateService.deleteCorporateBatch(req.user.id, req.params.batchId);
+    return ApiResponse.success(res, result, 'Batch deleted successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function updateEmployee(req, res, next) {
+  try {
+    const employee = await corporateService.updateCorporateEmployee({
+      corporateUserId: req.user.id,
+      employeeId: req.params.employeeId,
+      data: req.body,
+    });
+    return ApiResponse.success(res, { employee }, 'Employee updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function deleteEmployee(req, res, next) {
+  try {
+    const result = await corporateService.deleteCorporateEmployee({
+      corporateUserId: req.user.id,
+      employeeId: req.params.employeeId,
+    });
+    return ApiResponse.success(res, result, 'Employee deleted from directory successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getWallet(req, res, next) {
+  try {
+    const wallet = await corporateService.getCorporateWallet(req.user.id);
+    return ApiResponse.success(res, { wallet }, 'Corporate wallet retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getDashboardStats(req, res, next) {
+  try {
+    const data = await corporateService.getCorporateDashboardStats(req.user.id);
+    return ApiResponse.success(res, data, 'Corporate dashboard statistics retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function submitDelegationForm(req, res, next) {
+  try {
+    const { token, passportNumber, dob, passportExpiry, phone } = req.body;
+    const result = await corporateService.submitDelegationForm({
+      token,
+      passportNumber,
+      dob,
+      passportExpiry,
+      phone,
+    });
+    return ApiResponse.success(res, result, 'Employee delegation form submitted successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   createBatch,
   getBatches,
+  updateBatch,
+  deleteBatch,
   generateDelegationLink,
   getDelegationProfile,
+  submitDelegationForm,
   getEmployees,
   addEmployee,
+  updateEmployee,
+  deleteEmployee,
   generateInvoice,
   payWithWallet,
   getInvoices,
+  remindEmployee,
+  topupWallet,
+  getWallet,
+  getDashboardStats,
+  submitBatch,
+  saveEmployeeForm,
+  getInvoicePdf,
 };
+

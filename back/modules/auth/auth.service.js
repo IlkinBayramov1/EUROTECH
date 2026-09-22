@@ -80,7 +80,7 @@ async function preRegister({ email, fullName, phone, companyName, role, preferre
       fullName,
       phone,
       companyName,
-      role: role || 'INDIVIDUAL',
+      role: normalizeRole(role),
       preferredLanguage: preferredLanguage || 'az',
       passportNumber: passportNumber || null,
       passportNumberEncrypted,
@@ -215,6 +215,12 @@ async function resendSetPasswordEmail(email) {
   return neutralMessage;
 }
 
+function normalizeRole(role) {
+  if (role === 'AGENT') return 'AGENT_TUR_OPERATOR';
+  if (role === 'CORPORATE') return 'CORPORATE_HR';
+  return role || 'INDIVIDUAL';
+}
+
 async function register({ email, password, fullName, phone, companyName, role, preferredLanguage, passportNumber }) {
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
@@ -240,7 +246,7 @@ async function register({ email, password, fullName, phone, companyName, role, p
       fullName,
       phone,
       companyName,
-      role: role || 'INDIVIDUAL',
+      role: normalizeRole(role),
       preferredLanguage: preferredLanguage || 'az',
       passportNumber: passportNumber || null,
       passportNumberEncrypted,
@@ -259,18 +265,45 @@ async function register({ email, password, fullName, phone, companyName, role, p
   return user;
 }
 
-async function login({ email, username, password, ip, userAgent }) {
+async function login({ email, username, passportNumber, loginIdentifier, password, ip, userAgent, expectedRole, portalRole }) {
+  const rawId = (loginIdentifier || email || username || passportNumber || '').trim();
+  if (!rawId) {
+    throw new Error('Invalid email/username or password.');
+  }
+
+  const passportHash = hashHMACSHA256(rawId.toUpperCase());
+
   const user = await prisma.user.findFirst({
     where: {
       OR: [
-        { email: email || '' },
-        { username: username || (email ? email : '') },
+        { email: rawId },
+        { username: rawId },
+        { passportNumber: rawId },
+        { passportNumberHash: passportHash },
       ],
     },
   });
 
   if (!user) {
     throw new Error('Invalid email/username or password.');
+  }
+
+  // Validate that user role matches target portal if expectedRole or portalRole is specified
+  const targetRole = expectedRole || (
+    portalRole === 'agent' ? 'AGENT_TUR_OPERATOR' :
+    portalRole === 'corporate' ? 'CORPORATE_HR' :
+    portalRole === 'individual' ? 'INDIVIDUAL' : null
+  );
+
+  if (targetRole && user.role !== 'ADMIN') {
+    const isMatching =
+      (targetRole === 'AGENT_TUR_OPERATOR' && (user.role === 'AGENT_TUR_OPERATOR' || user.role === 'AGENT')) ||
+      (targetRole === 'CORPORATE_HR' && (user.role === 'CORPORATE_HR' || user.role === 'CORPORATE')) ||
+      (targetRole === 'INDIVIDUAL' && user.role === 'INDIVIDUAL');
+
+    if (!isMatching) {
+      throw new Error('Invalid email, passport number or password.');
+    }
   }
 
   if (user.accountStatus === 'PENDING_PASSWORD') {

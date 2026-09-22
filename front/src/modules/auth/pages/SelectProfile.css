@@ -1,31 +1,16 @@
 /* ==========================================================================
-   EUROTECH DESIGN SYSTEM: PROFILE SELECTION
+   EUROTECH DESIGN SYSTEM: PROFILE SELECTION (CLEAN LIGHT/DARK MONOCHROME THEME)
    ========================================================================== */
-
-/* Font Imports based on design system */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
-
-:root {
-    --ds-primary: #0F1E36;
-    --ds-secondary: #1D4ED8;
-    --ds-tertiary: #059669;
-    --ds-neutral: #334155;
-    --ds-neutral-light: #94A3B8;
-    --ds-bg: #F8FAFC;
-    --ds-surface: #FFFFFF;
-    --ds-border: #E2E8F0;
-    
-    --font-heading: 'Plus Jakarta Sans', sans-serif;
-    --font-body: 'Inter', sans-serif;
-}
 
 .sp-wrapper {
     min-height: 100vh;
-    background-color: var(--ds-bg);
+    background-color: #F8FAFC;
     display: flex;
     flex-direction: column;
-    font-family: var(--font-body);
-    color: var(--ds-neutral);
+    font-family: var(--font-body, 'Inter', -apple-system, sans-serif);
+    color: #0F172A;
+    position: relative;
+    overflow-x: hidden;
 }
 
 /* --- Header --- */
@@ -33,9 +18,12 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 24px 48px;
-    background-color: var(--ds-surface);
-    border-bottom: 1px solid var(--ds-border);
+    padding: 20px 48px;
+    background-color: #FFFFFF;
+    border-bottom: 1px solid #E2E8F0;
+    position: relative;
+    z-index: 10;
+    box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04);
 }
 
 .sp-brand {
@@ -44,46 +32,60 @@
     gap: 12px;
 }
 
-.sp-logo-mark {
-    width: 28px;
-    height: 28px;
-    background-color: var(--ds-primary);
-    border-radius: 4px;
+.sp-brand-badge {
+    width: 38px;
+    height: 38px;
+    background: #0F1E36;
+    color: #FFFFFF;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(15, 30, 54, 0.15);
 }
 
 .sp-brand-name {
-    font-family: var(--font-heading);
+    font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
     font-weight: 800;
-    font-size: 1.125rem;
-    color: var(--ds-primary);
+    font-size: 1.25rem;
+    color: #0F1E36;
     letter-spacing: 0.5px;
+    display: block;
 }
 
-.sp-brand-suffix {
-    font-family: var(--font-body);
-    font-weight: 500;
-    font-size: 0.875rem;
-    color: var(--ds-neutral-light);
-    border-left: 1px solid var(--ds-border);
-    padding-left: 12px;
+.sp-brand-desc {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748B;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: block;
 }
 
 .sp-header-support {
     font-size: 0.875rem;
     display: flex;
-    gap: 8px;
-    color: var(--ds-neutral);
+    align-items: center;
+    gap: 12px;
+    color: #475569;
 }
 
-.sp-header-support a {
-    color: var(--ds-secondary);
+.sp-support-link-btn {
+    background: #FFFFFF;
+    color: #0F1E36;
+    border: 1px solid #CBD5E1;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85rem;
     font-weight: 600;
-    text-decoration: none;
-    transition: color 0.2s ease;
+    cursor: pointer;
+    transition: all 0.2s ease;
 }
 
-.sp-header-support a:hover {
-    color: var(--ds-primary);
+.sp-support-link-btn:hover {
+    background: #F1F5F9;
+    border-color: #0F1E36;
+    color: #0F1E36;
 }
 
 /* --- Main Content --- */
@@ -92,88 +94,127 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 60px 24px;
+    padding: 56px 24px;
+    position: relative;
+    z-index: 1;
 }
 
 .sp-content-container {
-    max-width: 1000px;
+    max-width: 1120px;
     width: 100%;
 }
 
 .sp-text-center {
     text-align: center;
-    margin-bottom: 56px;
+    margin-bottom: 48px;
+}
+
+.sp-pre-title {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #2563EB;
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 14px;
+    text-transform: uppercase;
 }
 
 .sp-title {
-    font-family: var(--font-heading);
-    font-size: 2.5rem;
+    font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+    font-size: 2.75rem;
     font-weight: 800;
-    color: var(--ds-primary);
-    margin: 0 0 16px 0;
+    color: #0F1E36;
+    margin: 0 0 14px 0;
     letter-spacing: -0.5px;
+    line-height: 1.15;
 }
 
 .sp-subtitle {
-    font-size: 1.125rem;
-    color: var(--ds-neutral);
-    max-width: 600px;
+    font-size: 1.05rem;
+    color: #475569;
+    max-width: 640px;
     margin: 0 auto;
     line-height: 1.6;
 }
 
-/* --- Grid & Cards --- */
+/* --- Cards Grid --- */
 .sp-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 24px;
-    margin-bottom: 48px;
+    margin-bottom: 40px;
 }
 
 .sp-card {
-    background-color: var(--ds-surface);
-    border: 2px solid var(--ds-border);
-    border-radius: 12px;
-    padding: 32px 24px;
+    background-color: #FFFFFF;
+    border: 2px solid #E2E8F0;
+    border-radius: 14px;
+    padding: 32px 26px;
     cursor: pointer;
     position: relative;
-    transition: all 0.2s ease-in-out;
+    transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
+    box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+    outline: none;
 }
 
 .sp-card:hover {
-    border-color: var(--ds-neutral-light);
-    transform: translateY(-2px);
-    box-shadow: 0 12px 24px -10px rgba(15, 30, 54, 0.08);
+    border-color: #94A3B8;
+    transform: translateY(-3px);
+    box-shadow: 0 12px 24px -6px rgba(15, 23, 42, 0.09);
+}
+
+.sp-card:focus-visible {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 
 .sp-card-active {
-    border-color: var(--ds-secondary);
-    background-color: #F4F7FF; /* Very light tint of secondary */
-    box-shadow: 0 12px 24px -10px rgba(29, 78, 216, 0.15);
+    border-color: #2563EB;
+    background-color: #F8FAFC;
+    box-shadow: 0 12px 28px -6px rgba(37, 99, 235, 0.15);
 }
 
-.sp-card-active:hover {
-    border-color: var(--ds-secondary);
+.sp-card-badge {
+    position: absolute;
+    top: 16px;
+    left: 24px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #2563EB;
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    padding: 3px 10px;
+    border-radius: 4px;
 }
 
 .sp-card-icon {
-    width: 48px;
-    height: 48px;
-    background-color: var(--ds-bg);
-    border-radius: 8px;
+    width: 50px;
+    height: 50px;
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 24px;
-    color: var(--ds-primary);
+    margin-top: 18px;
+    margin-bottom: 20px;
+    color: #0F1E36;
     transition: all 0.2s ease;
 }
 
-.sp-card-active .sp-card-icon {
-    background-color: var(--ds-secondary);
-    color: var(--ds-surface);
+.sp-card-active .sp-card-icon,
+.sp-card:hover .sp-card-icon {
+    background: #0F1E36;
+    border-color: #0F1E36;
+    color: #FFFFFF;
 }
 
 .sp-card-icon svg {
@@ -182,30 +223,42 @@
 }
 
 .sp-card-title {
-    font-family: var(--font-heading);
-    font-size: 1.25rem;
+    font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+    font-size: 1.35rem;
     font-weight: 700;
-    color: var(--ds-primary);
-    margin: 0 0 12px 0;
+    color: #0F1E36;
+    margin: 0 0 10px 0;
 }
 
 .sp-card-desc {
-    font-size: 0.9375rem;
+    font-size: 0.92rem;
     line-height: 1.6;
-    color: var(--ds-neutral);
-    margin: 0;
+    color: #475569;
+    margin: 0 0 20px 0;
     flex: 1;
+}
+
+.sp-card-features {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid #F1F5F9;
+    font-size: 0.82rem;
+    color: #334155;
+    font-weight: 500;
 }
 
 /* Custom Radio Indicator */
 .sp-radio {
     width: 20px;
     height: 20px;
-    border: 2px solid var(--ds-border);
+    border: 2px solid #CBD5E1;
     border-radius: 50%;
     position: absolute;
-    top: 24px;
-    right: 24px;
+    top: 20px;
+    right: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -221,71 +274,206 @@
 }
 
 .sp-card-active .sp-radio {
-    border-color: var(--ds-secondary);
+    border-color: #2563EB;
 }
 
 .sp-card-active .sp-radio-inner {
-    background-color: var(--ds-secondary);
+    background-color: #2563EB;
 }
 
-/* --- Actions --- */
+/* --- Actions Container --- */
 .sp-actions {
     display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.sp-actions-dual {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    max-width: 560px;
     justify-content: center;
 }
 
 .sp-btn-primary {
-    background-color: var(--ds-primary);
-    color: var(--ds-surface);
-    font-family: var(--font-heading);
+    background-color: #0F1E36;
+    color: #FFFFFF;
+    font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
     font-weight: 700;
-    font-size: 1rem;
-    padding: 16px 48px;
+    font-size: 0.95rem;
+    padding: 15px 32px;
     border: none;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 4px 6px -1px rgba(15, 30, 54, 0.1);
+    box-shadow: 0 4px 8px -2px rgba(15, 30, 54, 0.15);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 }
 
 .sp-btn-primary:hover:not(:disabled) {
-    background-color: #172a4d; /* Slightly lighter primary */
-    box-shadow: 0 10px 15px -3px rgba(15, 30, 54, 0.2);
+    background-color: #1E293B;
     transform: translateY(-1px);
+    box-shadow: 0 6px 14px -3px rgba(15, 30, 54, 0.25);
 }
 
 .sp-btn-primary:disabled {
-    background-color: var(--ds-border);
-    color: var(--ds-neutral-light);
+    background-color: #E2E8F0;
+    color: #94A3B8;
     cursor: not-allowed;
     box-shadow: none;
+}
+
+.sp-btn-secondary {
+    background-color: #FFFFFF;
+    color: #0F1E36;
+    font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+    font-weight: 700;
+    font-size: 0.95rem;
+    padding: 15px 32px;
+    border: 2px solid #CBD5E1;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.sp-btn-secondary:hover {
+    background-color: #F8FAFC;
+    border-color: #0F1E36;
+    color: #0F1E36;
+}
+
+.sp-actions-hint {
+    font-size: 0.8rem;
+    color: #94A3B8;
+    margin: 0;
+}
+
+/* --- Support Modal --- */
+.sp-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.sp-modal-card {
+    background: #FFFFFF;
+    border: 1px solid #CBD5E1;
+    border-radius: 14px;
+    max-width: 500px;
+    width: 90%;
+    overflow: hidden;
+    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.2);
+}
+
+.sp-modal-header {
+    background: #F8FAFC;
+    padding: 18px 24px;
+    border-bottom: 1px solid #E2E8F0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sp-modal-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: #0F1E36;
+}
+
+.sp-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #64748B;
+    cursor: pointer;
+}
+
+.sp-modal-close:hover {
+    color: #0F1E36;
+}
+
+.sp-modal-body {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.sp-support-item {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+}
+
+.sp-support-icon {
+    font-size: 1.5rem;
+}
+
+.sp-support-item strong {
+    display: block;
+    color: #0F1E36;
+    margin-bottom: 2px;
+}
+
+.sp-support-item p {
+    margin: 0;
+    color: #475569;
+    font-size: 0.9rem;
+}
+
+.sp-support-item a {
+    color: #2563EB;
+    text-decoration: underline;
+}
+
+.sp-modal-footer {
+    padding: 16px 24px;
+    background: #F8FAFC;
+    border-top: 1px solid #E2E8F0;
+    text-align: right;
+}
+
+.sp-modal-footer .sp-btn-secondary {
+    padding: 10px 20px;
 }
 
 /* --- Responsive --- */
 @media (max-width: 1024px) {
     .sp-grid {
         grid-template-columns: 1fr;
-        max-width: 500px;
-        margin: 0 auto 48px auto;
+        max-width: 520px;
+        margin: 0 auto 36px auto;
+    }
+    .sp-actions-dual {
+        flex-direction: column;
     }
 }
 
 @media (max-width: 640px) {
     .sp-header {
         flex-direction: column;
-        gap: 16px;
-        padding: 20px;
+        gap: 14px;
+        padding: 16px 20px;
         text-align: center;
     }
-    
-    .sp-brand-suffix {
-        border-left: none;
-        padding-left: 0;
-        display: block;
-        margin-top: 4px;
-    }
-    
     .sp-title {
-        font-size: 2rem;
+        font-size: 2.1rem;
     }
 }

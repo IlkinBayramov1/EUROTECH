@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
+import { useToast } from '@/shared/context/ToastContext';
 import './CorporateWizard.css';
 
 // Yeni 5 addımlıq flow üçün komponentlər
@@ -27,6 +28,7 @@ export interface EmployeeData {
 
 export default function CorporateWizard() {
     const navigate = useNavigate();
+    const { showSuccess, showError } = useToast();
     const [currentStep, setCurrentStep] = useState(1);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -70,44 +72,39 @@ export default function CorporateWizard() {
         setSubmitting(true);
         setError(null);
         try {
-            const batchRes = await corporateService.createBatch({
+            // Step 5-ə uyğun real yekun qiymətin hesablanması
+            const batchSize = Math.max(formData.employees.length, 1);
+            const consularFeePP = 145.00;
+            let serviceFeePP = 0;
+            if (formData.services.activePackage === 'premium') {
+                serviceFeePP = 126.00;
+            } else if (formData.services.activePackage === 'vip') {
+                serviceFeePP = 257.00;
+            }
+            const grandTotal = (consularFeePP + serviceFeePP) * batchSize;
+
+            // Bütün 5 addımın məlumatlarının vahid tam dövrə ilə backend-ə göndərilməsi
+            await corporateService.createBatch({
                 name: formData.batchName || 'Corporate Delegation Batch',
                 destination: formData.destination || formData.country || 'Europe / Schengen',
                 travelDate: formData.travelDate,
                 duration: formData.duration,
                 projectReason: formData.projectReason,
+                package: formData.services.activePackage,
+                packagePrice: serviceFeePP,
+                appointmentDate: formData.appointmentDate,
+                appointmentTime: formData.appointmentTime,
+                employees: formData.employees,
+                totalAmount: grandTotal,
             });
 
-            const batchId = batchRes.data?.batch?.id;
-
-            if (formData.employees && formData.employees.length > 0) {
-                for (const emp of formData.employees) {
-                    try {
-                        await corporateService.addEmployee({
-                            firstName: emp.firstName,
-                            lastName: emp.lastName,
-                            jobTitle: emp.role || 'Employee',
-                            department: emp.department || 'General',
-                            passportNumber: emp.passportNumber,
-                        });
-                    } catch (empErr) {
-                        console.warn('Failed to add employee to directory:', empErr);
-                    }
-                }
-            }
-
-            if (batchId) {
-                try {
-                    await corporateService.generateInvoice(batchId);
-                } catch (invErr) {
-                    console.warn('Invoice auto-generation note:', invErr);
-                }
-            }
-
+            showSuccess('Corporate Batch and Proforma Invoice successfully created!');
             navigate('/corporate/batches');
         } catch (err: any) {
             console.error('Failed to create corporate batch:', err);
-            setError(err.message || 'Batch creation failed. Please check your data.');
+            const msg = err.response?.data?.message || err.message || 'Batch creation failed. Please check your data.';
+            setError(msg);
+            showError(msg);
         } finally {
             setSubmitting(false);
         }
@@ -160,7 +157,7 @@ export default function CorporateWizard() {
         <div className="agent-wizard-layout fade-in">
             <header className="wizard-header">
                 <div className="wizard-brand" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <EuroTechLogo size={32} subtitle="Corporate Mobility" />
+                    <EuroTechLogo size={32} subtitle="Corporate Mobility" theme="dark" />
                     <span className="brand-badge" style={{ backgroundColor: 'var(--color-primary)' }}>NEW EMPLOYEE BATCH</span>
                 </div>
                 <button className="btn-close" onClick={() => navigate('/corporate')}>Exit Wizard</button>
@@ -201,7 +198,7 @@ export default function CorporateWizard() {
                             {currentStep === 1 ? 'Cancel' : 'Back'}
                         </button>
                         <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled() || submitting}>
-                            {submitting ? 'Submitting Application...' : currentStep === 5 ? 'Submit Group Application' : 'Next Step \u2192'}
+                            {submitting ? 'Submitting Application...' : currentStep === 5 ? 'Submit Corporate Batch & Generate Invoice' : 'Next Step \u2192'}
                         </button>
                     </footer>
                 </section>

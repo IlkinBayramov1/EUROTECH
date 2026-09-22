@@ -107,17 +107,20 @@
 }
 
 /* Sidebar Footer (Profile Card) */
-.corporate-sidebar-footer {
-    padding: 16px 14px 20px;
+.corporate-sidebar-footer,
+.corp-sidebar-footer {
+    padding: 14px 14px 18px;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.28);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    margin-top: auto;
 }
 
-.corporate-profile {
+.corporate-profile,
+.corp-profile {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -125,40 +128,48 @@
     flex: 1;
 }
 
-.corporate-avatar {
+.corporate-avatar,
+.corp-avatar {
     width: 38px;
     height: 38px;
+    min-width: 38px;
     border-radius: 10px;
     background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
-    color: #FFFFFF;
+    color: #FFFFFF !important;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: var(--font-heading);
     font-weight: 800;
-    font-size: 0.95rem;
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    font-size: 1rem;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
     flex-shrink: 0;
 }
 
-.corporate-info {
+.corporate-info,
+.corp-info {
     min-width: 0;
     flex: 1;
+    display: flex;
+    flex-direction: column;
 }
 
-.corporate-info h4 {
+.corporate-info h4,
+.corp-info h4 {
     margin: 0;
     font-size: 0.88rem;
-    color: #F8FAFC;
+    color: #F8FAFC !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-weight: 700;
+    text-transform: capitalize;
 }
 
-.corporate-info span {
+.corporate-info span,
+.corp-info span {
     font-size: 0.72rem;
-    color: #60A5FA;
+    color: #38BDF8 !important;
     font-weight: 600;
     display: block;
     margin-top: 1px;
@@ -167,6 +178,7 @@
 .logout-btn {
     width: 36px;
     height: 36px;
+    min-width: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -177,6 +189,12 @@
     cursor: pointer;
     transition: all 0.2s;
     flex-shrink: 0;
+}
+
+.logout-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #F87171;
 }
 
 .logout-btn svg {

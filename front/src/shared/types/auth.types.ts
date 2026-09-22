@@ -17,6 +17,7 @@ export interface User {
   lastName?: string;
   username?: string;
   phone?: string;
+  passportNumber?: string;
   companyName?: string;
   agencyName?: string;
   createdAt?: string;
@@ -29,8 +30,14 @@ export interface AuthResponse {
 }
 
 export interface LoginCredentials {
-  email: string;
+  email?: string;
+  username?: string;
+  passportNumber?: string;
+  identifier?: string;
   password: string;
+  rememberMe?: boolean;
+  expectedRole?: UserRole;
+  portalRole?: string;
 }
 
 export interface RegisterPayload {

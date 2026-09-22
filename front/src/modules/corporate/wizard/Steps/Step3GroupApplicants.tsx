@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import type { EmployeeData } from '../CorporateWizard';
 import { UploadIcon, UserPlusIcon, LinkIcon, TrashIcon } from '@/shared/components/icons/Icons';
+import { useToast } from '@/shared/context/ToastContext';
 
 interface Step3Props {
     data: {
@@ -11,6 +12,8 @@ interface Step3Props {
 }
 
 export default function Step3Employees({ data, updateData }: Step3Props) {
+    const { showSuccess, showError } = useToast();
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
     
     // İşçi əlavə etmək üçün funksiya
     const handleAddEmployee = () => {
@@ -49,7 +52,54 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
     const handleCopyDelegationLink = (id: string, name: string) => {
         const link = `${window.location.origin}/corporate/delegation?token=del_${id}`;
         navigator.clipboard.writeText(link);
-        alert(`Delegation Link copied to clipboard for ${name || 'Employee'}:\n${link}`);
+        showSuccess(`Delegation Link copied to clipboard for ${name || 'Employee'}!`);
+    };
+
+    // Real CSV File Upload Parser
+    const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const text = event.target?.result as string;
+                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length < 2) {
+                    showError('CSV file is empty or missing headers.');
+                    return;
+                }
+
+                const newEmployees: EmployeeData[] = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+                    if (cols.length >= 2) {
+                        newEmployees.push({
+                            id: `emp-csv-${Date.now()}-${i}`,
+                            firstName: cols[0] || 'Employee',
+                            lastName: cols[1] || '',
+                            dob: cols[2] || '1990-01-01',
+                            passportNumber: cols[3] || `P${Math.floor(1000000 + Math.random() * 9000000)}`,
+                            issueDate: '2020-01-01',
+                            expiryDate: '2030-01-01',
+                            role: cols[4] || 'Specialist',
+                            department: cols[5] || 'Engineering',
+                            documents: { passport: false, photo: false }
+                        });
+                    }
+                }
+
+                if (newEmployees.length > 0) {
+                    updateData('employees', [...data.employees, ...newEmployees]);
+                    showSuccess(`Successfully imported ${newEmployees.length} employee(s) from CSV!`);
+                } else {
+                    showError('No valid employee records found in CSV.');
+                }
+            } catch (err) {
+                showError('Failed to parse CSV file.');
+            }
+        };
+        reader.readAsText(file);
     };
 
     // Department seçimləri
@@ -57,6 +107,7 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
         "Engineering", "Marketing", "Sales", "Operations", "Finance", 
         "Human Resources", "Legal", "Executive / C-Suite", "Other"
     ];
+
 
     return (
         <div className="step-content fade-in">
@@ -85,7 +136,14 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
                     <h3>Employee List ({data.employees.length})</h3>
                 </div>
                 <div className="divider-actions">
-                    <button className="btn-outline-corp" onClick={() => alert('Bulk CSV Upload feature opens here.')}>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleCsvUpload} 
+                        style={{ display: 'none' }} 
+                        accept=".csv" 
+                    />
+                    <button className="btn-outline-corp" onClick={() => fileInputRef.current?.click()} type="button">
                         <UploadIcon size={16} />
                         Upload CSV
                     </button>
