@@ -18,13 +18,10 @@ interface TimeSlotItem {
 }
 
 const DEFAULT_SLOTS: TimeSlotItem[] = [
-    { id: 'slot-0900', time: '09:00 AM', available: true, remainingCapacity: 5 },
-    { id: 'slot-1015', time: '10:15 AM', available: true, remainingCapacity: 4 },
-    { id: 'slot-1130', time: '11:30 AM', available: true, remainingCapacity: 3 },
-    { id: 'slot-1300', time: '01:00 PM', available: true, remainingCapacity: 6 },
-    { id: 'slot-1415', time: '02:15 PM', available: true, remainingCapacity: 4 },
-    { id: 'slot-1530', time: '03:30 PM', available: true, remainingCapacity: 2 },
-    { id: 'slot-1645', time: '04:45 PM', available: true, remainingCapacity: 5 },
+    { id: 'slot-0900', time: '09:00 AM', available: true, remainingCapacity: 10 },
+    { id: 'slot-1030', time: '10:30 AM', available: true, remainingCapacity: 10 },
+    { id: 'slot-1400', time: '14:00 PM', available: true, remainingCapacity: 10 },
+    { id: 'slot-1600', time: '16:00 PM', available: true, remainingCapacity: 10 },
 ];
 
 export default function Step4Appointment({ data, updateData }: Step4Props) {

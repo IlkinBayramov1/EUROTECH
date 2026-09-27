@@ -27,6 +27,53 @@ export interface EmployeePayload {
   phone?: string;
 }
 
+export interface DepartmentPayload {
+  name: string;
+  annualBudget?: number;
+  spentBudget?: number;
+  currency?: string;
+}
+
+export interface DepartmentItem {
+  id: string;
+  name: string;
+  annualBudget: number;
+  spentBudget: number;
+  currency: string;
+  employeeCount: number;
+  remainingBudget: number;
+  percentUsed: number;
+  createdAt?: string;
+}
+
+export interface ExpiryRadarItem {
+  id: string;
+  name: string;
+  passportNumber: string;
+  passportExpiry: string | null;
+  daysRemaining: number | null;
+  status: 'CRITICAL' | 'WARNING' | 'VALID' | 'EXPIRED' | 'UNKNOWN';
+  alertMessage: string;
+  department: string;
+  jobTitle: string;
+  email: string;
+}
+
+export interface ExpiryRadarResponse {
+  summary: {
+    totalEmployees: number;
+    criticalCount: number;
+    warningCount: number;
+    validCount: number;
+    expiredCount: number;
+  };
+  critical: ExpiryRadarItem[];
+  warning: ExpiryRadarItem[];
+  valid: ExpiryRadarItem[];
+  expired: ExpiryRadarItem[];
+  items: ExpiryRadarItem[];
+}
+
 export const corporateService = {
   getDelegationProfile: (token: string) =>
     apiClient.get(`/corporate/delegation/profile?token=${token}`),
@@ -90,5 +137,23 @@ export const corporateService = {
 
   getInvoicePdf: (invoiceId: string) =>
     apiClient.get(`/corporate/invoices/${invoiceId}/pdf`),
+
+  getDepartments: () =>
+    apiClient.get('/corporate/departments'),
+
+  createDepartment: (payload: DepartmentPayload) =>
+    apiClient.post('/corporate/departments', payload),
+
+  updateDepartment: (departmentId: string, payload: Partial<DepartmentPayload>) =>
+    apiClient.patch(`/corporate/departments/${departmentId}`, payload),
+
+  deleteDepartment: (departmentId: string) =>
+    apiClient.delete(`/corporate/departments/${departmentId}`),
+
+  getExpiryRadar: () =>
+    apiClient.get('/corporate/expiry-radar'),
+
+  getGuaranteeLetterPdf: (employeeId: string) =>
+    apiClient.get(`/corporate/employees/${employeeId}/guarantee-letter-pdf`),
 };
 

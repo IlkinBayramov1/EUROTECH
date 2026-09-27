@@ -28,6 +28,14 @@ router.get('/employees', corporateController.getEmployees);
 router.post('/employees', corporateController.addEmployee);
 router.patch('/employees/:employeeId', corporateController.updateEmployee);
 router.delete('/employees/:employeeId', corporateController.deleteEmployee);
+router.get('/employees/:employeeId/guarantee-letter-pdf', corporateController.getGuaranteeLetterPdf);
+
+router.get('/departments', corporateController.getDepartments);
+router.post('/departments', corporateController.createDepartment);
+router.patch('/departments/:departmentId', corporateController.updateDepartment);
+router.delete('/departments/:departmentId', corporateController.deleteDepartment);
+
+router.get('/expiry-radar', corporateController.getPassportRadar);
 
 router.post('/wallet/topup', corporateController.topupWallet);
 router.post('/batches/:batchId/invoice', corporateController.generateInvoice);
@@ -36,4 +44,5 @@ router.get('/invoices', corporateController.getInvoices);
 router.get('/invoices/:invoiceId/pdf', corporateController.getInvoicePdf);
 
 module.exports = router;
+
 

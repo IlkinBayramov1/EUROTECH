@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { corporateService } from '@/shared/api/services/corporate.service';
+import { corporateService, DepartmentItem } from '@/shared/api/services/corporate.service';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
 import './CorporateFinance.css';
@@ -24,6 +24,8 @@ interface PendingInvoice {
     amount: number;
     applicants: number;
     pdfUrl?: string;
+    status: 'PENDING' | 'PAID' | string;
+    paidAt?: string;
 }
 
 export default function CorporateFinance() {
@@ -44,9 +46,20 @@ export default function CorporateFinance() {
     const [totalSpendYtd, setTotalSpendYtd] = useState<number>(0.00);
     const [loading, setLoading] = useState(true);
 
-    // Initial Data from Real DB
+    // Invoices & Transactions State
+    const [invoiceTab, setInvoiceTab] = useState<'pending' | 'paid'>('pending');
     const [pendingInvoices, setPendingInvoices] = useState<PendingInvoice[]>([]);
+    const [paidInvoices, setPaidInvoices] = useState<PendingInvoice[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [txFilter, setTxFilter] = useState<'ALL' | 'CREDIT' | 'DEBIT'>('ALL');
+    const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
+
+    // Departments & Budget Limits State
+    const [departments, setDepartments] = useState<DepartmentItem[]>([]);
+    const [isAddDeptModalOpen, setIsAddDeptModalOpen] = useState(false);
+    const [newDeptName, setNewDeptName] = useState('');
+    const [newDeptBudget, setNewDeptBudget] = useState('50000');
+    const [isSavingDept, setIsSavingDept] = useState(false);
 
     const loadFinanceData = useCallback(async () => {
         try {
@@ -74,22 +87,29 @@ export default function CorporateFinance() {
                 }
             }
 
-            // 2. Real Pending Invoices
+            // 2. Real Corporate Invoices (both pending and settled)
             const invRes = await corporateService.getInvoices();
             if (invRes.data?.invoices && Array.isArray(invRes.data.invoices)) {
-                const mappedInv: PendingInvoice[] = invRes.data.invoices
-                    .filter((inv: any) => inv.status === 'PENDING')
-                    .map((inv: any) => ({
-                        id: inv.id,
-                        batchId: inv.groupBatchId,
-                        batchRef: inv.groupBatch?.code || 'BCH-BATCH',
-                        batchName: inv.groupBatch?.name || 'Corporate Delegation',
-                        dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '7 Days',
-                        amount: Number(inv.amount || 0),
-                        applicants: inv.groupBatch?.totalEmployees || 5,
-                        pdfUrl: inv.pdfUrl
-                    }));
-                setPendingInvoices(mappedInv);
+                const mappedInv: PendingInvoice[] = invRes.data.invoices.map((inv: any) => ({
+                    id: inv.id,
+                    batchId: inv.groupBatchId,
+                    batchRef: inv.groupBatch?.code || 'BCH-BATCH',
+                    batchName: inv.groupBatch?.name || 'Corporate Delegation',
+                    dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '7 Days',
+                    amount: Number(inv.amount || 0),
+                    applicants: inv.groupBatch?.totalEmployees || 5,
+                    pdfUrl: inv.pdfUrl,
+                    status: inv.status || 'PENDING',
+                    paidAt: inv.updatedAt ? new Date(inv.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Settled'
+                }));
+                setPendingInvoices(mappedInv.filter((inv) => inv.status === 'PENDING'));
+                setPaidInvoices(mappedInv.filter((inv) => inv.status === 'PAID'));
+            }
+
+            // 3. Real Corporate Departments & Budget Allocations
+            const deptRes = await corporateService.getDepartments();
+            if (deptRes.data?.departments && Array.isArray(deptRes.data.departments)) {
+                setDepartments(deptRes.data.departments);
             }
         } catch (err) {
             console.warn('Failed to load corporate finance data:', err);
@@ -97,6 +117,39 @@ export default function CorporateFinance() {
             setLoading(false);
         }
     }, []);
+
+    const handleAddDepartment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newDeptName.trim()) {
+            showError('Please enter a department name.');
+            return;
+        }
+        const b = parseFloat(newDeptBudget) || 50000;
+        setIsSavingDept(true);
+        try {
+            await corporateService.createDepartment({ name: newDeptName.trim(), annualBudget: b });
+            showSuccess(`Department "${newDeptName.trim()}" created successfully!`);
+            setIsAddDeptModalOpen(false);
+            setNewDeptName('');
+            setNewDeptBudget('50000');
+            await loadFinanceData();
+        } catch (err: any) {
+            showError(err.message || 'Failed to create department.');
+        } finally {
+            setIsSavingDept(false);
+        }
+    };
+
+    const handleDeleteDept = async (id: string, name: string) => {
+        if (!window.confirm(`Delete department "${name}" and its budget allocation?`)) return;
+        try {
+            await corporateService.deleteDepartment(id);
+            showSuccess(`Department "${name}" removed.`);
+            await loadFinanceData();
+        } catch (err: any) {
+            showError(err.message || 'Failed to delete department.');
+        }
+    };
 
     useEffect(() => {
         loadFinanceData();
@@ -106,6 +159,34 @@ export default function CorporateFinance() {
     const handleOpenPayment = (invoice: PendingInvoice) => {
         setSelectedInvoice(invoice);
         setIsPaymentModalOpen(true);
+    };
+
+    const handleDownloadInvoice = async (invoice: PendingInvoice) => {
+        let downloadUrl = invoice.pdfUrl;
+        if (!downloadUrl && invoice.batchId) {
+            try {
+                const genRes = await corporateService.generateInvoice(invoice.batchId, invoice.amount);
+                downloadUrl = genRes.data?.pdfUrl;
+            } catch (err: any) {
+                showError('Could not generate invoice PDF: ' + (err.message || 'Error'));
+                return;
+            }
+        }
+
+        if (downloadUrl) {
+            const apiOrigin = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1').replace(/\/api\/v1\/?$/, '');
+            const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `${apiOrigin}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`;
+            const link = document.createElement('a');
+            link.href = fullUrl;
+            link.target = '_blank';
+            link.download = `invoice_${invoice.batchRef || 'corporate'}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showSuccess('Proforma/Official Invoice PDF downloaded successfully.');
+        } else {
+            showError('Invoice document is not yet available for download.');
+        }
     };
 
     const handleProcessPayment = async (e: React.FormEvent) => {
@@ -129,28 +210,13 @@ export default function CorporateFinance() {
                 showSuccess('Payment successful! Biometric appointments for this batch are now confirmed.');
                 await loadFinanceData();
             } else if (paymentMethod === 'invoice') {
-                let downloadUrl = selectedInvoice.pdfUrl;
-
-                if (!downloadUrl && selectedInvoice.batchId) {
-                    const genRes = await corporateService.generateInvoice(selectedInvoice.batchId, selectedInvoice.amount);
-                    downloadUrl = genRes.data?.pdfUrl;
-                }
-
-                if (downloadUrl) {
-                    const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `http://localhost:5000${downloadUrl}`;
-                    const link = document.createElement('a');
-                    link.href = fullUrl;
-                    link.target = '_blank';
-                    link.download = `invoice_${selectedInvoice.batchRef || 'corporate'}.pdf`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    showSuccess('Official Proforma Invoice (PDF) downloaded. Appointments remain pending until settlement.');
-                } else {
-                    showSuccess('Proforma invoice requested. Our finance desk has recorded your pending order.');
-                }
+                await handleDownloadInvoice(selectedInvoice);
             } else {
-                showSuccess('Credit card processed successfully! Batch appointments confirmed.');
+                // Card payment
+                if (selectedInvoice.batchId) {
+                    await corporateService.payWithWallet(selectedInvoice.batchId);
+                }
+                showSuccess('Card processed successfully! Batch appointments confirmed and invoice marked as PAID.');
                 await loadFinanceData();
             }
 
@@ -205,6 +271,12 @@ export default function CorporateFinance() {
         URL.revokeObjectURL(url);
         showSuccess('Financial statement exported successfully.');
     };
+
+    const filteredTransactions = transactions.filter(t => {
+        if (txFilter === 'CREDIT') return t.type === 'addition';
+        if (txFilter === 'DEBIT') return t.type === 'deduction';
+        return true;
+    });
 
     return (
         <div className="corp-finance-content fade-in">
@@ -261,56 +333,125 @@ export default function CorporateFinance() {
             {/* --- Main Grid Layout --- */}
             <div className="corp-main-grid">
                 
-                {/* LEFT COLUMN: Pending Invoices & Transaction History */}
+                {/* LEFT COLUMN: Pending/Paid Invoices & Transaction History */}
                 <div className="corp-column-left">
                     
-                    {/* Pending Invoices (Action Required) */}
-                    {pendingInvoices.length > 0 ? (
-                        <div className="corp-panel-card border-warning">
-                            <div className="panel-header">
-                                <h3>Outstanding Invoices</h3>
-                                <span className="corp-badge badge-warning">{pendingInvoices.length} Pending</span>
+                    {/* Invoices Panel with Tabs */}
+                    <div className="corp-panel-card">
+                        <div className="panel-header" style={{ marginBottom: '16px' }}>
+                            <div>
+                                <h3 style={{ margin: 0 }}>Corporate Invoices</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--color-neutral)' }}>
+                                    Manage outstanding and settled batch fee invoices
+                                </p>
                             </div>
-                            <div className="pending-invoices-list">
-                                {pendingInvoices.map(invoice => (
-                                    <div key={invoice.id} className="pending-invoice-item">
-                                        <div className="invoice-details">
-                                            <div className="invoice-title-row">
-                                                <h4>{invoice.batchName}</h4>
-                                                <span className="invoice-ref">{invoice.batchRef}</span>
+                            <span className={`corp-badge ${pendingInvoices.length > 0 ? 'badge-warning' : 'badge-success'}`}>
+                                {pendingInvoices.length} Pending
+                            </span>
+                        </div>
+
+                        {/* Tabs Navigation */}
+                        <div className="corp-tabs">
+                            <button 
+                                className={`corp-tab-btn ${invoiceTab === 'pending' ? 'active' : ''}`}
+                                onClick={() => setInvoiceTab('pending')}
+                            >
+                                Outstanding Invoices ({pendingInvoices.length})
+                            </button>
+                            <button 
+                                className={`corp-tab-btn ${invoiceTab === 'paid' ? 'active' : ''}`}
+                                onClick={() => setInvoiceTab('paid')}
+                            >
+                                Paid & Settled ({paidInvoices.length})
+                            </button>
+                        </div>
+
+                        {invoiceTab === 'pending' ? (
+                            pendingInvoices.length > 0 ? (
+                                <div className="pending-invoices-list">
+                                    {pendingInvoices.map(invoice => (
+                                        <div key={invoice.id} className="pending-invoice-item">
+                                            <div className="invoice-details">
+                                                <div className="invoice-title-row">
+                                                    <h4>{invoice.batchName}</h4>
+                                                    <span className="invoice-ref">{invoice.batchRef}</span>
+                                                </div>
+                                                <p>Processing fees for {invoice.applicants} employees • Due: <strong className={invoice.dueDate === 'Today' ? 'text-danger' : ''}>{invoice.dueDate}</strong></p>
                                             </div>
-                                            <p>Processing fees for {invoice.applicants} employees • Due: <strong className={invoice.dueDate === 'Today' ? 'text-danger' : ''}>{invoice.dueDate}</strong></p>
+                                            <div className="invoice-action-block">
+                                                <div className="invoice-amount">€ {invoice.amount.toFixed(2)}</div>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button 
+                                                        className="btn-outline-secondary" 
+                                                        style={{ padding: '8px 12px', fontSize: '0.85rem' }} 
+                                                        onClick={() => handleDownloadInvoice(invoice)} 
+                                                        title="Download Proforma PDF"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                                        PDF
+                                                    </button>
+                                                    <button className="btn-action danger" onClick={() => handleOpenPayment(invoice)}>Pay Invoice</button>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="invoice-action-block">
-                                            <div className="invoice-amount">€ {invoice.amount.toFixed(2)}</div>
-                                            <button className="btn-action danger" onClick={() => handleOpenPayment(invoice)}>Pay Invoice</button>
-                                        </div>
+                                    ))}
+                                    <div className="info-alert mt-16">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                        <span>Appointments for these batches remain unconfirmed until full payment is received.</span>
                                     </div>
-                                ))}
-                            </div>
-                            <div className="info-alert mt-16">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                                <span>Appointments for these batches remain unconfirmed until full payment is received.</span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="corp-panel-card">
-                            <div className="panel-header">
-                                <h3>Outstanding Invoices</h3>
-                                <span className="corp-badge badge-success">0 Pending</span>
-                            </div>
-                            <div style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--color-neutral)' }}>
-                                <p style={{ margin: 0 }}>All corporate batch invoices are settled. No outstanding payments due.</p>
-                            </div>
-                        </div>
-                    )}
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-neutral)' }}>
+                                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#10B981" strokeWidth="2" style={{ margin: '0 auto 12px auto', display: 'block' }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                    <strong style={{ color: 'var(--color-primary)', display: 'block', marginBottom: '4px' }}>All Clear!</strong>
+                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>All corporate batch invoices are settled. No outstanding payments due.</p>
+                                </div>
+                            )
+                        ) : (
+                            paidInvoices.length > 0 ? (
+                                <div className="pending-invoices-list">
+                                    {paidInvoices.map(invoice => (
+                                        <div key={invoice.id} className="pending-invoice-item" style={{ background: '#F8FAFC', borderColor: '#E2E8F0' }}>
+                                            <div className="invoice-details">
+                                                <div className="invoice-title-row">
+                                                    <h4>{invoice.batchName}</h4>
+                                                    <span className="invoice-ref" style={{ background: '#DCFCE7', color: '#166534' }}>{invoice.batchRef}</span>
+                                                    <span className="corp-badge badge-success" style={{ fontSize: '0.7rem' }}>PAID</span>
+                                                </div>
+                                                <p>Settled fees for {invoice.applicants} employees • Settled: <strong>{invoice.paidAt || invoice.dueDate}</strong></p>
+                                            </div>
+                                            <div className="invoice-action-block">
+                                                <div className="invoice-amount" style={{ color: '#166534' }}>€ {invoice.amount.toFixed(2)}</div>
+                                                <button 
+                                                    className="btn-outline-secondary" 
+                                                    style={{ padding: '8px 14px', fontSize: '0.85rem' }} 
+                                                    onClick={() => handleDownloadInvoice(invoice)}
+                                                >
+                                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                                    Invoice PDF
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-neutral)' }}>
+                                    <p style={{ margin: 0, fontSize: '0.9rem' }}>No settled invoices yet. Once a batch is paid, its official receipt and invoice history will appear here.</p>
+                                </div>
+                            )
+                        )}
+                    </div>
 
                     {/* Transaction History Table */}
                     <div className="corp-panel-card table-wrapper">
                         <div className="panel-header">
                             <h3>Transaction History</h3>
                             <div className="filter-select-wrapper compact">
-                                <select><option>All Transactions</option><option>Wallet Top-ups</option><option>Deductions</option></select>
+                                <select value={txFilter} onChange={(e) => setTxFilter(e.target.value as any)}>
+                                    <option value="ALL">All Transactions</option>
+                                    <option value="CREDIT">Wallet Top-ups (+)</option>
+                                    <option value="DEBIT">Deductions (-)</option>
+                                </select>
                             </div>
                         </div>
                         
@@ -326,14 +467,14 @@ export default function CorporateFinance() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {transactions.length === 0 ? (
+                                    {filteredTransactions.length === 0 ? (
                                         <tr>
                                             <td colSpan={5} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-neutral)' }}>
-                                                {loading ? 'Loading financial transactions from database...' : 'No transactions recorded yet. Top up your company wallet or pay for visa batches to view transaction records.'}
+                                                {loading ? 'Loading financial transactions from database...' : 'No transactions recorded matching the selected filter.'}
                                             </td>
                                         </tr>
                                     ) : (
-                                        transactions.map(trx => (
+                                        filteredTransactions.map(trx => (
                                             <tr key={trx.id}>
                                                 <td className="cell-date">{trx.date}</td>
                                                 <td className="cell-bold">{trx.id}</td>
@@ -367,7 +508,7 @@ export default function CorporateFinance() {
                     <div className="corp-panel-card">
                         <div className="panel-header">
                             <h3>Corporate Billing Details</h3>
-                            <button className="btn-text-link" onClick={() => navigate('/corporate/settings')}>Manage</button>
+                            <button className="btn-text-link" onClick={() => setIsBillingModalOpen(true)}>View Details</button>
                         </div>
                         <div className="billing-info-box">
                             <h4 style={{ textTransform: 'capitalize' }}>{user?.companyName || user?.fullName || 'EuroTech Corporate Partner'}</h4>
@@ -398,6 +539,87 @@ export default function CorporateFinance() {
                             <button className="btn-outline-secondary btn-sm" onClick={() => setIsTopupModalOpen(true)} style={{ width: '100%', justifyContent: 'center' }}>
                                 + Deposit Funds to Wallet
                             </button>
+                        </div>
+                    </div>
+
+                    {/* Department Budget Allocation & Controls */}
+                    <div className="corp-panel-card">
+                        <div className="panel-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <h3>Department Travel Budgets</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--color-neutral)' }}>
+                                    Annual allowances & quota limits by corporate cost center
+                                </p>
+                            </div>
+                            <button 
+                                className="btn-outline-secondary btn-sm"
+                                onClick={() => setIsAddDeptModalOpen(true)}
+                                style={{ padding: '6px 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                            >
+                                + Add Dept
+                            </button>
+                        </div>
+
+                        <div className="departments-budget-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {departments.length === 0 ? (
+                                <p style={{ color: 'var(--color-neutral)', fontSize: '0.85rem', textAlign: 'center', margin: '16px 0' }}>
+                                    No departments configured yet.
+                                </p>
+                            ) : (
+                                departments.map((dept) => {
+                                    const percent = dept.percentUsed;
+                                    const progressColor = percent > 85 ? '#EF4444' : percent > 60 ? '#F59E0B' : '#10B981';
+
+                                    return (
+                                        <div 
+                                            key={dept.id} 
+                                            style={{
+                                                padding: '12px 14px',
+                                                background: '#F8FAFC',
+                                                border: '1px solid #E2E8F0',
+                                                borderRadius: '10px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <div>
+                                                    <strong style={{ color: '#0F172A', fontSize: '0.9rem' }}>{dept.name}</strong>
+                                                    <span style={{ marginLeft: '6px', fontSize: '0.7rem', background: '#E0E7FF', color: '#3730A3', padding: '2px 6px', borderRadius: '10px', fontWeight: 600 }}>
+                                                        {dept.employeeCount} pax
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleDeleteDept(dept.id, dept.name)}
+                                                    title="Remove Department"
+                                                    style={{ background: 'transparent', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '2px 4px', fontSize: '1rem', lineHeight: 1 }}
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+
+                                            {/* Progress Track */}
+                                            <div style={{ width: '100%', height: '6px', background: '#E2E8F0', borderRadius: '3px', overflow: 'hidden' }}>
+                                                <div 
+                                                    style={{ 
+                                                        width: `${Math.min(100, percent)}%`, 
+                                                        height: '100%', 
+                                                        backgroundColor: progressColor,
+                                                        borderRadius: '3px',
+                                                        transition: 'width 0.4s ease'
+                                                    }} 
+                                                />
+                                            </div>
+
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748B' }}>
+                                                <span>Spent: <strong>€ {dept.spentBudget.toLocaleString()}</strong> ({percent}%)</span>
+                                                <span>Remaining: <strong style={{ color: progressColor }}>€ {dept.remainingBudget.toLocaleString()}</strong></span>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
                         </div>
                     </div>
 
@@ -556,6 +778,109 @@ export default function CorporateFinance() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* --- ADD DEPARTMENT MODAL --- */}
+            {isAddDeptModalOpen && (
+                <div className="premium-modal-overlay fade-in" onClick={() => setIsAddDeptModalOpen(false)}>
+                    <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+                        <div className="modal-header">
+                            <div className="modal-header-info">
+                                <span className="modal-badge">Cost Center</span>
+                                <h2>Add Department Budget</h2>
+                            </div>
+                            <button className="btn-modal-close" onClick={() => setIsAddDeptModalOpen(false)}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleAddDepartment}>
+                            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>Department Name</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. Research & Development"
+                                        value={newDeptName}
+                                        onChange={(e) => setNewDeptName(e.target.value)}
+                                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                                    />
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>Annual Travel Budget (EUR)</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        min="1000"
+                                        step="500"
+                                        placeholder="50000"
+                                        value={newDeptBudget}
+                                        onChange={(e) => setNewDeptBudget(e.target.value)}
+                                        style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsAddDeptModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-modal-primary" disabled={isSavingDept}>
+                                    {isSavingDept ? 'Creating...' : 'Create Department'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* --- CORPORATE BILLING DETAILS MODAL --- */}
+            {isBillingModalOpen && (
+                <div className="premium-modal-overlay fade-in" onClick={() => setIsBillingModalOpen(false)}>
+                    <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+                        <div className="modal-header">
+                            <div className="modal-header-info">
+                                <span className="modal-badge">Corporate Profile</span>
+                                <h2>Billing & Entity Details</h2>
+                            </div>
+                            <button className="btn-modal-close" onClick={() => setIsBillingModalOpen(false)}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ background: '#F8FAFC', padding: '16px', borderRadius: '10px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Company / Entity Name</span>
+                                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0F172A' }}>{user?.companyName || user?.fullName || 'EuroTech Corporate Partner'}</div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                    <div>
+                                        <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Tax / Reg ID</span>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>{user?.id?.substring(0, 10).toUpperCase() || 'EU-CORP-REGISTERED'}</div>
+                                    </div>
+                                    <div>
+                                        <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Account Role</span>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>{user?.role || 'CORPORATE_HR'}</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Primary Billing Email</span>
+                                    <div style={{ fontSize: '0.9rem', color: '#334155' }}>{user?.email || 'corporate-billing@eurotech.com'}</div>
+                                </div>
+                                <div>
+                                    <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Contact Phone</span>
+                                    <div style={{ fontSize: '0.9rem', color: '#334155' }}>{user?.phone || 'No phone recorded'}</div>
+                                </div>
+                            </div>
+                            <div className="info-alert">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                <span>Official VAT invoices and consular receipts are automatically issued using this registered corporate entity name and tax number. Contact support if official company details need legal modification.</span>
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button type="button" className="btn-modal-primary" onClick={() => setIsBillingModalOpen(false)}>Done</button>
+                        </div>
                     </div>
                 </div>
             )}

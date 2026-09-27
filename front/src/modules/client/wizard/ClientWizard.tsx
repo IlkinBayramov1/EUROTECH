@@ -56,7 +56,8 @@ export default function IndividualWizard() {
                     nationality: 'AZ',
                     passportNumber: initialPassport,
                     issueDate: '',
-                    expiryDate: ''
+                    expiryDate: '',
+                    familyRole: 'PRIMARY' as const
                 }
             ],
             
@@ -108,21 +109,25 @@ export default function IndividualWizard() {
         try {
             let countryId = '';
             let visaCategoryId = '';
+            let selectedCountryName = 'Hungary';
             try {
                 const countriesRes = await dossierService.getCountries();
                 const countries = countriesRes.data?.countries || [];
                 const matchedCountry = countries.find((c: any) => 
-                    c.code?.toLowerCase() === formData.country.toLowerCase() ||
-                    c.nameEn?.toLowerCase() === formData.country.toLowerCase() ||
-                    c.nameAz?.toLowerCase() === formData.country.toLowerCase()
+                    c.code?.toLowerCase() === (formData.country || 'HU').toLowerCase() ||
+                    c.nameEn?.toLowerCase().includes((formData.country || '').toLowerCase()) ||
+                    c.nameAz?.toLowerCase().includes((formData.country || '').toLowerCase())
                 ) || countries[0];
 
                 if (matchedCountry) {
                     countryId = matchedCountry.id;
+                    selectedCountryName = matchedCountry.nameEn || 'Hungary';
                     const catRes = await dossierService.getVisaCategories(countryId);
                     const categories = catRes.data?.visaCategories || [];
                     const matchedCat = categories.find((cat: any) => 
-                        formData.duration === 'long' ? cat.categoryType === 'NATIONAL_D' : cat.categoryType === 'SCHENGEN_C'
+                        formData.duration === 'long'
+                            ? (cat.code?.includes('NATIONAL') || cat.nameEn?.toLowerCase().includes('national'))
+                            : (cat.code?.includes('TOURIST') || cat.code?.includes('SCHENGEN') || cat.nameEn?.toLowerCase().includes('tourist'))
                     ) || categories[0];
                     if (matchedCat) {
                         visaCategoryId = matchedCat.id;
@@ -138,25 +143,55 @@ export default function IndividualWizard() {
                     countryId,
                     visaCategoryId,
                 });
-                const dossierId = dossierRes.data?.dossier?.id;
+                const createdDossier = dossierRes.data?.dossier || dossierRes.data;
+                const dossierId = createdDossier?.id;
 
                 if (dossierId) {
-                    // Save in tab-scoped storage
                     storage.setActiveDossierId(dossierId);
 
-                    if (formData.applicants && formData.applicants.length > 0) {
-                        const applicantsPayload = formData.applicants.map(app => ({
+                    const dbPrimaryApplicant = createdDossier.applicants?.[0];
+                    const firstFormApplicant = formData.applicants?.[0];
+
+                    // Update primary applicant with full details from Step 3
+                    if (dbPrimaryApplicant && firstFormApplicant) {
+                        await dossierService.updateApplicantForm(dossierId, dbPrimaryApplicant.id, {
+                            firstName: firstFormApplicant.firstName || user?.firstName || 'Müştəri',
+                            lastName: firstFormApplicant.lastName || user?.lastName || '',
+                            passportNumber: firstFormApplicant.passportNumber || user?.passportNumber || '',
+                            gender: firstFormApplicant.gender || 'MALE',
+                            nationality: firstFormApplicant.nationality || 'AZ',
+                            birthDate: firstFormApplicant.dob || undefined,
+                            passportExpiry: firstFormApplicant.expiryDate || undefined,
+                            destination: selectedCountryName,
+                            purpose: formData.projectReason === 'tourism' ? 'Tourism' : 'Business',
+                            homeEmail: user?.email || '',
+                            homePhone: user?.phone || '',
+                        }).catch(e => console.warn('Primary applicant update err:', e));
+                    }
+
+                    // If user added co-applicants in Step 3 (index > 0), add them
+                    if (formData.applicants && formData.applicants.length > 1) {
+                        const coApplicants = formData.applicants.slice(1).map((app: any) => ({
                             firstName: app.firstName,
                             lastName: app.lastName,
                             passportNumber: app.passportNumber,
                             gender: app.gender || 'MALE',
                             nationality: app.nationality || 'AZ',
-                            birthDate: app.dob,
-                            passportExpiry: app.expiryDate,
+                            birthDate: app.dob || undefined,
+                            passportExpiry: app.expiryDate || undefined,
+                            familyRole: app.familyRole || 'SPOUSE',
+                            formDataJson: {
+                                firstName: app.firstName,
+                                lastName: app.lastName,
+                                passportNumber: app.passportNumber,
+                                nationality: app.nationality || 'Azerbaijan',
+                                destination: selectedCountryName,
+                            }
                         }));
-                        await dossierService.addApplicants(dossierId, applicantsPayload);
+                        await dossierService.addApplicants(dossierId, coApplicants).catch(e => console.warn('Co-applicants add err:', e));
                     }
 
+                    // Add selected additional services
                     const s = formData.services;
                     if (s.lounge || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'PREMIUM_LOUNGE' }).catch(() => {});
                     if (s.insurance) await additionalService.addService({ dossierId, serviceType: 'TRAVEL_INSURANCE' }).catch(() => {});
@@ -164,11 +199,15 @@ export default function IndividualWizard() {
                     if (s.courier || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'COURIER' }).catch(() => {});
                     if (s.photo || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'PHOTO' }).catch(() => {});
 
+                    // Book appointment slot
                     if (formData.appointmentDate) {
                         try {
-                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate, formData.visaCenter);
+                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate);
                             const slots = slotsRes.data?.slots || [];
-                            const matchedSlot = slots.find((sl: any) => sl.startTime === formData.appointmentTime) || slots[0];
+                            const matchedSlot = slots.find((sl: any) => 
+                                sl.startTime === formData.appointmentTime ||
+                                sl.startTime?.replace(/\s+/g, '') === (formData.appointmentTime || '').replace(/\s+/g, '')
+                            ) || slots[0];
                             if (matchedSlot) {
                                 await appointmentService.bookAppointment({
                                     dossierId,

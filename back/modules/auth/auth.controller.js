@@ -40,17 +40,23 @@ async function register(req, res, next) {
   }
 }
 
+const { recordFailedAttempt, recordSuccessfulLogin } = require('../../middlewares/bruteforceLockout.middleware');
+
 async function login(req, res, next) {
+  const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+  const identifier = req.body?.loginIdentifier || req.body?.email || req.body?.username;
   try {
-    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Unknown';
     const result = await authService.login({ ...req.body, ip, userAgent });
+    recordSuccessfulLogin(identifier, ip);
     return ApiResponse.success(res, result, getText('LOGIN_SUCCESS', req.lang));
   } catch (error) {
+    await recordFailedAttempt(identifier, ip);
     const statusCode = error.message.includes('Security Error') ? 403 : 400;
     return ApiResponse.error(res, error.message, statusCode);
   }
 }
+
 
 async function refreshToken(req, res, next) {
   try {

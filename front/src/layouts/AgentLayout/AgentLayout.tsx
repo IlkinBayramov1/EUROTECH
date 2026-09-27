@@ -8,6 +8,7 @@ export default function AgentLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -97,7 +98,7 @@ export default function AgentLayout() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               New Group Application
             </button>
-            <div className="action-item" onClick={() => navigate('/')} title="Switch Portal">
+            <div className="action-item" onClick={() => setIsSettingsOpen(true)} title="Agency Settings & Profile">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </div>
           </div>
@@ -107,6 +108,214 @@ export default function AgentLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* --- AGENCY PROFILE & SETTINGS MODAL --- */}
+      {isSettingsOpen && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setIsSettingsOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(9, 18, 36, 0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}
+        >
+          <div 
+            className="settings-modal-card" 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '560px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              animation: 'modalSlideUp 0.25s ease'
+            }}
+          >
+            <div style={{
+              background: 'linear-gradient(135deg, #0F1E36 0%, #1E3A8A 100%)',
+              color: '#FFFFFF',
+              padding: '24px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', color: '#93C5FD' }}>
+                  Tour Operator Settings
+                </span>
+                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700 }}>
+                  Agency Profile & Operations
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsSettingsOpen(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.2rem'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Agency Details */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Agency / Partner Name
+                  </label>
+                  <div style={{ fontWeight: 700, color: '#0F1E36', fontSize: '0.95rem' }}>
+                    {user?.companyName || user?.agencyName || user?.fullName || 'Travel Partner MMC'}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Partner Tier
+                  </label>
+                  <span style={{
+                    display: 'inline-block',
+                    background: '#FEF08A',
+                    color: '#854D0E',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    padding: '3px 10px',
+                    borderRadius: '12px'
+                  }}>
+                    SILVER PARTNER (€25/pax)
+                  </span>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Registered Contact Email
+                  </label>
+                  <div style={{ color: '#334155', fontSize: '0.9rem' }}>
+                    {user?.email || 'agent@eurotech.az'}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 600, display: 'block', marginBottom: '4px' }}>
+                    Agency Tax ID (VÖEN)
+                  </label>
+                  <div style={{ color: '#334155', fontSize: '0.9rem', fontFamily: 'monospace', fontWeight: 600 }}>
+                    1400293841
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Navigation / Settings Actions */}
+              <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    navigate('/agent/finance');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: '#0F1E36',
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    💳 Commission Wallet & Payout Bank Details
+                  </span>
+                  <span>&rarr;</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    navigate('/agent/appointments');
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '10px',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: '#0F1E36',
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    📅 Group Consular Appointment Calendar
+                  </span>
+                  <span>&rarr;</span>
+                </button>
+              </div>
+
+              {/* Footer Actions */}
+              <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSettingsOpen(false);
+                    navigate('/');
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#2563EB',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Switch Application Profile
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    background: '#FEE2E2',
+                    border: '1px solid #FCA5A5',
+                    color: '#991B1B',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

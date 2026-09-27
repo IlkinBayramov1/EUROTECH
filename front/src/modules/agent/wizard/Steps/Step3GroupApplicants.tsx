@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import type { ApplicantData } from '../AgentWizard';
 import { useToast } from '@/shared/context/ToastContext';
+import { downloadRosterTemplate, parseRosterCsv } from '@/shared/utils/excelParser';
 
 interface Step3Props {
     data: {
@@ -54,37 +55,43 @@ export default function Step3GroupApplicants({ data, updateData }: Step3Props) {
         reader.onload = (event) => {
             try {
                 const text = event.target?.result as string;
-                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-                if (lines.length < 2) {
-                    showError('CSV file is empty or missing header row.');
+                const result = parseRosterCsv(text);
+
+                if (result.errors.length > 0 && result.applicants.length === 0) {
+                    showError(result.errors[0]);
                     return;
                 }
 
-                const newApplicants: ApplicantData[] = [];
-                for (let i = 1; i < lines.length; i++) {
-                    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-                    if (cols.length >= 2) {
-                        newApplicants.push({
-                            id: `app-csv-${Date.now()}-${i}`,
-                            firstName: cols[0] || 'Traveler',
-                            lastName: cols[1] || '',
-                            dob: cols[2] || '1995-05-15',
-                            passportNumber: (cols[3] || `C${Math.floor(1000000 + Math.random() * 9000000)}`).toUpperCase(),
-                            issueDate: cols[4] || '2021-01-01',
-                            expiryDate: cols[5] || '2031-01-01',
-                            documents: { passport: false, photo: false }
-                        });
-                    }
+                // Check for duplicates against existing applicants
+                const existingPassports = new Set(data.applicants.map(a => (a.passportNumber || '').toUpperCase()));
+                const duplicateConflicts = result.applicants.filter(a => existingPassports.has(a.passportNumber));
+
+                if (duplicateConflicts.length > 0) {
+                    showError(`Notice: ${duplicateConflicts.length} traveler(s) already exist in this group.`);
                 }
 
-                if (newApplicants.length > 0) {
-                    updateData('applicants', [...data.applicants, ...newApplicants]);
-                    showSuccess(`Successfully imported ${newApplicants.length} applicant(s) from CSV!`);
+                const uniqueNew = result.applicants.filter(a => !existingPassports.has(a.passportNumber));
+
+                if (uniqueNew.length > 0) {
+                    const mappedNew: ApplicantData[] = uniqueNew.map((a, idx) => ({
+                        id: `app-roster-${Date.now()}-${idx}`,
+                        firstName: a.firstName,
+                        lastName: a.lastName,
+                        dob: a.dob,
+                        passportNumber: a.passportNumber,
+                        issueDate: '2021-01-01',
+                        expiryDate: a.expiryDate,
+                        documents: { passport: false, photo: false }
+                    }));
+                    updateData('applicants', [...data.applicants, ...mappedNew]);
+                    showSuccess(`Successfully imported ${mappedNew.length} traveler(s) from roster!`);
                 } else {
-                    showError('No valid applicant rows found in CSV.');
+                    showError('No new unique applicants to import.');
                 }
-            } catch (err) {
+            } catch (err: any) {
                 showError('Failed to parse CSV file.');
+            } finally {
+                if (fileInputRef.current) fileInputRef.current.value = '';
             }
         };
         reader.readAsText(file);
@@ -120,6 +127,16 @@ export default function Step3GroupApplicants({ data, updateData }: Step3Props) {
                         style={{ display: 'none' }} 
                         accept=".csv" 
                     />
+                    <button 
+                        className="btn-add-applicant" 
+                        onClick={() => downloadRosterTemplate()} 
+                        type="button" 
+                        style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}
+                        title="Download official Excel/CSV template for bulk passenger import"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Template
+                    </button>
                     <button className="btn-add-applicant" onClick={() => fileInputRef.current?.click()} type="button" style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-main)' }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         Upload CSV

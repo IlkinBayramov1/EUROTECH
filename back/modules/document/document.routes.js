@@ -11,7 +11,10 @@ router.get('/:documentId/download', documentController.downloadDocument);
 router.use(authMiddleware);
 
 router.post('/upload', upload.single('file'), documentController.uploadDocument);
+router.post('/presigned-upload', documentController.getPresignedUploadUrl);
+router.get('/:documentId/presigned-download', documentController.getPresignedDownloadUrl);
 router.get('/:documentId/signed-url', documentController.getSignedUrl);
+
 router.patch(
   '/:documentId/review',
   requireRoles(['OPERATOR', 'MANAGER', 'ADMIN']),
@@ -23,6 +26,7 @@ router.post(
   documentController.sendFeedback
 );
 router.get('/dossier/:dossierId/export-checklist', documentController.exportChecklist);
+router.patch('/:documentId/family-sharing', documentController.toggleFamilySharing);
 router.delete('/:documentId', documentController.deleteDocument);
 
 module.exports = router;

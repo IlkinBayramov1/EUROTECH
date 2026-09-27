@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../../config/db');
+const pdfUtil = require('../../utils/pdf.util');
 
 function generateGroupCode() {
   const digits = Math.floor(1000 + Math.random() * 9000);
@@ -320,14 +321,24 @@ async function submitGroup(groupId, userId) {
       data: { status: 'PROCESSING' },
     });
 
-    // Calculate commission: €20 per passenger
+    // Calculate commission based on Agent Tier
     let totalPassengers = 0;
     group.dossiers.forEach((d) => {
       totalPassengers += (d.applicants ? d.applicants.length : 0);
     });
     if (totalPassengers === 0) totalPassengers = 1; // Minimum base
 
-    const commissionAmount = totalPassengers * 20.0;
+    // Fetch agent tier
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    const tier = user?.agentTier || 'SILVER';
+
+    let ratePerPax = 25.0;
+    if (tier === 'BRONZE') ratePerPax = 20.0;
+    else if (tier === 'SILVER') ratePerPax = 25.0;
+    else if (tier === 'GOLD') ratePerPax = 28.0;
+    else if (tier === 'PLATINUM') ratePerPax = 32.0;
+
+    const commissionAmount = totalPassengers * ratePerPax;
 
     // Get or create wallet
     let wallet = await tx.wallet.findUnique({ where: { userId } });
@@ -350,7 +361,7 @@ async function submitGroup(groupId, userId) {
         type: 'CREDIT',
         referenceType: 'COMMISSION',
         referenceId: group.code,
-        description: `Commission: ${group.name} (${totalPassengers} Applicants)`,
+        description: `Commission: ${group.name} (${totalPassengers} Applicants @ €${ratePerPax} [${tier}])`,
         status: 'PAID',
       },
     });
@@ -358,6 +369,8 @@ async function submitGroup(groupId, userId) {
     return {
       group: updated,
       commissionCredited: commissionAmount,
+      tier,
+      ratePerPax,
     };
   });
 }
@@ -395,10 +408,65 @@ async function getAgentWallet(userId) {
 
   const totalEarnedYtd = creditAgg._sum.amount || 0.0;
 
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } });
+  const tier = user?.agentTier || 'SILVER';
+
+  let ratePerPax = 25.0;
+  if (tier === 'BRONZE') ratePerPax = 20.0;
+  else if (tier === 'SILVER') ratePerPax = 25.0;
+  else if (tier === 'GOLD') ratePerPax = 28.0;
+  else if (tier === 'PLATINUM') ratePerPax = 32.0;
+
+  const allGroups = await prisma.groupBatch.findMany({
+    where: { userId },
+    include: { dossiers: { include: { applicants: true } } },
+  });
+
+  let totalPaxLifetime = 0;
+  allGroups.forEach(g => {
+    g.dossiers.forEach(d => {
+      totalPaxLifetime += (d.applicants ? d.applicants.length : 0);
+    });
+  });
+
   return {
     ...wallet,
     totalEarnedYtd,
+    agentTier: tier,
+    ratePerPax,
+    totalPaxLifetime,
   };
+}
+
+async function generateGroupInvoicePdf(groupId, userId) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: {
+      dossiers: {
+        include: {
+          applicants: true,
+          country: true,
+          visaCategory: true,
+        },
+      },
+    },
+  });
+
+  if (!group) {
+    throw new Error('Group not found');
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const primaryDossier = group.dossiers[0] || {
+    dossierNumber: group.code,
+    applicants: [],
+    governmentFee: 80.0,
+    serviceFee: 90.0,
+    extraServicesFee: 0.0,
+  };
+
+  const pdfResult = await pdfUtil.generateGroupInvoicePdf(primaryDossier, user);
+  return pdfResult;
 }
 
 async function requestPayout({ userId, amount, bankName, iban, swiftBic }) {
@@ -462,8 +530,9 @@ async function exportTransactionsCsv(userId) {
   const rows = ['Transaction ID,Date,Reference,Description,Amount,Status'];
   if (wallet && wallet.transactions) {
     wallet.transactions.forEach((tx) => {
-      const dateStr = new Date(tx.createdAt).toISOString().split('T')[0];
-      rows.push(`"${tx.id}","${dateStr}","${tx.referenceId || ''}","${tx.description.replace(/"/g, '""')}","${tx.amount}","${tx.status}"`);
+      const dateStr = tx.createdAt ? new Date(tx.createdAt).toISOString().split('T')[0] : '';
+      const desc = (tx.description || '').replace(/"/g, '""');
+      rows.push(`"${tx.id}","${dateStr}","${tx.referenceId || ''}","${desc}","${tx.amount}","${tx.status}"`);
     });
   }
 
@@ -628,21 +697,105 @@ async function saveApplicantFormInGroup(groupId, applicantId, formData, userId) 
   });
 }
 
-async function updateGroup(groupId, userId, { name }) {
+async function updateGroup(groupId, userId, data = {}) {
   const group = await prisma.groupBatch.findFirst({
     where: { id: groupId, userId },
+    include: { dossiers: true },
   });
   if (!group) {
     const error = new Error('Group not found or unauthorized');
     error.statusCode = 404;
     throw error;
   }
+
+  if (data.paymentStatus && group.dossiers.length > 0) {
+    await prisma.dossier.updateMany({
+      where: { groupBatchId: groupId },
+      data: { paymentStatus: data.paymentStatus },
+    });
+  }
+
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.travelDate !== undefined && data.travelDate) updateData.travelDate = new Date(data.travelDate);
+  if (data.destination !== undefined) updateData.destination = data.destination;
+
   return prisma.groupBatch.update({
     where: { id: groupId },
-    data: {
-      name: name !== undefined ? name : group.name,
+    data: updateData,
+  });
+}
+
+async function setGroupAppointment(groupId, userId, { appointmentDate, appointmentTime, location }) {
+  const group = await prisma.groupBatch.findFirst({
+    where: { id: groupId, userId },
+    include: { dossiers: true, appointments: true },
+  });
+  if (!group) {
+    const error = new Error('Group not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const apptDateTime = new Date(`${appointmentDate}T${appointmentTime || '10:00'}:00.000Z`);
+  let timeSlot = await prisma.timeSlot.findFirst({
+    where: {
+      date: apptDateTime,
+      startTime: appointmentTime || '10:00',
+      isActive: true,
     },
   });
+
+  if (!timeSlot) {
+    timeSlot = await prisma.timeSlot.create({
+      data: {
+        date: apptDateTime,
+        startTime: appointmentTime || '10:00',
+        capacity: 30,
+        bookedCount: 1,
+        isActive: true,
+        location: location || 'EuroTech Main Center, Port Baku Towers',
+      },
+    });
+  }
+
+  const primaryDossier = group.dossiers[0];
+  if (primaryDossier) {
+    await prisma.dossier.update({
+      where: { id: primaryDossier.id },
+      data: {
+        appointmentDate: apptDateTime,
+        appointmentLocation: location || 'EuroTech Main Center, Port Baku Towers',
+      },
+    });
+  }
+
+  if (group.appointments && group.appointments.length > 0) {
+    const existing = group.appointments[0];
+    return await prisma.appointment.update({
+      where: { id: existing.id },
+      data: {
+        timeSlotId: timeSlot.id,
+        location: location || 'EuroTech Main Center, Port Baku Towers',
+        status: 'CONFIRMED',
+        notes: `Group Appointment: ${group.name} (${group.code})`,
+      },
+      include: { timeSlot: true },
+    });
+  } else {
+    return await prisma.appointment.create({
+      data: {
+        timeSlotId: timeSlot.id,
+        userId,
+        dossierId: primaryDossier?.id || null,
+        groupBatchId: group.id,
+        status: 'CONFIRMED',
+        location: location || 'EuroTech Main Center, Port Baku Towers',
+        notes: `Group Appointment: ${group.name} (${group.code})`,
+      },
+      include: { timeSlot: true },
+    });
+  }
 }
 
 async function deleteGroup(groupId, userId) {
@@ -674,6 +827,114 @@ async function deleteGroup(groupId, userId) {
   });
 }
 
+async function getCustomerSelfFillData(groupId, applicantId) {
+  const group = await prisma.groupBatch.findUnique({
+    where: { id: groupId },
+    include: {
+      user: {
+        select: {
+          fullName: true,
+          companyName: true,
+          email: true,
+          phone: true,
+        },
+      },
+      dossiers: {
+        include: {
+          applicants: {
+            where: { id: applicantId },
+            include: { documents: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!group) {
+    const error = new Error('Group not found or invalid link');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const applicant = group.dossiers?.[0]?.applicants?.[0];
+  if (!applicant) {
+    const error = new Error('Traveler record not found in this group');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    group: {
+      id: group.id,
+      name: group.name,
+      code: group.code,
+      destination: group.destination,
+      travelDate: group.travelDate,
+      duration: group.duration,
+      agencyName: group.user?.companyName || group.user?.fullName || 'EuroTech Travel Partner',
+      agencyPhone: group.user?.phone,
+      agencyEmail: group.user?.email,
+    },
+    applicant: {
+      id: applicant.id,
+      firstName: applicant.firstName,
+      lastName: applicant.lastName,
+      passportNumber: applicant.passportNumber,
+      birthDate: applicant.birthDate,
+      nationality: applicant.nationality,
+      gender: applicant.gender,
+      dossierId: applicant.dossierId,
+      formDataJson: applicant.formDataJson || {},
+      documents: applicant.documents || [],
+    },
+  };
+}
+
+async function submitCustomerSelfFill(groupId, applicantId, payload) {
+  const applicant = await prisma.applicant.findFirst({
+    where: { id: applicantId, dossier: { groupBatchId: groupId } },
+    include: { dossier: true },
+  });
+
+  if (!applicant) {
+    const error = new Error('Traveler not found in group');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const updateData = {};
+  if (payload.firstName) updateData.firstName = payload.firstName;
+  if (payload.lastName) updateData.lastName = payload.lastName;
+  if (payload.passportNumber) updateData.passportNumber = payload.passportNumber;
+  if (payload.birthDate || payload.dob) updateData.birthDate = new Date(payload.birthDate || payload.dob);
+  if (payload.nationality) updateData.nationality = payload.nationality;
+  if (payload.gender) updateData.gender = payload.gender;
+
+  const currentJson = applicant.formDataJson || {};
+  const mergedJson = {
+    ...currentJson,
+    ...(payload.formDataJson || payload.formData || {}),
+    stayDuration: payload.stayDuration || currentJson.stayDuration,
+    accommodation: payload.accommodation || currentJson.accommodation,
+    contactEmail: payload.contactEmail || currentJson.contactEmail,
+    contactPhone: payload.contactPhone || currentJson.contactPhone,
+    dob: payload.birthDate || payload.dob || currentJson.dob,
+    issueDate: payload.issueDate || currentJson.issueDate,
+    expiryDate: payload.expiryDate || currentJson.expiryDate,
+    selfFilledAt: new Date().toISOString(),
+  };
+
+  updateData.formDataJson = mergedJson;
+
+  const updated = await prisma.applicant.update({
+    where: { id: applicantId },
+    data: updateData,
+    include: { documents: true },
+  });
+
+  return updated;
+}
+
 module.exports = {
   createGroup,
   getAgentGroups,
@@ -689,6 +950,10 @@ module.exports = {
   addApplicantToGroup,
   removeApplicantFromGroup,
   saveApplicantFormInGroup,
+  generateGroupInvoicePdf,
+  getCustomerSelfFillData,
+  submitCustomerSelfFill,
+  setGroupAppointment,
 };
 
 

@@ -97,7 +97,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const isMatching = 
             (credentials.expectedRole === 'AGENT_TUR_OPERATOR' && (authUser.role === 'AGENT_TUR_OPERATOR' || authUser.role === 'AGENT')) ||
             (credentials.expectedRole === 'CORPORATE_HR' && (authUser.role === 'CORPORATE_HR' || authUser.role === 'CORPORATE')) ||
-            (credentials.expectedRole === 'INDIVIDUAL' && authUser.role === 'INDIVIDUAL');
+            (credentials.expectedRole === 'INDIVIDUAL' && authUser.role === 'INDIVIDUAL') ||
+            (credentials.expectedRole === 'ADMIN' && (authUser.role === 'ADMIN' || authUser.role === 'OPERATOR' || authUser.role === 'MANAGER'));
 
           if (!isMatching) {
             storage.clearAll();

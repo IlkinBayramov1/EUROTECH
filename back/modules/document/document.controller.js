@@ -7,12 +7,13 @@ async function uploadDocument(req, res, next) {
       return ApiResponse.error(res, 'File is required', 400);
     }
 
-    const { dossierId, applicantId, requiredDocumentType, isMandatory } = req.body;
+    const { dossierId, applicantId, requiredDocumentType, isMandatory, isSharedWithFamily } = req.body;
     const document = await documentService.uploadDocument({
       dossierId,
       applicantId,
       requiredDocumentType,
       isMandatory,
+      isSharedWithFamily,
       file: req.file,
     });
 
@@ -106,6 +107,50 @@ async function exportChecklist(req, res, next) {
   }
 }
 
+async function toggleFamilySharing(req, res, next) {
+  try {
+    const { documentId } = req.params;
+    const { isSharedWithFamily } = req.body;
+    const document = await documentService.toggleFamilySharing(documentId, isSharedWithFamily, req.user);
+    return ApiResponse.success(res, { document }, 'Document family sharing updated');
+  } catch (error) {
+    const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
+async function getPresignedUploadUrl(req, res) {
+  try {
+    const storageService = require('../../services/storage.service');
+    const { dossierId, fileName, contentType, maxSizeBytes } = req.body;
+    const result = await storageService.generatePresignedUploadUrl({
+      dossierId,
+      fileName,
+      contentType,
+      maxSizeBytes,
+    });
+    return ApiResponse.success(res, result, 'Presigned upload URL generated');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function getPresignedDownloadUrl(req, res) {
+  try {
+    const storageService = require('../../services/storage.service');
+    const prisma = require('../../config/db');
+    const { documentId } = req.params;
+    const doc = await prisma.applicantDocument.findUnique({ where: { id: documentId } });
+    if (!doc) {
+      return ApiResponse.error(res, 'Document not found', 404);
+    }
+    const result = await storageService.generatePresignedDownloadUrl(doc.fileUrl);
+    return ApiResponse.success(res, result, 'Presigned download URL generated');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
 module.exports = {
   uploadDocument,
   reviewDocument,
@@ -114,5 +159,9 @@ module.exports = {
   sendFeedback,
   deleteDocument,
   exportChecklist,
+  toggleFamilySharing,
+  getPresignedUploadUrl,
+  getPresignedDownloadUrl,
 };
+
 

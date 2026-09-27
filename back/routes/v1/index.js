@@ -13,6 +13,7 @@ const agentRoutes = require('../../modules/agent/agent.routes');
 const corporateRoutes = require('../../modules/corporate/corporate.routes');
 const privacyRoutes = require('../../modules/shared/privacy.routes');
 const webhookRoutes = require('../../webhooks/webhook.routes');
+const cronRoutes = require('./cron.routes');
 
 router.use('/auth', authRoutes);
 router.use('/templates', templateRoutes);
@@ -26,5 +27,7 @@ router.use('/agent', agentRoutes);
 router.use('/corporate', corporateRoutes);
 router.use('/privacy', privacyRoutes);
 router.use('/webhooks', webhookRoutes);
+router.use('/cron', cronRoutes);
+
 
 module.exports = router;

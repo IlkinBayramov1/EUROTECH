@@ -1,5 +1,6 @@
 const agentService = require('./agent.service');
 const ApiResponse = require('../../core/api.response');
+const documentService = require('../document/document.service');
 
 async function createGroup(req, res, next) {
   try {
@@ -146,6 +147,73 @@ async function deleteGroup(req, res, next) {
   }
 }
 
+async function getGroupInvoicePdf(req, res, next) {
+  try {
+    const { groupId } = req.params;
+    const result = await agentService.generateGroupInvoicePdf(groupId, req.user.id);
+    if (req.query.download === 'true' || req.query.download === '1') {
+      return res.download(result.filePath, result.fileName);
+    }
+    return ApiResponse.success(res, result, 'Group invoice PDF generated');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getCustomerSelfFillData(req, res, next) {
+  try {
+    const { groupId, applicantId } = req.params;
+    const data = await agentService.getCustomerSelfFillData(groupId, applicantId);
+    return ApiResponse.success(res, data, 'Traveler self-fill details retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function submitCustomerSelfFill(req, res, next) {
+  try {
+    const { groupId, applicantId } = req.params;
+    const applicant = await agentService.submitCustomerSelfFill(groupId, applicantId, req.body);
+    return ApiResponse.success(res, { applicant }, 'Traveler details saved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function uploadCustomerDoc(req, res, next) {
+  try {
+    const { groupId, applicantId } = req.params;
+    const { requiredDocumentType } = req.body;
+    if (!req.file) {
+      return ApiResponse.error(res, 'No file uploaded', 400);
+    }
+    const data = await agentService.getCustomerSelfFillData(groupId, applicantId);
+    const doc = await documentService.uploadDocument({
+      dossierId: data.applicant.dossierId,
+      applicantId,
+      requiredDocumentType: requiredDocumentType || 'DOCUMENT',
+      file: req.file,
+    });
+    return ApiResponse.success(res, { document: doc }, 'Document uploaded successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function setGroupAppointment(req, res, next) {
+  try {
+    const { appointmentDate, appointmentTime, location } = req.body;
+    const appointment = await agentService.setGroupAppointment(req.params.groupId, req.user.id, {
+      appointmentDate,
+      appointmentTime,
+      location,
+    });
+    return ApiResponse.success(res, { appointment }, 'Group appointment scheduled successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   createGroup,
   getAgentGroups,
@@ -161,6 +229,9 @@ module.exports = {
   addApplicant,
   removeApplicant,
   saveApplicantForm,
+  getGroupInvoicePdf,
+  getCustomerSelfFillData,
+  submitCustomerSelfFill,
+  uploadCustomerDoc,
+  setGroupAppointment,
 };
-
-

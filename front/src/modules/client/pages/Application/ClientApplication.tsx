@@ -333,33 +333,44 @@ export default function ClientApplication() {
         const pNum = newPassportNumber.trim().toUpperCase();
         const nat = newNationality.trim() || 'Azerbaijan';
 
-        if (dossierId) {
-            try {
-                await dossierService.addApplicants(dossierId, [{
+        let targetDossierId = dossierId;
+        if (!targetDossierId) {
+            const fresh = await dossierService.getMyDossiers().catch(() => null);
+            if (fresh?.data?.dossiers?.[0]?.id) {
+                targetDossierId = fresh.data.dossiers[0].id;
+                setDossierId(targetDossierId);
+            }
+        }
+
+        if (!targetDossierId) {
+            showError('Active dossier not found. Please start an application first.');
+            return;
+        }
+
+        try {
+            await dossierService.addApplicants(targetDossierId, [{
+                firstName: fn,
+                lastName: ln,
+                passportNumber: pNum,
+                nationality: nat,
+                formDataJson: {
                     firstName: fn,
                     lastName: ln,
                     passportNumber: pNum,
                     nationality: nat,
-                    formDataJson: {
-                        firstName: fn,
-                        lastName: ln,
-                        passportNumber: pNum,
-                        nationality: nat,
-                    }
-                }]);
+                }
+            }]);
 
-                showSuccess(`Co-applicant ${fn} ${ln} added to dossier!`);
-                await loadApplicantsFromBackend();
-                setNewFirstName('');
-                setNewLastName('');
-                setNewPassportNumber('');
-                setNewNationality('Azerbaijan');
-                setIsAddModalOpen(false);
-                return;
-            } catch (err: any) {
-                console.warn('Backend add applicant error:', err);
-                showError(err?.response?.data?.message || 'Failed to add applicant');
-            }
+            showSuccess(`Co-applicant ${fn} ${ln} added to dossier!`);
+            await loadApplicantsFromBackend();
+            setNewFirstName('');
+            setNewLastName('');
+            setNewPassportNumber('');
+            setNewNationality('Azerbaijan');
+            setIsAddModalOpen(false);
+        } catch (err: any) {
+            console.warn('Backend add applicant error:', err);
+            showError(err?.response?.data?.message || err?.message || 'Failed to add applicant');
         }
     };
 

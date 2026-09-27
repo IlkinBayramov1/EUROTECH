@@ -1,0 +1,226 @@
+/* ==========================================================================
+   ADMIN SETTINGS STYLES
+   ========================================================================== */
+
+.admin-settings-view {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.settings-header {
+  margin-bottom: 24px;
+}
+
+.settings-title {
+  font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #F8FAFC;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+
+.settings-subtitle {
+  font-size: 0.95rem;
+  color: #94A3B8;
+  margin: 0;
+}
+
+.settings-layout-grid {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 24px;
+}
+
+.settings-main-col,
+.settings-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-panel {
+  background: #0E1626;
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.settings-panel h3 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #F8FAFC;
+}
+
+.panel-desc {
+  font-size: 0.85rem;
+  color: #64748B;
+  margin: 0 0 20px;
+}
+
+/* --- JURISDICTIONS --- */
+.jurisdiction-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.jurisdiction-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.jur-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jur-code {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 800;
+  color: #F87171;
+  background: rgba(220, 38, 38, 0.1);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.jur-info strong {
+  display: block;
+  font-size: 0.88rem;
+  color: #F1F5F9;
+}
+
+.jur-info span {
+  font-size: 0.72rem;
+  color: #64748B;
+}
+
+.status-badge-active {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #34D399;
+}
+
+/* --- FORM FIELDS --- */
+.form-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.setting-input-group {
+  margin-bottom: 16px;
+}
+
+.setting-input-group label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #CBD5E1;
+  margin-bottom: 6px;
+}
+
+.setting-input-group input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #F8FAFC;
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.setting-input-group input:focus {
+  border-color: #DC2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.input-helper {
+  display: block;
+  font-size: 0.75rem;
+  color: #64748B;
+  margin-top: 4px;
+}
+
+.btn-save-settings {
+  background: linear-gradient(135deg, #DC2626, #B91C1C);
+  color: #FFFFFF;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+  transition: all 0.2s ease;
+  margin-top: 8px;
+}
+
+.btn-save-settings:hover {
+  background: linear-gradient(135deg, #EF4444, #DC2626);
+}
+
+/* --- CENTERS & COMPLIANCE --- */
+.center-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.06);
+}
+
+.center-item:last-child {
+  border-bottom: none;
+}
+
+.center-flag {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.center-item strong {
+  display: block;
+  font-size: 0.9rem;
+  color: #F1F5F9;
+}
+
+.center-item p {
+  margin: 2px 0 4px;
+  font-size: 0.8rem;
+  color: #94A3B8;
+}
+
+.center-item small {
+  font-size: 0.72rem;
+  color: #64748B;
+}
+
+.compliance-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.04);
+  font-size: 0.85rem;
+  color: #CBD5E1;
+}
+
+.compliance-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 1024px) {
+  .settings-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -5,9 +5,12 @@ const prisma = require('./config/db');
 async function startServer() {
   try {
     await prisma.$connect();
+    const { startScheduler } = require('./cron/scheduler');
+    startScheduler();
     app.listen(env.PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${env.PORT} (http://localhost:${env.PORT}/api/health)`);
     });
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
@@ -6,7 +6,7 @@ import { storage } from '@/shared/utils/storage';
 import type { UserRole } from '@/shared/types/auth.types';
 import './AuthPage.css';
 
-type AuthType = 'individual' | 'agent' | 'corporate';
+type AuthType = 'individual' | 'agent' | 'corporate' | 'admin';
 type FormMode = 'login' | 'register';
 
 interface AuthPageProps {
@@ -14,7 +14,7 @@ interface AuthPageProps {
 }
 
 export default function AuthPage({ type }: AuthPageProps) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialMode: FormMode = searchParams.get('mode') === 'register' ? 'register' : 'login';
   const [mode, setMode] = useState<FormMode>(initialMode);
   const [loginIdentifier, setLoginIdentifier] = useState(() => storage.getRememberedIdentifier() || '');
@@ -27,8 +27,35 @@ export default function AuthPage({ type }: AuthPageProps) {
   const isSubmittingRef = useRef(false);
 
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { user, isAuthenticated, login, register } = useAuth();
   const { showSuccess, showError } = useToast();
+
+  useEffect(() => {
+    const urlMode = searchParams.get('mode');
+    if (urlMode === 'register' || urlMode === 'login') {
+      setMode(urlMode);
+    }
+  }, [searchParams]);
+
+  const handleToggleMode = (newMode: FormMode) => {
+    setMode(newMode);
+    setSearchParams({ mode: newMode });
+  };
+
+  useEffect(() => {
+    // Only automatically redirect if the user was ALREADY authenticated before arriving at this page
+    if (isAuthenticated && user && !loading && !isSubmittingRef.current) {
+      if (type === 'admin' && (user.role === 'ADMIN' || user.role === 'OPERATOR')) {
+        navigate('/admin', { replace: true });
+      } else if (type === 'individual' && user.role === 'INDIVIDUAL') {
+        navigate('/client', { replace: true });
+      } else if (type === 'agent' && (user.role === 'AGENT' || user.role === 'AGENT_TUR_OPERATOR')) {
+        navigate('/agent', { replace: true });
+      } else if (type === 'corporate' && (user.role === 'CORPORATE' || user.role === 'CORPORATE_HR')) {
+        navigate('/corporate', { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, type, navigate, loading]);
 
   const contentMap = {
     individual: {
@@ -54,6 +81,14 @@ export default function AuthPage({ type }: AuthPageProps) {
       quote: '"Building borderless teams for the future of global business."',
       registerLabel: 'Company Name',
       targetRole: 'CORPORATE_HR' as UserRole,
+    },
+    admin: {
+      title: 'Consular & Admin Desk',
+      subtitle: 'Restricted diplomatic and consular review gateway.',
+      image: 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?q=80&w=2069&auto=format&fit=crop',
+      quote: '"Integrity, diligence, and service to global mobility."',
+      registerLabel: 'Admin ID',
+      targetRole: 'ADMIN' as UserRole,
     },
   };
 
@@ -82,6 +117,8 @@ export default function AuthPage({ type }: AuthPageProps) {
           navigate('/agent', { replace: true });
         } else if (type === 'corporate') {
           navigate('/corporate', { replace: true });
+        } else if (type === 'admin') {
+          navigate('/admin', { replace: true });
         } else {
           navigate('/', { replace: true });
         }
@@ -111,13 +148,13 @@ export default function AuthPage({ type }: AuthPageProps) {
         }
       }
     } catch (err: any) {
+      isSubmittingRef.current = false;
       if (err?.message?.includes('Security Error') || err?.status === 403) {
         showError('Your account is pending password setup. Please check your email for the activation link.');
       } else {
         showError(err.message || 'Authentication failed. Please check your credentials.');
       }
     } finally {
-      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -226,23 +263,31 @@ export default function AuthPage({ type }: AuthPageProps) {
             </button>
           </form>
 
-          <div className="auth-toggle">
-            {mode === 'login' ? (
-              <p>
-                Don't have an account?{' '}
-                <button type="button" onClick={() => setMode('register')}>
-                  Sign up here
-                </button>
+          {type !== 'admin' ? (
+            <div className="auth-toggle">
+              {mode === 'login' ? (
+                <p>
+                  Don't have an account?{' '}
+                  <button type="button" onClick={() => handleToggleMode('register')}>
+                    Sign up here
+                  </button>
+                </p>
+              ) : (
+                <p>
+                  Already have an account?{' '}
+                  <button type="button" onClick={() => handleToggleMode('login')}>
+                    Sign in
+                  </button>
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="auth-toggle">
+              <p style={{ color: '#64748B', fontSize: '0.82rem', margin: 0 }}>
+                🔒 Restricted Diplomatic Gateway. Credentials managed by EuroTech Administration.
               </p>
-            ) : (
-              <p>
-                Already have an account?{' '}
-                <button type="button" onClick={() => setMode('login')}>
-                  Sign in
-                </button>
-              </p>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 

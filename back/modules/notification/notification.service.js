@@ -67,6 +67,61 @@ async function sendDecisionNotification(email, fullName, dossierNumber, statusTe
     to: email,
     subject: `EuroTech Dosye Status Yenilənməsi - ${dossierNumber}`,
     html,
+    templateName: 'decisionNotification',
+  });
+}
+
+async function sendAppointmentConfirmedNotification({ email, fullName, dossierNumber, appointmentDate, appointmentTime, appointmentLocation, icsContent }) {
+  const html = loadTemplate('appointmentConfirmed', {
+    fullName,
+    dossierNumber,
+    appointmentDate,
+    appointmentTime,
+    appointmentLocation,
+  });
+
+  const attachments = [];
+  if (icsContent) {
+    attachments.push({
+      filename: `appointment-${dossierNumber}.ics`,
+      content: icsContent,
+      contentType: 'text/calendar; charset=utf-8',
+    });
+  }
+
+  return sendEmail({
+    to: email,
+    subject: `EuroTech - Görüş Təsdiqi və Təqvim (${appointmentDate})`,
+    html,
+    attachments,
+    templateName: 'appointmentConfirmed',
+  });
+}
+
+async function sendCorporateExpiryRadarNotification({ hrEmail, hrFullName, expiringEmployees }) {
+  const employeeRows = expiringEmployees
+    .map(
+      (emp) => `
+      <tr>
+        <td><strong>${emp.fullName}</strong></td>
+        <td>${emp.department || 'Ümumi'}</td>
+        <td><code>${emp.passportNumber}</code></td>
+        <td>${emp.passportExpiry ? new Date(emp.passportExpiry).toLocaleDateString() : 'N/A'}</td>
+        <td><span class="${emp.isCritical ? 'badge-critical' : 'badge-warning'}">${emp.isCritical ? 'KRİTİK (<90 gün)' : 'XƏBƏRDARLIQ'}</span></td>
+      </tr>`
+    )
+    .join('');
+
+  const html = loadTemplate('corporateExpiryRadarAlert', {
+    hrFullName,
+    employeeRows,
+  });
+
+  return sendEmail({
+    to: hrEmail,
+    subject: `⚠️ EuroTech Radar: ${expiringEmployees.length} Əməkdaşın Pasport Müddəti Bitir`,
+    html,
+    templateName: 'corporateExpiryRadarAlert',
   });
 }
 
@@ -76,4 +131,7 @@ module.exports = {
   sendDossierSubmittedNotification,
   sendDocumentCorrectionNotification,
   sendDecisionNotification,
+  sendAppointmentConfirmedNotification,
+  sendCorporateExpiryRadarNotification,
 };
+

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { agentService, appointmentService, documentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { downloadRosterTemplate } from '@/shared/utils/excelParser';
 import './AgentGroups.css';
 
 // --- Tiplər ---
@@ -43,6 +44,15 @@ export interface Group {
     status: 'draft' | 'processing';
     applicants: Applicant[];
     dossierId?: string;
+    paymentStatus?: 'PENDING' | 'PAID' | 'REFUNDED';
+    totalFee?: number;
+    appointment?: {
+        id: string;
+        date?: string;
+        startTime?: string;
+        status?: string;
+        location?: string;
+    } | null;
 }
 
 const REQUIRED_DOC_TYPES = [
@@ -98,6 +108,27 @@ export default function AgentGroups() {
     const [groupForSettings, setGroupForSettings] = useState<Group | null>(null);
     const [editGroupName, setEditGroupName] = useState('');
 
+    // Add Traveler Modal
+    const [isAddTravelerOpen, setIsAddTravelerOpen] = useState(false);
+    const [targetGroupForTraveler, setTargetGroupForTraveler] = useState<Group | null>(null);
+    const [newTravelerData, setNewTravelerData] = useState({
+        firstName: '',
+        lastName: '',
+        passportNumber: '',
+        dob: '',
+        contactPhone: '',
+        contactEmail: '',
+    });
+
+    // Group Appointment & Payment Modals
+    const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [selectedGroupForAction, setSelectedGroupForAction] = useState<Group | null>(null);
+    const [newAppointmentDate, setNewAppointmentDate] = useState('');
+    const [newAppointmentTime, setNewAppointmentTime] = useState('10:00');
+    const [newAppointmentLocation, setNewAppointmentLocation] = useState('EuroTech Main Center, Port Baku Towers');
+    const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'PENDING' | 'PAID' | 'REFUNDED'>('PENDING');
+
     // Hidden file input ref
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [targetUploadType, setTargetUploadType] = useState<string>('');
@@ -150,6 +181,15 @@ export default function AgentGroups() {
                         };
                     });
 
+                    const primaryAppt = g.appointments?.[0] || null;
+                    const appointmentData = primaryAppt ? {
+                        id: primaryAppt.id,
+                        date: primaryAppt.timeSlot?.date ? String(primaryAppt.timeSlot.date).split('T')[0] : (primaryAppt.date ? String(primaryAppt.date).split('T')[0] : 'TBD'),
+                        startTime: primaryAppt.timeSlot?.startTime || primaryAppt.startTime || '',
+                        status: primaryAppt.status || 'CONFIRMED',
+                        location: primaryAppt.location || primaryAppt.timeSlot?.location || 'EuroTech Main Center'
+                    } : null;
+
                     return {
                         id: g.id,
                         code: g.code || g.id,
@@ -162,6 +202,9 @@ export default function AgentGroups() {
                         status: (g.status === 'COMPLETED' || g.status === 'PROCESSING') ? 'processing' : 'draft',
                         applicants: mappedApplicants,
                         dossierId: primaryDossierId,
+                        paymentStatus: primaryDossier.paymentStatus || 'PENDING',
+                        totalFee: primaryDossier.totalFee || 0,
+                        appointment: appointmentData,
                     };
                 });
                 setGroups(mapped);
@@ -424,6 +467,161 @@ export default function AgentGroups() {
         }
     };
 
+    // Sənədi Açmaq / Baxmaq (View Document)
+    const handleViewDoc = (doc: ApplicantDoc) => {
+        if (!doc.fileUrl) {
+            showError('Sənəd faylı tapılmadı.');
+            return;
+        }
+        const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl.startsWith('/') ? '' : '/'}${doc.fileUrl}`;
+        window.open(fullUrl, '_blank');
+    };
+
+    // Sənədi Bazadan Silmək (Remove Document)
+    const handleRemoveDoc = async (doc: ApplicantDoc) => {
+        if (!confirm('Bu sənədi silmək istədiyinizə əminsiniz?')) return;
+        try {
+            await documentService.deleteDocument(doc.id);
+            showSuccess('Sənəd uğurla silindi.');
+            await fetchGroups();
+
+            // Refresh active applicant documents
+            if (activeGroup && activeApplicant) {
+                const updatedGroupRes = await agentService.getGroupById(activeGroup.id);
+                if (updatedGroupRes.data?.group) {
+                    const refreshedGroup = updatedGroupRes.data.group;
+                    const foundApp = refreshedGroup.dossiers?.[0]?.applicants?.find((a: any) => a.id === activeApplicant.id);
+                    if (foundApp) {
+                        setActiveApplicant(prev => prev ? {
+                            ...prev,
+                            documents: foundApp.documents || [],
+                        } : null);
+                    }
+                }
+            }
+        } catch (e: any) {
+            console.error('Doc remove error:', e);
+            showError(e.message || 'Sənədi silmək mümkün olmadı.');
+        }
+    };
+
+    // Yeni Sərnişin Əlavə Etmə Modalı
+    const openAddTravelerModal = (group: Group) => {
+        setTargetGroupForTraveler(group);
+        setNewTravelerData({
+            firstName: '',
+            lastName: '',
+            passportNumber: '',
+            dob: '',
+            contactPhone: '',
+            contactEmail: '',
+        });
+        setIsAddTravelerOpen(true);
+    };
+
+    const handleSaveNewTraveler = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!targetGroupForTraveler) return;
+        if (!newTravelerData.firstName.trim() || !newTravelerData.lastName.trim() || !newTravelerData.passportNumber.trim()) {
+            showError('Zəhmət olmasa Ad, Soyad və Pasport nömrəsini daxil edin.');
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            await agentService.addApplicant(targetGroupForTraveler.id, {
+                firstName: newTravelerData.firstName.trim(),
+                lastName: newTravelerData.lastName.trim(),
+                passportNumber: newTravelerData.passportNumber.trim().toUpperCase(),
+                dob: newTravelerData.dob || undefined,
+                formData: {
+                    dob: newTravelerData.dob,
+                    contactPhone: newTravelerData.contactPhone,
+                    contactEmail: newTravelerData.contactEmail,
+                },
+            });
+            showSuccess(`${newTravelerData.firstName} ${newTravelerData.lastName} qrupa uğurla əlavə edildi!`);
+            setIsAddTravelerOpen(false);
+            await fetchGroups();
+        } catch (err: any) {
+            console.error('Add traveler error:', err);
+            showError(err.message || 'Yeni sərnişini qrupa əlavə etmək mümkün olmadı.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Qrup Görüş Tarixi Təyini
+    const openAppointmentModal = (group: Group) => {
+        setSelectedGroupForAction(group);
+        setNewAppointmentDate(group.appointment?.date && group.appointment.date !== 'TBD' ? group.appointment.date : '');
+        setNewAppointmentTime(group.appointment?.startTime || '10:00');
+        setNewAppointmentLocation(group.appointment?.location || 'EuroTech Main Center, Port Baku Towers');
+        setIsAppointmentModalOpen(true);
+    };
+
+    const handleSaveGroupAppointment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedGroupForAction) return;
+        if (!newAppointmentDate) {
+            showError('Zəhmət olmasa görüş tarixini seçin.');
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            await agentService.setGroupAppointment(selectedGroupForAction.id, {
+                appointmentDate: newAppointmentDate,
+                appointmentTime: newAppointmentTime,
+                location: newAppointmentLocation,
+            });
+            showSuccess('Qrupun görüş tarixi və vaxtı uğurla yeniləndi!');
+            setIsAppointmentModalOpen(false);
+            await fetchGroups();
+        } catch (err: any) {
+            console.error('Set appointment error:', err);
+            showError(err.message || 'Görüş tarixini təyin etmək mümkün olmadı.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Qrup Ödəniş Statusunun Dəyişdirilməsi
+    const openPaymentModal = (group: Group) => {
+        setSelectedGroupForAction(group);
+        setSelectedPaymentStatus(group.paymentStatus || 'PENDING');
+        setIsPaymentModalOpen(true);
+    };
+
+    const handleSaveGroupPayment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedGroupForAction) return;
+
+        setIsSaving(true);
+        try {
+            await agentService.updateGroup(selectedGroupForAction.id, {
+                paymentStatus: selectedPaymentStatus,
+            });
+            showSuccess(`Qrupun ödəniş statusu "${selectedPaymentStatus}" olaraq yeniləndi!`);
+            setIsPaymentModalOpen(false);
+            await fetchGroups();
+        } catch (err: any) {
+            console.error('Update payment status error:', err);
+            showError(err.message || 'Ödəniş statusunu yeniləmək mümkün olmadı.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Müştəri üçün Self-Fill Link Kopyalama
+    const handleCopySelfFillLink = (group: Group, app: Applicant) => {
+        const link = `${window.location.origin}/agent/applicant-fill?groupId=${group.id}&applicantId=${app.id}`;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(link);
+        }
+        showSuccess(`Müştəri linki kopyalandı! Bu linki sərnişinə göndərə bilərsiniz:\n${link}`);
+    };
+
     // Modal Funksiyaları (Settings)
     const openSettings = (group: Group) => {
         setGroupForSettings(group);
@@ -472,6 +670,31 @@ export default function AgentGroups() {
             showError(e.message || 'Qrupu silmək mümkün olmadı.');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleDownloadGroupInvoice = async (group: Group) => {
+        try {
+            showSuccess('Generating official B2B Group Tax Invoice...');
+            const res = await agentService.getGroupInvoicePdf(group.id);
+            const fileUrl = res.data?.fileUrl;
+            if (fileUrl) {
+                const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+                const fileRes = await fetch(fullUrl);
+                const blob = await fileRes.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = res.data?.fileName || `group_invoice_${group.code}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+                showSuccess('Official Group Tax Invoice (PDF) downloaded!');
+            }
+        } catch (err: any) {
+            console.error('Invoice download error:', err);
+            showError(err.message || 'Failed to download invoice.');
         }
     };
 
@@ -532,6 +755,15 @@ export default function AgentGroups() {
                         <p className="dash-subtitle">Create and manage applicant groups, track missing documents, and submit bulk applications.</p>
                     </div>
                     <div className="header-actions">
+                        <button 
+                            className="btn-secondary" 
+                            onClick={() => downloadRosterTemplate()} 
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                            title="Download official CSV roster template for tour groups"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Roster Template
+                        </button>
                         <button className="btn-primary-gradient" onClick={() => navigate('/agent/create-group')}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Create New Group
@@ -684,6 +916,22 @@ export default function AgentGroups() {
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                                                         Departure: {group.travelDate}
                                                     </span>
+                                                    <span 
+                                                        className="meta-chip chip-appointment" 
+                                                        onClick={() => openAppointmentModal(group)}
+                                                        title="Qrupun görüş tarixini təyin et və ya dəyiş"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                                        📅 Görüş: <strong>{group.appointment?.date && group.appointment.date !== 'TBD' ? `${group.appointment.date} ${group.appointment.startTime || ''}` : 'Təyin et'}</strong> ✎
+                                                    </span>
+                                                    <span 
+                                                        className={`meta-chip chip-payment ${group.paymentStatus?.toLowerCase() || 'pending'}`} 
+                                                        onClick={() => openPaymentModal(group)}
+                                                        title="Qrupun ödəniş statusunu dəyiş"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                                                        💳 Ödəniş: <strong>{group.paymentStatus || 'PENDING'}</strong> ✎
+                                                    </span>
                                                 </div>
                                             </div>
                                         </div>
@@ -704,6 +952,14 @@ export default function AgentGroups() {
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                             </button>
 
+                                            <button 
+                                                className="btn-icon-action" 
+                                                onClick={() => handleDownloadGroupInvoice(group)} 
+                                                title="Download Official B2B Group Tax Invoice & Commission Statement (PDF)"
+                                            >
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 14h.01"/></svg>
+                                            </button>
+
                                             <button className="btn-icon-action" onClick={() => openSettings(group)} title="Group Settings">
                                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="3" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                                             </button>
@@ -717,8 +973,18 @@ export default function AgentGroups() {
                                                 Delegation Roster 
                                                 <span className="applicants-count-chip">{group.applicants.length} Travelers</span>
                                             </h4>
-                                            <div className="readiness-indicator">
-                                                Readiness: <strong>{progressPercent}% Complete</strong>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                <button 
+                                                    className="btn-add-traveler" 
+                                                    onClick={() => openAddTravelerModal(group)}
+                                                    title="Mövcud qrupa yeni sərnişin əlavə et"
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                                    + Add Traveler
+                                                </button>
+                                                <div className="readiness-indicator">
+                                                    Readiness: <strong>{progressPercent}% Complete</strong>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -776,7 +1042,15 @@ export default function AgentGroups() {
                                                                             {isComplete ? `All Uploaded (${REQUIRED_DOC_TYPES.length}/${REQUIRED_DOC_TYPES.length})` : `${docCount}/${REQUIRED_DOC_TYPES.length} Uploaded`}
                                                                         </span>
                                                                     </td>
-                                                                    <td style={{ textAlign: 'right' }}>
+                                                                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                                        <button 
+                                                                            className="btn-share-link" 
+                                                                            onClick={() => handleCopySelfFillLink(group, app)}
+                                                                            title="Sərnişin üçün Self-Fill linkini kopyala"
+                                                                        >
+                                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                                                            Send Link
+                                                                        </button>
                                                                         <button className="btn-manage-action" onClick={() => handleManageApplicant(group, app)}>
                                                                             Manage
                                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
@@ -882,6 +1156,228 @@ export default function AgentGroups() {
                         </div>
                     </div>
                 )}
+
+                {/* --- ADD TRAVELER MODAL --- */}
+                {isAddTravelerOpen && targetGroupForTraveler && (
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsAddTravelerOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Delegation Roster</span>
+                                    <h2>Add Traveler to {targetGroupForTraveler.name}</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsAddTravelerOpen(false)}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+
+                            <div className="modal-body">
+                                <form id="addTravelerForm" onSubmit={handleSaveNewTraveler}>
+                                    <div className="settings-section">
+                                        <h3>Traveler Information</h3>
+                                        <div className="client-form-grid">
+                                            <div className="client-input-group">
+                                                <label>First Name (Ad) *</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    placeholder="e.g. Leyla" 
+                                                    value={newTravelerData.firstName} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, firstName: e.target.value })} 
+                                                    required 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Last Name (Soyad) *</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    placeholder="e.g. Məmmədova" 
+                                                    value={newTravelerData.lastName} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, lastName: e.target.value })} 
+                                                    required 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Passport Number *</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    placeholder="e.g. C12345678" 
+                                                    value={newTravelerData.passportNumber} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, passportNumber: e.target.value.toUpperCase() })} 
+                                                    required 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Date of Birth (Təvəllüd)</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="client-input" 
+                                                    value={newTravelerData.dob} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, dob: e.target.value })} 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Contact Phone</label>
+                                                <input 
+                                                    type="tel" 
+                                                    className="client-input" 
+                                                    placeholder="+994 50 123 45 67" 
+                                                    value={newTravelerData.contactPhone} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, contactPhone: e.target.value })} 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Email Address</label>
+                                                <input 
+                                                    type="email" 
+                                                    className="client-input" 
+                                                    placeholder="traveler@example.com" 
+                                                    value={newTravelerData.contactEmail} 
+                                                    onChange={(e) => setNewTravelerData({ ...newTravelerData, contactEmail: e.target.value })} 
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsAddTravelerOpen(false)} disabled={isSaving}>Cancel</button>
+                                <button type="submit" form="addTravelerForm" className="btn-modal-primary" disabled={isSaving}>
+                                    {isSaving ? 'Əlavə edilir...' : 'Add Traveler to Group'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- GROUP APPOINTMENT MODAL --- */}
+                {isAppointmentModalOpen && selectedGroupForAction && (
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsAppointmentModalOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Group Schedule</span>
+                                    <h2>Appointment for {selectedGroupForAction.name}</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsAppointmentModalOpen(false)}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+
+                            <div className="modal-body">
+                                <form id="appointmentForm" onSubmit={handleSaveGroupAppointment}>
+                                    <div className="settings-section">
+                                        <h3>Consular Appointment Slot</h3>
+                                        <div className="client-form-grid">
+                                            <div className="client-input-group">
+                                                <label>Appointment Date *</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="client-input" 
+                                                    value={newAppointmentDate} 
+                                                    onChange={(e) => setNewAppointmentDate(e.target.value)} 
+                                                    required 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Time Slot *</label>
+                                                <select 
+                                                    className="client-input" 
+                                                    value={newAppointmentTime} 
+                                                    onChange={(e) => setNewAppointmentTime(e.target.value)}
+                                                >
+                                                    <option value="09:00">09:00 - 09:30</option>
+                                                    <option value="09:30">09:30 - 10:00</option>
+                                                    <option value="10:00">10:00 - 10:30</option>
+                                                    <option value="10:30">10:30 - 11:00</option>
+                                                    <option value="11:00">11:00 - 11:30</option>
+                                                    <option value="11:30">11:30 - 12:00</option>
+                                                    <option value="14:00">14:00 - 14:30</option>
+                                                    <option value="14:30">14:30 - 15:00</option>
+                                                    <option value="15:00">15:00 - 15:30</option>
+                                                    <option value="15:30">15:30 - 16:00</option>
+                                                </select>
+                                            </div>
+                                            <div className="client-input-group full-width">
+                                                <label>Submission Center Location</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={newAppointmentLocation} 
+                                                    onChange={(e) => setNewAppointmentLocation(e.target.value)} 
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="info-alert" style={{ marginTop: '16px' }}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                        <span>Görüş təyin edildikdən sonra qrup manifesti və ərizəçilərin görüş bildirişləri avtomatik yenilənir.</span>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsAppointmentModalOpen(false)} disabled={isSaving}>Cancel</button>
+                                <button type="submit" form="appointmentForm" className="btn-modal-primary" disabled={isSaving}>
+                                    {isSaving ? 'Yadda saxlanılır...' : 'Save Appointment'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- GROUP PAYMENT MODAL --- */}
+                {isPaymentModalOpen && selectedGroupForAction && (
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsPaymentModalOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Group Billing</span>
+                                    <h2>Payment Status for {selectedGroupForAction.name}</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsPaymentModalOpen(false)}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+
+                            <div className="modal-body">
+                                <form id="paymentStatusForm" onSubmit={handleSaveGroupPayment}>
+                                    <div className="settings-section">
+                                        <h3>Invoice & Payment State</h3>
+                                        <div className="client-form-grid">
+                                            <div className="client-input-group full-width">
+                                                <label>Payment Status</label>
+                                                <select 
+                                                    className="client-input" 
+                                                    value={selectedPaymentStatus} 
+                                                    onChange={(e) => setSelectedPaymentStatus(e.target.value as any)}
+                                                >
+                                                    <option value="PENDING">PENDING (Ödəniş Gözləyir)</option>
+                                                    <option value="PAID">PAID (Ödənilib / Təsdiqlənib)</option>
+                                                    <option value="REFUNDED">REFUNDED (Geri qaytarılıb)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="info-alert" style={{ marginTop: '16px' }}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                        <span>Qrup ödənişi təsdiqləndikdən sonra konsulluq emalına icazə verilir və rəsmi invoys PDF statusu yenilənir.</span>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div className="modal-footer">
+                                <button type="button" className="btn-modal-secondary" onClick={() => setIsPaymentModalOpen(false)} disabled={isSaving}>Cancel</button>
+                                <button type="submit" form="paymentStatusForm" className="btn-modal-primary" disabled={isSaving}>
+                                    {isSaving ? 'Yadda saxlanılır...' : 'Update Payment Status'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -920,6 +1416,20 @@ export default function AgentGroups() {
                     <div className="applicant-id-badge">Group: <strong>{activeGroup?.name}</strong> ({activeGroup?.code})</div>
                     <h2 className="manage-title">Applicant: {activeApplicant?.fullName}</h2>
                 </div>
+                {activeGroup && activeApplicant && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button 
+                            type="button" 
+                            className="btn-share-link" 
+                            onClick={() => handleCopySelfFillLink(activeGroup, activeApplicant)}
+                            title="Sərnişin üçün Self-Fill linkini kopyala"
+                            style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            Copy Customer Self-Fill Link
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Premium Tabs */}
@@ -1234,6 +1744,28 @@ export default function AgentGroups() {
                                         )}
                                     </div>
                                     <div className="doc-card-actions">
+                                        {isUploaded && existing && (
+                                            <>
+                                                <button 
+                                                    type="button" 
+                                                    className="btn-view-doc" 
+                                                    onClick={() => handleViewDoc(existing)}
+                                                    title="Sənədə yeni tabda bax"
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                                <button 
+                                                    type="button" 
+                                                    className="btn-remove-doc" 
+                                                    onClick={() => handleRemoveDoc(existing)}
+                                                    title="Sənədi bazadan sil"
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                    Remove
+                                                </button>
+                                            </>
+                                        )}
                                         <button 
                                             className="btn-upload-primary" 
                                             onClick={() => triggerUpload(reqDoc.type)}

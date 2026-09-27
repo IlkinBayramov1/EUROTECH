@@ -236,6 +236,70 @@ async function submitDelegationForm(req, res, next) {
   }
 }
 
+async function getDepartments(req, res, next) {
+  try {
+    const departments = await corporateService.getCorporateDepartments(req.user.id);
+    return ApiResponse.success(res, { departments }, 'Corporate departments retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function createDepartment(req, res, next) {
+  try {
+    const department = await corporateService.createCorporateDepartment(req.user.id, req.body);
+    return ApiResponse.success(res, { department }, 'Department created successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function updateDepartment(req, res, next) {
+  try {
+    const department = await corporateService.updateCorporateDepartment(
+      req.user.id,
+      req.params.departmentId,
+      req.body
+    );
+    return ApiResponse.success(res, { department }, 'Department updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function deleteDepartment(req, res, next) {
+  try {
+    const result = await corporateService.deleteCorporateDepartment(
+      req.user.id,
+      req.params.departmentId
+    );
+    return ApiResponse.success(res, result, 'Department deleted successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getPassportRadar(req, res, next) {
+  try {
+    const radar = await corporateService.getPassportRadar(req.user.id);
+    return ApiResponse.success(res, radar, 'Consular passport expiry radar retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getGuaranteeLetterPdf(req, res, next) {
+  try {
+    const result = await corporateService.getGuaranteeLetterPdf({
+      corporateUserId: req.user.id,
+      employeeId: req.params.employeeId,
+    });
+    return ApiResponse.success(res, result, 'Corporate guarantee letter generated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   createBatch,
   getBatches,
@@ -258,5 +322,11 @@ module.exports = {
   submitBatch,
   saveEmployeeForm,
   getInvoicePdf,
+  getDepartments,
+  createDepartment,
+  updateDepartment,
+  deleteDepartment,
+  getPassportRadar,
+  getGuaranteeLetterPdf,
 };
 

@@ -22,6 +22,7 @@ import AgentGroups from '@/modules/agent/pages/Groups/AgentGroups';
 import AgentFinance from '@/modules/agent/pages/Finance/AgentFinance';
 import AgentAppointments from '@/modules/agent/pages/Appointments/AgentAppointments';
 import AgentWizard from '@/modules/agent/wizard/AgentWizard';
+import AgentApplicantFill from '@/modules/agent/pages/ApplicantFill/AgentApplicantFill';
 
 // --- CORPORATE PORTAL ---
 import CorporateLayout from '@/layouts/CorporateLayout/CorporateLayout';
@@ -32,6 +33,14 @@ import CorporateAppointments from '@/modules/corporate/pages/Appointments/Corpor
 import CorporateFinance from '@/modules/corporate/pages/Finance/CorporateFinance';
 import CorporateWizard from '@/modules/corporate/wizard/CorporateWizard';
 import CorporateDelegation from '@/modules/corporate/pages/Delegation/CorporateDelegation';
+
+// --- ADMIN & CONSULAR PORTAL ---
+import AdminLayout from '@/layouts/AdminLayout/AdminLayout';
+import AdminDashboard from '@/modules/admin/pages/Dashboard/AdminDashboard';
+import AdminDossierList from '@/modules/admin/pages/Dossiers/AdminDossierList';
+import AdminDossierDetail from '@/modules/admin/pages/Dossiers/AdminDossierDetail';
+import AdminAuditLogs from '@/modules/admin/pages/AuditLogs/AdminAuditLogs';
+import AdminSettings from '@/modules/admin/pages/Settings/AdminSettings';
 
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute';
 
@@ -45,6 +54,9 @@ export default function App() {
         <Route path="/login/individual" element={<AuthPage type="individual" />} />
         <Route path="/login/agent" element={<AuthPage type="agent" />} />
         <Route path="/login/corporate" element={<AuthPage type="corporate" />} />
+        <Route path="/login/admin" element={<AuthPage type="admin" />} />
+        <Route path="/admin/login" element={<Navigate to="/login/admin" replace />} />
+        <Route path="/admin-login" element={<Navigate to="/login/admin" replace />} />
 
         {/* --- INDIVIDUAL APPLICATION WIZARD --- */}
         <Route
@@ -55,6 +67,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/client/wizard" element={<Navigate to="/individual/wizard" replace />} />
 
         {/* --- CLIENT PORTAL ROUTES --- */}
         <Route
@@ -99,6 +112,9 @@ export default function App() {
           }
         />
 
+        {/* --- PUBLIC AGENT CUSTOMER SELF-FILL FORM --- */}
+        <Route path="/agent/applicant-fill" element={<AgentApplicantFill />} />
+
         {/* --- CORPORATE PORTAL ROUTES --- */}
         <Route
           path="/corporate"
@@ -126,6 +142,22 @@ export default function App() {
 
         {/* --- PUBLIC CORPORATE GUEST DELEGATION FORM --- */}
         <Route path="/corporate/delegation" element={<CorporateDelegation />} />
+
+        {/* --- CONSULAR & ADMIN PORTAL ROUTES --- */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute allowedRoles={['ADMIN', 'OPERATOR', 'MANAGER']} redirectPath="/login/admin">
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="dossiers" element={<AdminDossierList />} />
+          <Route path="dossiers/:id" element={<AdminDossierDetail />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
 
         {/* --- FALLBACK ROUTE --- */}
         <Route path="*" element={<Navigate to="/" replace />} />

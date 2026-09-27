@@ -99,7 +99,14 @@ async function createDossier({ userId, portalType, countryId, visaCategoryId, co
     console.error('Error auto-creating primary applicant for dossier:', err);
   }
 
-  return dossier;
+  return await prisma.dossier.findUnique({
+    where: { id: dossier.id },
+    include: {
+      country: true,
+      visaCategory: true,
+      applicants: true,
+    },
+  });
 }
 
 async function addApplicants(dossierId, applicantsData) {
@@ -113,20 +120,26 @@ async function addApplicants(dossierId, applicantsData) {
   }
 
   const createdApplicants = await Promise.all(
-    applicantsData.map((applicant) =>
-      prisma.applicant.create({
+    applicantsData.map((applicant) => {
+      let parsedBirthDate = undefined;
+      if (applicant.birthDate) {
+        const d = new Date(applicant.birthDate);
+        if (!isNaN(d.getTime())) parsedBirthDate = d;
+      }
+      return prisma.applicant.create({
         data: {
           dossierId,
           firstName: applicant.firstName,
           lastName: applicant.lastName,
           passportNumber: applicant.passportNumber,
-          birthDate: applicant.birthDate ? new Date(applicant.birthDate) : undefined,
+          birthDate: parsedBirthDate,
           nationality: applicant.nationality || 'AZ',
           gender: applicant.gender,
+          familyRole: applicant.familyRole || undefined,
           formDataJson: applicant.formDataJson || {},
         },
-      })
-    )
+      });
+    })
   );
 
   if (dossier.portalType === 'GROUP_AGENT') {

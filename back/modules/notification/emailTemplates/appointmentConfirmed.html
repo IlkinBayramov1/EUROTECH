@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 20px; }
+    .card { background-color: #ffffff; max-width: 600px; margin: 0 auto; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff; padding: 30px; text-align: center; }
+    .content { padding: 30px; }
+    .info-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 20px 0; }
+    .info-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+    .info-label { color: #64748b; font-weight: 500; }
+    .info-val { color: #0f172a; font-weight: 600; }
+    .checklist { background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 15px; font-size: 13px; line-height: 1.6; }
+    .footer { text-align: center; padding: 20px; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700;">Görüşünüz Təsdiqləndi</h1>
+      <p style="margin: 5px 0 0; opacity: 0.9; font-size: 14px;">EuroTech Konsulluq Xidmətləri Mərkəzi</p>
+    </div>
+    <div class="content">
+      <p>Hörmətli <strong>{{fullName}}</strong>,</p>
+      <p>Sizin konsulluq və biometrik qəbul görüşünüz rəsmi olaraq qeydiyyata alındı və təsdiqləndi.</p>
+      
+      <div class="info-box">
+        <div class="info-row">
+          <span class="info-label">Görüş Tarixi və Saatı:</span>
+          <span class="info-val">{{appointmentDate}} - {{appointmentTime}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Mərkəz Ünvanı:</span>
+          <span class="info-val">{{appointmentLocation}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Dosye Nömrəsi:</span>
+          <span class="info-val">{{dossierNumber}}</span>
+        </div>
+      </div>
+
+      <div class="checklist">
+        <strong>⚠️ Görüşə gələrkən özünüzlə gətirilməsi zəruri olan sənədlər:</strong>
+        <ul style="margin: 8px 0 0; padding-left: 20px;">
+          <li>Xarici pasportunuzun əsli (etibarlılıq ən az 3 ay olmalıdır)</li>
+          <li>Qoşmadakı 37-bəndlik imzalanmış rəsmi viza ərizəsi</li>
+          <li>2 ədəd 3.5x4.5 ölçülü biometrik fotoşəkil</li>
+          <li>Bank arayışı və iş yerindən arayışın əsli</li>
+        </ul>
+      </div>
+      <p style="font-size: 12px; color: #64748b; margin-top: 15px;">* Qeyd: Bu e-poçta təqviminizə əlavə etmək üçün rəsmi <strong>.ics</strong> təqvim faylı qoşulmuşdur.</p>
+    </div>
+    <div class="footer">
+      © 2026 EuroTech Services Kft. Bütün hüquqlar qorunur.
+    </div>
+  </div>
+</body>
+</html>

@@ -1526,3 +1526,144 @@
         overflow-x: auto;
     }
 }
+
+/* ==========================================================================
+   NEW TOUR OPERATOR ACTION BUTTONS & CHIPS
+   ========================================================================== */
+.doc-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-view-doc {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #F1F5F9;
+    color: #0F172A;
+    border: 1px solid #CBD5E1;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-view-doc:hover {
+    background: #E2E8F0;
+    color: #1E293B;
+}
+
+.btn-view-doc svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-remove-doc {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #FEF2F2;
+    color: #DC2626;
+    border: 1px solid #FECACA;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-remove-doc:hover {
+    background: #FEE2E2;
+    color: #B91C1C;
+}
+
+.btn-remove-doc svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-add-traveler {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    background: #EFF6FF;
+    color: #2563EB;
+    border: 1px solid #BFDBFE;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-add-traveler:hover {
+    background: #2563EB;
+    color: #FFFFFF;
+    border-color: #2563EB;
+}
+
+.btn-add-traveler svg {
+    width: 14px;
+    height: 14px;
+}
+
+.meta-chip.chip-appointment {
+    background-color: #EFF6FF;
+    color: #1E40AF;
+    border-color: #BFDBFE;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.meta-chip.chip-appointment:hover {
+    background-color: #DBEAFE;
+    transform: translateY(-1px);
+}
+
+.meta-chip.chip-payment {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.meta-chip.chip-payment:hover {
+    transform: translateY(-1px);
+}
+
+.meta-chip.chip-payment.paid {
+    background-color: #ECFDF5;
+    color: #065F46;
+    border-color: #A7F3D0;
+}
+
+.meta-chip.chip-payment.pending {
+    background-color: #FFFBEB;
+    color: #92400E;
+    border-color: #FDE68A;
+}
+
+.btn-share-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #F0FDF4;
+    color: #16A34A;
+    border: 1px solid #BBF7D0;
+    cursor: pointer;
+    margin-right: 8px;
+    transition: all 0.2s ease;
+}
+
+.btn-share-link:hover {
+    background: #DCFCE7;
+    color: #15803D;
+}

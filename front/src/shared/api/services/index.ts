@@ -5,3 +5,4 @@ export * from './agent.service';
 export * from './corporate.service';
 export * from './privacy.service';
 export * from './service.service';
+export * from './admin.service';

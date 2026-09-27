@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
-import { corporateService } from '@/shared/api/services/corporate.service';
+import { corporateService, ExpiryRadarResponse } from '@/shared/api/services/corporate.service';
 import './CorporateDashboard.css';
 
 interface DashboardData {
@@ -47,14 +47,33 @@ export default function CorporateDashboard() {
     const companyDisplayName = user?.companyName || user?.fullName || 'Corporate Mobility';
 
     const [data, setData] = useState<DashboardData | null>(null);
+    const [radar, setRadar] = useState<ExpiryRadarResponse | null>(null);
     const [loading, setLoading] = useState(true);
 
     const fetchStats = async () => {
         try {
             setLoading(true);
-            const res = await corporateService.getDashboardStats();
-            if (res.data) {
-                setData(res.data);
+            const [statsRes, radarRes] = await Promise.all([
+                corporateService.getDashboardStats().catch((e) => {
+                    console.warn('Dashboard stats error:', e);
+                    return null;
+                }),
+                corporateService.getExpiryRadar().catch((e) => {
+                    console.warn('Expiry radar error:', e);
+                    return null;
+                }),
+            ]);
+            if (statsRes) {
+                const payload = (statsRes as any).data || statsRes;
+                if (payload?.stats) {
+                    setData(payload);
+                }
+            }
+            if (radarRes) {
+                const payload = (radarRes as any).data || radarRes;
+                if (payload?.summary) {
+                    setRadar(payload);
+                }
             }
         } catch (err: any) {
             console.warn('Failed to load corporate dashboard stats:', err);
@@ -200,7 +219,25 @@ export default function CorporateDashboard() {
                                 </li>
                             )}
 
-                            {!batches.some(b => b.hasPendingInvoice) && stats.missingDocs === 0 && (
+                            {radar && radar.summary && (radar.summary.criticalCount > 0 || radar.summary.warningCount > 0) && (
+                                <li className="corp-action-item">
+                                    <div className="action-icon danger" style={{ backgroundColor: '#FEE2E2', color: '#DC2626' }}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                    </div>
+                                    <div className="action-details">
+                                        <h4 style={{ color: '#B91C1C' }}>Consular Passport Expiry Radar Alert</h4>
+                                        <p>
+                                            {radar.summary.criticalCount > 0 && `${radar.summary.criticalCount} employee(s) have passports expiring in <90 days (invalid for Schengen travel). `}
+                                            {radar.summary.warningCount > 0 && `${radar.summary.warningCount} passport(s) expiring within 6 months.`}
+                                        </p>
+                                    </div>
+                                    <div className="action-buttons">
+                                        <button className="btn-action danger" onClick={() => navigate('/corporate/employees')}>Open Radar</button>
+                                    </div>
+                                </li>
+                            )}
+
+                            {!batches.some(b => b.hasPendingInvoice) && stats.missingDocs === 0 && (!radar || (radar.summary.criticalCount === 0 && radar.summary.warningCount === 0)) && (
                                 <li className="corp-action-item">
                                     <div className="action-icon success">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -242,7 +279,12 @@ export default function CorporateDashboard() {
                                         </tr>
                                     ) : (
                                         batches.map(b => (
-                                            <tr key={b.id}>
+                                            <tr 
+                                                key={b.id} 
+                                                onClick={() => navigate(`/corporate/batches?batchId=${b.id}`)}
+                                                style={{ cursor: 'pointer' }}
+                                                title={`View batch details for ${b.name}`}
+                                            >
                                                 <td className="cell-bold">{b.code}</td>
                                                 <td>
                                                     {b.name} <br/>
@@ -270,7 +312,14 @@ export default function CorporateDashboard() {
                                                     </span>
                                                 </td>
                                                 <td className="text-right">
-                                                    <button className="btn-icon-action" onClick={() => navigate('/corporate/batches')}>
+                                                    <button 
+                                                        className="btn-icon-action" 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            navigate(`/corporate/batches?batchId=${b.id}`);
+                                                        }}
+                                                        title="Open Batch Roster"
+                                                    >
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                                     </button>
                                                 </td>

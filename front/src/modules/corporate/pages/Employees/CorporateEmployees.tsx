@@ -52,6 +52,7 @@ export default function CorporateEmployees() {
     // Search & Filter state
     const [searchQuery, setSearchQuery] = useState('');
     const [departmentFilter, setDepartmentFilter] = useState('ALL');
+    const [radarFilter, setRadarFilter] = useState<'ALL' | 'CRITICAL' | 'WARNING' | 'VALID'>('ALL');
 
     // Add Employee Modal state
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -81,6 +82,47 @@ export default function CorporateEmployees() {
     // Hidden File Input for Document Upload
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+    // Helper: Consular Passport Expiry Status
+    const getPassportStatus = (expiryStr: string) => {
+        if (!expiryStr || expiryStr === 'N/A') {
+            return { status: 'UNKNOWN', label: 'No Expiry Date', days: null, color: '#64748B', bg: '#F1F5F9' };
+        }
+        const exp = new Date(expiryStr);
+        const diff = Math.ceil((exp.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        if (diff < 0) {
+            return { status: 'EXPIRED', label: `Expired ${Math.abs(diff)}d ago`, days: diff, color: '#DC2626', bg: '#FEE2E2' };
+        }
+        if (diff < 90) {
+            return { status: 'CRITICAL', label: `Critical: ${diff}d (< 3mo)`, days: diff, color: '#B91C1C', bg: '#FEE2E2' };
+        }
+        if (diff <= 180) {
+            return { status: 'WARNING', label: `Warning: ${diff}d (< 6mo)`, days: diff, color: '#B45309', bg: '#FEF3C7' };
+        }
+        return { status: 'VALID', label: `Valid (${Math.round(diff / 30)}mo)`, days: diff, color: '#047857', bg: '#D1FAE5' };
+    };
+
+    const handleDownloadGuaranteeLetter = async (emp: EmployeeProfile) => {
+        try {
+            showSuccess(`Generating official Corporate Guarantee Letter for ${emp.firstName} ${emp.lastName}...`);
+            const res = await corporateService.getGuaranteeLetterPdf(emp.rawId);
+            if (res.data?.pdfUrl) {
+                const fullUrl = res.data.pdfUrl.startsWith('http') ? res.data.pdfUrl : `http://localhost:5000${res.data.pdfUrl}`;
+                const link = document.createElement('a');
+                link.href = fullUrl;
+                link.target = '_blank';
+                link.download = res.data.fileName || `guarantee_letter_${emp.passportNo}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showSuccess('Official Corporate Guarantee & Sponsorship Letter (PDF) downloaded.');
+            } else {
+                showError('Could not obtain PDF file URL.');
+            }
+        } catch (err: any) {
+            showError(err.message || 'Failed to generate Guarantee Letter.');
+        }
+    };
 
     // Real DB-dən İşçilərin Yüklənməsi
     const fetchEmployees = async () => {
@@ -151,6 +193,20 @@ export default function CorporateEmployees() {
         return Array.from(set);
     }, [employees]);
 
+    // Radar Counts
+    const radarCounts = useMemo(() => {
+        let critical = 0;
+        let warning = 0;
+        let valid = 0;
+        employees.forEach(e => {
+            const s = getPassportStatus(e.passportExpiry);
+            if (s.status === 'CRITICAL' || s.status === 'EXPIRED') critical++;
+            else if (s.status === 'WARNING') warning++;
+            else if (s.status === 'VALID') valid++;
+        });
+        return { critical, warning, valid, total: employees.length };
+    }, [employees]);
+
     // Filtrlənmiş İşçilər
     const filteredEmployees = useMemo(() => {
         return employees.filter(emp => {
@@ -162,9 +218,17 @@ export default function CorporateEmployees() {
             const matchesDept = departmentFilter === 'ALL' ||
                 emp.department.toLowerCase() === departmentFilter.toLowerCase();
 
-            return matchesSearch && matchesDept;
+            let matchesRadar = true;
+            if (radarFilter !== 'ALL') {
+                const s = getPassportStatus(emp.passportExpiry);
+                if (radarFilter === 'CRITICAL') matchesRadar = s.status === 'CRITICAL' || s.status === 'EXPIRED';
+                else if (radarFilter === 'WARNING') matchesRadar = s.status === 'WARNING';
+                else if (radarFilter === 'VALID') matchesRadar = s.status === 'VALID';
+            }
+
+            return matchesSearch && matchesDept && matchesRadar;
         });
-    }, [employees, searchQuery, departmentFilter]);
+    }, [employees, searchQuery, departmentFilter, radarFilter]);
 
     // --- Aksiyalar ---
     const handleViewDossier = (employee: EmployeeProfile) => {
@@ -456,15 +520,99 @@ export default function CorporateEmployees() {
                             ))}
                         </select>
                     </div>
-                    {(searchQuery || departmentFilter !== 'ALL') && (
+                    {(searchQuery || departmentFilter !== 'ALL' || radarFilter !== 'ALL') && (
                         <button 
                             type="button" 
-                            onClick={() => { setSearchQuery(''); setDepartmentFilter('ALL'); }}
+                            onClick={() => { setSearchQuery(''); setDepartmentFilter('ALL'); setRadarFilter('ALL'); }}
                             style={{ background: 'transparent', border: 'none', color: 'var(--color-secondary)', fontWeight: 600, cursor: 'pointer', padding: '0 8px' }}
                         >
                             Reset
                         </button>
                     )}
+                </div>
+
+                {/* Consular Passport Expiry Radar Filter Chips */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '4px 0 16px 0' }}>
+                    <button 
+                        type="button" 
+                        onClick={() => setRadarFilter('ALL')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            border: radarFilter === 'ALL' ? '2px solid #0F172A' : '1px solid #CBD5E1',
+                            background: radarFilter === 'ALL' ? '#0F172A' : '#FFF',
+                            color: radarFilter === 'ALL' ? '#FFF' : '#334155',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        All Staff ({radarCounts.total})
+                    </button>
+                    <button 
+                        type="button" 
+                        onClick={() => setRadarFilter('CRITICAL')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            border: radarFilter === 'CRITICAL' ? '2px solid #DC2626' : '1px solid #FCA5A5',
+                            background: radarFilter === 'CRITICAL' ? '#DC2626' : '#FEF2F2',
+                            color: radarFilter === 'CRITICAL' ? '#FFF' : '#B91C1C',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: radarFilter === 'CRITICAL' ? '#FFF' : '#DC2626' }} />
+                        Critical Expiry &lt;90d ({radarCounts.critical})
+                    </button>
+                    <button 
+                        type="button" 
+                        onClick={() => setRadarFilter('WARNING')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            border: radarFilter === 'WARNING' ? '2px solid #D97706' : '1px solid #FDE68A',
+                            background: radarFilter === 'WARNING' ? '#D97706' : '#FFFBEB',
+                            color: radarFilter === 'WARNING' ? '#FFF' : '#B45309',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: radarFilter === 'WARNING' ? '#FFF' : '#D97706' }} />
+                        Expiring Soon &lt;6mo ({radarCounts.warning})
+                    </button>
+                    <button 
+                        type="button" 
+                        onClick={() => setRadarFilter('VALID')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '20px',
+                            border: radarFilter === 'VALID' ? '2px solid #059669' : '1px solid #A7F3D0',
+                            background: radarFilter === 'VALID' ? '#059669' : '#ECFDF5',
+                            color: radarFilter === 'VALID' ? '#FFF' : '#047857',
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: radarFilter === 'VALID' ? '#FFF' : '#059669' }} />
+                        Valid Passports ({radarCounts.valid})
+                    </button>
                 </div>
 
                 {loading ? (
@@ -493,14 +641,15 @@ export default function CorporateEmployees() {
                                     <tr>
                                         <th>Employee</th>
                                         <th>Department</th>
-                                        <th>Passport No.</th>
+                                        <th>Passport & Expiry Radar</th>
                                         <th>Active Visa Status</th>
-                                        <th className="text-right">Dossier</th>
+                                        <th className="text-right">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredEmployees.map(emp => {
                                         const activeVisa = emp.visaHistory.find(v => v.status === 'Active' || v.status === 'Processing');
+                                        const pStatus = getPassportStatus(emp.passportExpiry);
                                         
                                         return (
                                             <tr key={emp.rawId} className="emp-row" onClick={() => handleViewDossier(emp)}>
@@ -516,7 +665,26 @@ export default function CorporateEmployees() {
                                                     </div>
                                                 </td>
                                                 <td>{emp.department}</td>
-                                                <td className="cell-passport">{emp.passportNo}</td>
+                                                <td>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                        <span className="cell-passport" style={{ fontWeight: 700 }}>{emp.passportNo}</span>
+                                                        <span style={{
+                                                            fontSize: '0.72rem',
+                                                            fontWeight: 600,
+                                                            color: pStatus.color,
+                                                            background: pStatus.bg,
+                                                            padding: '1px 6px',
+                                                            borderRadius: '4px',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '3px',
+                                                            width: 'fit-content'
+                                                        }}>
+                                                            {pStatus.status === 'CRITICAL' && '⚠️ '}
+                                                            {pStatus.label}
+                                                        </span>
+                                                    </div>
+                                                </td>
                                                 <td>
                                                     {activeVisa ? (
                                                         <div className="visa-quick-status">
@@ -530,9 +698,20 @@ export default function CorporateEmployees() {
                                                     )}
                                                 </td>
                                                 <td className="text-right">
-                                                    <button className="btn-outline-secondary btn-sm" onClick={(e) => { e.stopPropagation(); handleViewDossier(emp); }}>
-                                                        Open Archive
-                                                    </button>
+                                                    <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                                                        <button 
+                                                            className="btn-outline-secondary btn-sm" 
+                                                            title="Download Corporate Sponsorship & Guarantee Letter (PDF)"
+                                                            onClick={(e) => { e.stopPropagation(); handleDownloadGuaranteeLetter(emp); }}
+                                                            style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                                        >
+                                                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                                            Guarantee Letter
+                                                        </button>
+                                                        <button className="btn-outline-secondary btn-sm" onClick={(e) => { e.stopPropagation(); handleViewDossier(emp); }}>
+                                                            Open Archive
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -689,6 +868,10 @@ export default function CorporateEmployees() {
                         Back to Directory
                     </button>
                     <div className="manage-employee-info" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn-outline-secondary btn-sm" onClick={() => handleDownloadGuaranteeLetter(activeEmployee)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            Guarantee Letter (PDF)
+                        </button>
                         <button className="btn-primary btn-sm" onClick={() => handleGenerateDelegation(activeEmployee.rawId)}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                             Copy Delegation Link

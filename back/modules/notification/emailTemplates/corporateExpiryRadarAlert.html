@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 20px; }
+    .card { background-color: #ffffff; max-width: 650px; margin: 0 auto; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .header { background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #ffffff; padding: 25px; text-align: center; }
+    .content { padding: 30px; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+    .table th { background: #f1f5f9; padding: 10px; text-align: left; color: #475569; border-bottom: 2px solid #cbd5e1; }
+    .table td { padding: 10px; border-bottom: 1px solid #e2e8f0; }
+    .badge-critical { background: #ffe4e6; color: #be123c; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; }
+    .badge-warning { background: #fef3c7; color: #b45309; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 11px; }
+    .footer { text-align: center; padding: 20px; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h2 style="margin: 0; font-size: 20px; font-weight: 700;">🛰️ Pasport və Viza Müddəti Radarı Xəbərdarlığı</h2>
+      <p style="margin: 5px 0 0; opacity: 0.9; font-size: 13px;">EuroTech B2B Korporativ HR Sistemi</p>
+    </div>
+    <div class="content">
+      <p>Hörmətli HR Menecer <strong>{{hrFullName}}</strong>,</p>
+      <p>Sistem gündəlik radar skanı nəticəsində şirkətinizə aid bəzi əməkdaşların pasport və ya viza etibarlılıq müddətinin kritik həddə çatdığını aşkar etdi:</p>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Əməkdaş</th>
+            <th>Departament</th>
+            <th>Pasport №</th>
+            <th>Bitmə Tarixi</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{employeeRows}}
+        </tbody>
+      </table>
+
+      <p style="font-size: 13px; color: #475569; margin-top: 20px;">
+        Ezamiyyə və səfərlərdə Şengen ölkələrinə giriş zamanı pasportun ən az 3 ay etibarlı olması məcburidir. Zəhmət olmasa təcili yenilənmə təşkil edin.
+      </p>
+    </div>
+    <div class="footer">
+      © 2026 EuroTech Services Kft. Korporativ Nəzarət Sistemi.
+    </div>
+  </div>
+</body>
+</html>

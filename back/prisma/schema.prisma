@@ -94,6 +94,21 @@ enum VisaRecordStatus {
   PROCESSING
 }
 
+enum AgentTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum FamilyRole {
+  PRIMARY
+  SPOUSE
+  CHILD
+  DEPENDENT
+  OTHER
+}
+
 model User {
   id                      String                  @id @default(uuid())
   username                String?                 @unique
@@ -124,6 +139,9 @@ model User {
   corporateEmployees      CorporateEmployee[]
   wallet                  Wallet?
   corporateInvoices       CorporateInvoice[]
+  departments             CorporateDepartment[]
+  bankPaymentReceipts     BankPaymentReceipt[]
+  agentTier               AgentTier               @default(BRONZE)
 }
 
 model RefreshTokenSession {
@@ -239,6 +257,12 @@ model Dossier {
   transactions        Transaction[]
   appointments        Appointment[]
   statusHistory       DossierStatusHistory[]
+  bankPaymentReceipts BankPaymentReceipt[]
+
+  @@index([userId, status])
+  @@index([portalType, createdAt])
+  @@index([paymentStatus])
+  @@index([countryId, visaCategoryId])
 }
 
 model Applicant {
@@ -253,10 +277,14 @@ model Applicant {
   birthDate               DateTime?
   nationality             String?
   gender                  String?
+  familyRole              FamilyRole          @default(PRIMARY)
   formDataJson            Json?
   documents               ApplicantDocument[]
   services                AdditionalService[]
+
+  @@index([passportNumberHash])
 }
+
 
 model ApplicantDocument {
   id                   String         @id @default(uuid())
@@ -269,10 +297,14 @@ model ApplicantDocument {
   fileName             String
   fileSize             Int
   isMandatory          Boolean        @default(true)
+  isSharedWithFamily   Boolean        @default(false)
   status               DocumentStatus @default(PENDING)
   operatorNotes        String?
   reviewedByUserId     String?
   reviewedAt           DateTime?
+
+  @@index([dossierId, applicantId])
+  @@index([status])
 }
 
 model AdditionalService {
@@ -298,9 +330,16 @@ model Transaction {
   currency              String        @default("EUR")
   paymentProvider       String        @default("STRIPE")
   stripePaymentIntentId String?
+  idempotencyKey        String?       @unique
+  orderReference        String?
+  receiptUrl            String?
   status                PaymentStatus @default(PENDING)
   metadataJson          Json?
   createdAt             DateTime      @default(now())
+
+  @@index([stripePaymentIntentId])
+  @@index([paymentProvider, status])
+  @@index([userId, createdAt])
 }
 
 model CorporateSubscription {
@@ -365,6 +404,9 @@ model Appointment {
   notes        String?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+
+  @@index([timeSlotId, status])
+  @@index([userId, createdAt])
 }
 
 model GroupBatch {
@@ -404,6 +446,9 @@ model CorporateEmployee {
   visaHistory         VisaRecord[]
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+
+  @@index([corporateUserId, department])
+  @@index([passportExpiry])
 }
 
 model VisaRecord {
@@ -476,3 +521,65 @@ model CorporateInvoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }
+
+model CorporateDepartment {
+  id              String   @id @default(uuid())
+  corporateUserId String
+  corporateUser   User     @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
+  name            String
+  annualBudget    Float    @default(50000.0)
+  spentBudget     Float    @default(0.0)
+  currency        String   @default("EUR")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model BankPaymentReceipt {
+  id               String        @id @default(uuid())
+  dossierId        String
+  dossier          Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileUrl          String
+  fileName         String
+  amount           Float
+  currency         String        @default("EUR")
+  referenceCode    String
+  status           PaymentStatus @default(PENDING)
+  adminNotes       String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+model CronTaskLog {
+  id             String    @id @default(uuid())
+  taskName       String
+  status         String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  processedCount Int       @default(0)
+  detailsJson    Json?
+
+  @@index([taskName, startedAt])
+}
+
+model OutboundMessageLog {
+  id                String   @id @default(uuid())
+  channel           String
+  recipient         String
+  subject           String?
+  template          String?
+  status            String
+  provider          String
+  providerMessageId String?
+  errorMsg          String?
+  retryCount        Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([status, retryCount])
+}
+
+

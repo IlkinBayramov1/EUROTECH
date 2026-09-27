@@ -1,0 +1,306 @@
+/* src/modules/agent/pages/ApplicantFill/AgentApplicantFill.css */
+
+.agent-fill-page {
+    min-height: 100vh;
+    background: linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%);
+    padding: 32px 16px 64px 16px;
+    font-family: var(--font-body, system-ui, -apple-system, sans-serif);
+    color: #1E293B;
+}
+
+.agent-fill-container {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.agent-fill-header-card {
+    background: #FFFFFF;
+    border-radius: 16px;
+    padding: 24px 28px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 4px 20px -2px rgba(15, 30, 54, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.agent-fill-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.brand-icon-shield {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0F1E36 0%, #1E3A8A 100%);
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.brand-icon-shield svg {
+    width: 24px;
+    height: 24px;
+}
+
+.brand-titles h1 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #0F1E36;
+    margin: 0 0 2px 0;
+}
+
+.brand-titles p {
+    font-size: 0.85rem;
+    color: #64748B;
+    margin: 0;
+}
+
+.agent-fill-agency-badge {
+    text-align: right;
+}
+
+.agent-fill-agency-badge span {
+    font-size: 0.75rem;
+    color: #64748B;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.agent-fill-agency-badge strong {
+    font-size: 0.95rem;
+    color: #1E3A8A;
+}
+
+.agent-fill-card {
+    background: #FFFFFF;
+    border-radius: 16px;
+    padding: 28px 32px;
+    border: 1px solid #E2E8F0;
+    box-shadow: 0 4px 20px -2px rgba(15, 30, 54, 0.06);
+}
+
+.agent-fill-card-title {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #0F1E36;
+    margin: 0 0 8px 0;
+}
+
+.agent-fill-card-subtitle {
+    font-size: 0.88rem;
+    color: #64748B;
+    margin: 0 0 24px 0;
+}
+
+.agent-fill-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.agent-fill-grid .full-width {
+    grid-column: 1 / -1;
+}
+
+.agent-fill-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.agent-fill-input-group label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #334155;
+}
+
+.agent-fill-input {
+    width: 100%;
+    padding: 11px 14px;
+    border-radius: 8px;
+    border: 1px solid #CBD5E1;
+    font-size: 0.92rem;
+    color: #0F172A;
+    background-color: #FFFFFF;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.agent-fill-input:focus {
+    outline: none;
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.agent-fill-docs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.agent-fill-doc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-radius: 12px;
+    border: 1px solid #E2E8F0;
+    background-color: #F8FAFC;
+    transition: all 0.2s ease;
+    gap: 16px;
+}
+
+.agent-fill-doc-row.uploaded {
+    background-color: #F0FDF4;
+    border-color: #BBF7D0;
+}
+
+.agent-fill-doc-row.rejected {
+    background-color: #FEF2F2;
+    border-color: #FECACA;
+}
+
+.doc-row-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.doc-row-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: #E2E8F0;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.agent-fill-doc-row.uploaded .doc-row-icon {
+    background: #DCFCE7;
+    color: #16A34A;
+}
+
+.doc-row-text h4 {
+    margin: 0 0 4px 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #0F1E36;
+}
+
+.doc-row-text p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #64748B;
+}
+
+.btn-upload-customer {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    background: #2563EB;
+    color: #FFFFFF;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn-upload-customer:hover {
+    background: #1D4ED8;
+}
+
+.btn-upload-customer.reupload {
+    background: #F1F5F9;
+    color: #1E293B;
+    border: 1px solid #CBD5E1;
+}
+
+.btn-upload-customer.reupload:hover {
+    background: #E2E8F0;
+}
+
+.agent-fill-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #E2E8F0;
+}
+
+.btn-submit-customer {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 28px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #0F1E36 0%, #1E3A8A 100%);
+    color: #FFFFFF;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(15, 30, 54, 0.15);
+}
+
+.btn-submit-customer:hover:not(:disabled) {
+    background: linear-gradient(135deg, #1A3158 0%, #2563EB 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25);
+}
+
+.success-splash-card {
+    text-align: center;
+    padding: 48px 32px;
+}
+
+.success-splash-icon {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: #DCFCE7;
+    color: #16A34A;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px auto;
+}
+
+.success-splash-icon svg {
+    width: 36px;
+    height: 36px;
+}
+
+@media (max-width: 640px) {
+    .agent-fill-grid {
+        grid-template-columns: 1fr;
+    }
+    .agent-fill-doc-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .btn-upload-customer {
+        width: 100%;
+        justify-content: center;
+    }
+}

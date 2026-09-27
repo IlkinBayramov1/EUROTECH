@@ -57,8 +57,8 @@ export default function ClientTracking() {
         else setIsRefreshing(true);
 
         try {
-            const myDossiersRes = await dossierService.getMyDossiers();
-            const dossiers = myDossiersRes.data?.dossiers || [];
+            const myDossiersRes: any = await dossierService.getMyDossiers();
+            const dossiers = myDossiersRes.data?.dossiers || myDossiersRes.dossiers || [];
             
             if (dossiers.length > 0) {
                 const activeDossier = dossiers[0];
@@ -83,12 +83,15 @@ export default function ClientTracking() {
 
                 // Fetch dedicated tracking payload
                 try {
-                    const trackRes = await dossierService.getTracking(activeDossier.dossierNumber || activeDossier.id);
-                    if (trackRes.data?.data?.tracking) {
-                        setTracking(trackRes.data.data.tracking);
-                        if (trackRes.data.data.dossier) {
-                            setDossier(trackRes.data.data.dossier);
-                        }
+                    const trackRes: any = await dossierService.getTracking(activeDossier.dossierNumber || activeDossier.id);
+                    const trackingPayload = trackRes?.data?.tracking || trackRes?.tracking || trackRes?.data?.data?.tracking;
+                    const dossierPayload = trackRes?.data?.dossier || trackRes?.dossier || trackRes?.data?.data?.dossier;
+
+                    if (trackingPayload) {
+                        setTracking(trackingPayload);
+                    }
+                    if (dossierPayload) {
+                        setDossier(dossierPayload);
                     }
                 } catch (trackErr) {
                     console.warn('Dedicated tracking API fallback:', trackErr);
@@ -165,14 +168,39 @@ export default function ClientTracking() {
         }
     };
 
+    const getCountryFlag = (code?: string) => {
+        switch (code?.toUpperCase()) {
+            case 'HU': return '🇭🇺';
+            case 'PL': return '🇵🇱';
+            case 'DE': return '🇩🇪';
+            case 'FR': return '🇫🇷';
+            case 'IT': return '🇮🇹';
+            case 'ES': return '🇪🇸';
+            case 'CZ': return '🇨🇿';
+            case 'AT': return '🇦🇹';
+            case 'NL': return '🇳🇱';
+            default: return '🇪🇺';
+        }
+    };
+
+    // Active appointment
+    const activeAppointment = tracking?.activeAppointment 
+        || (dossier?.appointments && dossier.appointments.length > 0 ? dossier.appointments[0] : null)
+        || (dossier?.appointmentDate ? {
+            appointmentDate: dossier.appointmentDate,
+            location: 'EuroTech Visa Center',
+            timeSlot: { startTime: 'Confirmed' },
+            referenceNumber: dossier.dossierNumber ? `APT-${dossier.dossierNumber}` : 'CONFIRMED'
+        } : null);
+
     // Calculate Stepper State
     const currentStep = tracking?.currentStage || (() => {
         switch (dossier?.status) {
-            case 'RECEIVED': return 1;
+            case 'RECEIVED': return activeAppointment ? 2 : 1;
             case 'UNDER_REVIEW': return 2;
             case 'SUBMITTED_TO_CONSULATE': return 4;
             case 'APPROVED': case 'REJECTED': return 5;
-            default: return 2;
+            default: return activeAppointment ? 2 : 1;
         }
     })();
 
@@ -189,7 +217,7 @@ export default function ClientTracking() {
     ];
 
     const progressPercentage = Math.min(100, Math.max(0, ((currentStep - 1) / (stages.length - 1)) * 100));
-    const dossierRef = dossier?.dossierNumber || 'HU-AZ-2026-95176';
+    const dossierRef = dossier?.dossierNumber || (isLoading ? 'Loading...' : 'Pending Registration');
     const selectedApplicant = applicants.find(a => a.id === selectedApplicantId) || applicants[0];
 
     // Filter documents for selected applicant
@@ -197,9 +225,6 @@ export default function ClientTracking() {
         (d: any) => !d.applicantId || d.applicantId === selectedApplicant?.id
     );
     const verifiedAppDocs = applicantDocs.filter((d: any) => d.status === 'VERIFIED');
-
-    // Active appointment
-    const activeAppointment = tracking?.activeAppointment || (dossier?.appointments && dossier.appointments.length > 0 ? dossier.appointments[0] : null);
 
     const formatDate = (rawDate?: string | Date | null) => {
         if (!rawDate) return '—';
@@ -507,14 +532,14 @@ export default function ClientTracking() {
                             <div className="metadata-row">
                                 <span className="meta-label">Destination Country:</span>
                                 <strong className="meta-country-val">
-                                    <span className="flag-icon-circle">🇭🇺</span>
-                                    {dossier?.country?.nameEn || 'Hungary'}
+                                    <span className="flag-icon-circle">{getCountryFlag(dossier?.country?.code)}</span>
+                                    {dossier?.country?.nameEn || dossier?.country?.name || 'Schengen Member State'}
                                 </strong>
                             </div>
 
                             <div className="metadata-row">
                                 <span className="meta-label">Visa Category:</span>
-                                <strong>{dossier?.visaCategory?.nameEn || 'Schengen Tourist (C)'}</strong>
+                                <strong>{dossier?.visaCategory?.nameEn || dossier?.visaCategory?.name || 'Schengen Visa (C)'}</strong>
                             </div>
 
                             <div className="metadata-row">

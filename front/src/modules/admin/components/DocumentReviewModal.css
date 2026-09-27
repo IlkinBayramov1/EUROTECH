@@ -1,0 +1,336 @@
+/* ==========================================================================
+   DOCUMENT REVIEW MODAL STYLES
+   ========================================================================== */
+
+.doc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.doc-modal-container {
+  background: #0E1626;
+  border: 1px solid rgba(226, 232, 240, 0.12);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 1080px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.doc-modal-header {
+  padding: 18px 24px;
+  background: #111A2E;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.doc-header-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.doc-type-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(220, 38, 38, 0.15);
+  color: #F87171;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.doc-header-info h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  max-width: 500px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  font-size: 1.6rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.doc-modal-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+/* --- BODY SPLIT --- */
+.doc-modal-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.doc-preview-pane {
+  flex: 1.2;
+  background: #080D1A;
+  border-right: 1px solid rgba(226, 232, 240, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.pdf-preview-box {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #1E293B;
+}
+
+.image-preview-box {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: auto;
+}
+
+.image-preview-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.preview-fallback-bar {
+  padding: 10px 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid rgba(226, 232, 240, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #94A3B8;
+}
+
+.btn-open-external {
+  color: #60A5FA;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.btn-open-external:hover {
+  text-decoration: underline;
+}
+
+/* --- DECISION PANE --- */
+.doc-decision-pane {
+  flex: 0.9;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: #0E1626;
+}
+
+.doc-decision-pane h4 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #F8FAFC;
+}
+
+.pane-desc {
+  font-size: 0.85rem;
+  color: #94A3B8;
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+/* --- STATUS SELECTOR GRID --- */
+.status-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.status-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  border-radius: 8px;
+  padding: 12px 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-icon {
+  font-size: 1.2rem;
+}
+
+.status-btn strong {
+  display: block;
+  font-size: 0.86rem;
+  color: #E2E8F0;
+}
+
+.status-btn small {
+  display: block;
+  font-size: 0.7rem;
+  color: #64748B;
+}
+
+.status-btn.btn-verify:hover,
+.status-btn.btn-verify.active {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: #10B981;
+}
+.status-btn.btn-verify.active strong { color: #34D399; }
+
+.status-btn.btn-correction:hover,
+.status-btn.btn-correction.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #F59E0B;
+}
+.status-btn.btn-correction.active strong { color: #FBBF24; }
+
+.status-btn.btn-reject:hover,
+.status-btn.btn-reject.active {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #EF4444;
+}
+.status-btn.btn-reject.active strong { color: #F87171; }
+
+.input-field-group {
+  margin-bottom: 18px;
+}
+
+.input-field-group label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #CBD5E1;
+  margin-bottom: 6px;
+}
+
+.required-star {
+  color: #F87171;
+  font-size: 0.72rem;
+  margin-left: 6px;
+}
+
+.input-field-group textarea {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #F8FAFC;
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+  transition: all 0.2s ease;
+}
+
+.input-field-group textarea:focus {
+  border-color: #DC2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.notify-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 24px;
+  font-size: 0.82rem;
+  color: #94A3B8;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.notify-checkbox input {
+  margin-top: 3px;
+  accent-color: #DC2626;
+}
+
+.modal-actions-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.btn-cancel {
+  background: transparent;
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  color: #94A3B8;
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #FFFFFF;
+}
+
+.btn-submit-review {
+  background: linear-gradient(135deg, #DC2626, #B91C1C);
+  color: #FFFFFF;
+  border: none;
+  padding: 9px 22px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-submit-review:hover:not(:disabled) {
+  background: linear-gradient(135deg, #EF4444, #DC2626);
+}
+
+.btn-submit-review:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

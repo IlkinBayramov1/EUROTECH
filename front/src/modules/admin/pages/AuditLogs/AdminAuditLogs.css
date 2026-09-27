@@ -1,0 +1,112 @@
+/* ==========================================================================
+   ADMIN AUDIT LOGS STYLES
+   ========================================================================== */
+
+.admin-audit-logs-view {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.audit-title {
+  font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #F8FAFC;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+
+.audit-subtitle {
+  font-size: 0.95rem;
+  color: #94A3B8;
+  margin: 0;
+}
+
+.audit-badge-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #34D399;
+}
+
+.dot-green {
+  width: 8px;
+  height: 8px;
+  background: #10B981;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #10B981;
+}
+
+.audit-table-panel {
+  background: #0E1626;
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.action-tag {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #F87171;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.officer-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.officer-cell strong {
+  font-size: 0.88rem;
+  color: #F1F5F9;
+}
+
+.officer-cell span {
+  font-size: 0.72rem;
+  color: #94A3B8;
+}
+
+.ip-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  color: #94A3B8;
+}
+
+.meta-json-cell {
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-json-cell code {
+  font-size: 0.75rem;
+  color: #CBD5E1;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.time-text {
+  font-size: 0.82rem;
+  color: #94A3B8;
+  white-space: nowrap;
+}

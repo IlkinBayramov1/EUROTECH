@@ -20,7 +20,7 @@ function sanitizeTextForPdf(text) {
   return String(text).replace(/[əƏıİşŞçÇğĞöÖüÜ]/g, (m) => charMap[m] || m).replace(/[^\x20-\x7E]/g, ' ');
 }
 
-async function uploadDocument({ dossierId, applicantId, requiredDocumentType, isMandatory, file }) {
+async function uploadDocument({ dossierId, applicantId, requiredDocumentType, isMandatory, isSharedWithFamily, file }) {
   const dossier = await prisma.dossier.findUnique({ where: { id: dossierId } });
   if (!dossier) {
     throw new Error('Dossier not found');
@@ -48,6 +48,8 @@ async function uploadDocument({ dossierId, applicantId, requiredDocumentType, is
     },
   });
 
+  const sharedFlag = isSharedWithFamily !== undefined ? Boolean(isSharedWithFamily) : false;
+
   let document;
   if (existingDoc) {
     document = await prisma.applicantDocument.update({
@@ -57,6 +59,7 @@ async function uploadDocument({ dossierId, applicantId, requiredDocumentType, is
         fileName: file.originalname,
         fileSize: file.size,
         isMandatory: isMandatory !== undefined ? Boolean(isMandatory) : true,
+        isSharedWithFamily: sharedFlag,
         status: 'PENDING',
         operatorNotes: null,
       },
@@ -71,6 +74,7 @@ async function uploadDocument({ dossierId, applicantId, requiredDocumentType, is
         fileName: file.originalname,
         fileSize: file.size,
         isMandatory: isMandatory !== undefined ? Boolean(isMandatory) : true,
+        isSharedWithFamily: sharedFlag,
         status: 'PENDING',
       },
     });
@@ -243,7 +247,11 @@ async function getDocumentFileForDownload(documentId, token, currentUser = null)
 async function deleteDocument(documentId, currentUser) {
   const document = await prisma.applicantDocument.findUnique({
     where: { id: documentId },
-    include: { dossier: true },
+    include: {
+      dossier: {
+        include: { groupBatch: true },
+      },
+    },
   });
 
   if (!document) {
@@ -254,8 +262,9 @@ async function deleteDocument(documentId, currentUser) {
 
   const isStaff = ['ADMIN', 'MANAGER', 'OPERATOR'].includes(currentUser.role);
   const isOwner = document.dossier.userId === currentUser.id;
+  const isGroupOwner = document.dossier.groupBatch?.userId === currentUser.id;
 
-  if (!isStaff && !isOwner) {
+  if (!isStaff && !isOwner && !isGroupOwner) {
     const error = new Error('Security Alert: Access denied. Cross-tenant IDOR violation detected.');
     error.statusCode = 403;
     throw error;
@@ -606,6 +615,32 @@ async function exportChecklistExcel(dossierId, currentUser) {
   };
 }
 
+async function toggleFamilySharing(documentId, isSharedWithFamily, user) {
+  const document = await prisma.applicantDocument.findUnique({
+    where: { id: documentId },
+    include: { dossier: true },
+  });
+
+  if (!document) {
+    throw new Error('Document not found');
+  }
+
+  if (user && user.role === 'CLIENT' && document.dossier.userId !== user.id) {
+    const error = new Error('Access denied: You do not own this document dossier.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const updated = await prisma.applicantDocument.update({
+    where: { id: documentId },
+    data: {
+      isSharedWithFamily: Boolean(isSharedWithFamily),
+    },
+  });
+
+  return updated;
+}
+
 module.exports = {
   uploadDocument,
   reviewDocument,
@@ -615,5 +650,6 @@ module.exports = {
   deleteDocument,
   generateChecklistPdf,
   exportChecklistExcel,
+  toggleFamilySharing,
 };
 

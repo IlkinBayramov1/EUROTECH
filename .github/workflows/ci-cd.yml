@@ -1,0 +1,90 @@
+name: EuroTech CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  # 1. TypeCheck and Static Linting
+  frontend-check:
+    name: Frontend TypeCheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: front/package-lock.json
+      - name: Install Dependencies
+        run: cd front && npm ci
+      - name: TypeCheck (tsc --noEmit)
+        run: cd front && npx tsc -b --noEmit
+      - name: Production Bundle Build
+        run: cd front && npm run build
+
+  backend-test:
+    name: Backend Test Suite & Prisma Validation
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: eurotech_db
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: back/package-lock.json
+      - name: Install Dependencies
+        run: cd back && npm ci
+      - name: Prisma Generate & Migrate
+        run: |
+          cd back
+          npx prisma generate
+          npx prisma db push --accept-data-loss
+          node prisma/seed.js
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/eurotech_db
+      - name: Start Background Server & Execute Automated Tests
+        run: |
+          cd back
+          node server.js &
+          sleep 5
+          node test-all.js
+          node test-faza2.js
+          node test-faza3.js
+          node test-faza4.js
+        env:
+          DATABASE_URL: mysql://root:root@localhost:3306/eurotech_db
+
+  docker-build:
+    name: Docker Image Build Validation
+    needs: [frontend-check, backend-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Backend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./back
+          push: false
+          tags: eurotech/backend:latest
+      - name: Build Frontend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./front
+          push: false
+          tags: eurotech/frontend:latest

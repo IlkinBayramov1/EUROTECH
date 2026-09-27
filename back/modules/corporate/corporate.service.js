@@ -5,6 +5,7 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const prisma = require('../../config/db');
 const env = require('../../config/env');
 const { generateSecureToken, hashToken } = require('../../utils/token.util');
+const pdfUtil = require('../../utils/pdf.util');
 
 const uploadDir = path.resolve(env.UPLOAD_DIR);
 if (!fs.existsSync(uploadDir)) {
@@ -316,6 +317,25 @@ async function createBatch({
         pdfUrl,
       },
     });
+
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'BATCH_CREATED',
+          details: {
+            batchId: batch.id,
+            batchCode: batch.code,
+            batchName: batch.name,
+            employeesCount: createdApplicants.length,
+            destination: dest,
+            message: `New employee batch ${batch.name} (${batch.code}) registered`,
+          },
+        },
+      });
+    } catch (auditErr) {
+      console.warn('Audit log creation failed for createBatch:', auditErr);
+    }
 
     return {
       ...batch,
@@ -682,7 +702,7 @@ async function generateProformaInvoice({ batchId, corporateUserId, amount }) {
   page.drawText(sanitizeTextForPdf(`Email: ${batch.user.email}  |  Batch Ref: ${batch.code}`), { x: 40, y: height - 150, size: 10, font });
 
   page.drawText(sanitizeTextForPdf(`Service Description: Corporate Visa Processing for ${batch.name}`), { x: 40, y: height - 180, size: 10, font });
-  page.drawText(sanitizeTextForPdf(`Total Due: € ${amount.toFixed(2)} EUR`), { x: 40, y: height - 200, size: 13, font: boldFont, color: rgb(0.1, 0.5, 0.2) });
+  page.drawText(sanitizeTextForPdf(`Total Due: € ${finalAmount.toFixed(2)} EUR`), { x: 40, y: height - 200, size: 13, font: boldFont, color: rgb(0.1, 0.5, 0.2) });
 
   page.drawText('Wire Transfer Details: EuroTech Services Kft. - Bank of Hungary - IBAN: HU42117730161111222233334444', {
     x: 40,
@@ -702,7 +722,7 @@ async function generateProformaInvoice({ batchId, corporateUserId, amount }) {
       corporateUserId,
       groupBatchId: batch.id,
       invoiceNumber,
-      amount: Number(amount),
+      amount: finalAmount,
       dueDate,
       status: 'PENDING',
       pdfUrl: `/uploads/${fileName}`,
@@ -716,8 +736,14 @@ async function generateProformaInvoice({ batchId, corporateUserId, amount }) {
   };
 }
 
-async function payBatchWithWallet({ batchId, corporateUserId, amount = 1450.0 }) {
-  const payAmount = Number(amount);
+async function payBatchWithWallet({ batchId, corporateUserId, amount }) {
+  let payAmount = Number(amount);
+  if (!payAmount || isNaN(payAmount)) {
+    const inv = await prisma.corporateInvoice.findFirst({
+      where: { groupBatchId: batchId, status: 'PENDING' },
+    });
+    payAmount = inv ? Number(inv.amount) : 1450.0;
+  }
 
   return await prisma.$transaction(async (tx) => {
     let wallet = await tx.wallet.findUnique({ where: { userId: corporateUserId } });
@@ -742,6 +768,12 @@ async function payBatchWithWallet({ batchId, corporateUserId, amount = 1450.0 })
       data: { status: 'PROCESSING' },
     });
 
+    // Mark corporate invoices for this batch as PAID
+    await tx.corporateInvoice.updateMany({
+      where: { groupBatchId: batchId },
+      data: { status: 'PAID' },
+    });
+
     await tx.walletTransaction.create({
       data: {
         walletId: wallet.id,
@@ -759,6 +791,24 @@ async function payBatchWithWallet({ batchId, corporateUserId, amount = 1450.0 })
       where: { groupBatchId: batchId },
       data: { status: 'CONFIRMED' },
     });
+
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId: corporateUserId,
+          action: 'BATCH_PAID',
+          details: {
+            batchId,
+            batchCode: batch.code,
+            batchName: batch.name,
+            amount: payAmount,
+            message: `Batch ${batch.name} (${batch.code}) settled via corporate wallet (€ ${payAmount.toFixed(2)})`,
+          },
+        },
+      });
+    } catch (auditErr) {
+      console.warn('Audit log failed for batch payment:', auditErr);
+    }
 
     return {
       success: true,
@@ -833,6 +883,22 @@ async function topupCorporateWallet(corporateUserId, amount) {
         status: 'PAID',
       },
     });
+
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId: corporateUserId,
+          action: 'WALLET_TOPUP',
+          details: {
+            amount: topupAmount,
+            newBalance: updatedWallet.balance,
+            message: `Corporate wallet topped up by € ${topupAmount.toFixed(2)}`,
+          },
+        },
+      });
+    } catch (auditErr) {
+      console.warn('Audit log failed for wallet topup:', auditErr);
+    }
 
     return {
       success: true,
@@ -1053,16 +1119,22 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
     throw error;
   }
 
+  const parsedExpiry = passportExpiry && !isNaN(new Date(passportExpiry).getTime())
+    ? new Date(passportExpiry)
+    : employee.passportExpiry;
+
   const updatedEmployee = await prisma.corporateEmployee.update({
     where: { id: employee.id },
     data: {
       passportNumber: passportNumber || employee.passportNumber,
-      passportExpiry: passportExpiry ? new Date(passportExpiry) : employee.passportExpiry,
+      passportExpiry: parsedExpiry,
       phone: phone || employee.phone,
     },
   });
 
+  const parsedDob = dob && !isNaN(new Date(dob).getTime()) ? new Date(dob) : null;
   const targetPassport = passportNumber || employee.passportNumber;
+
   if (targetPassport) {
     const applicants = await prisma.applicant.findMany({
       where: {
@@ -1080,15 +1152,39 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
     });
 
     for (const app of applicants) {
+      const currentForm = (app.formDataJson && typeof app.formDataJson === 'object') ? app.formDataJson : {};
       await prisma.applicant.update({
         where: { id: app.id },
         data: {
           passportNumber: targetPassport,
-          birthDate: dob ? new Date(dob) : app.birthDate,
-          phone: phone || app.phone,
+          birthDate: parsedDob || app.birthDate,
+          formDataJson: {
+            ...currentForm,
+            phone: phone || currentForm.phone,
+            dob: dob || currentForm.dob,
+            passportExpiry: passportExpiry || currentForm.passportExpiry,
+            formProgress: 100,
+          },
         },
       });
     }
+  }
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: employee.corporateUserId,
+        action: 'DELEGATION_SUBMITTED',
+        details: {
+          employeeId: employee.id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          passportNumber: targetPassport,
+          message: `${employee.firstName} ${employee.lastName} completed corporate delegation consular data`,
+        },
+      },
+    });
+  } catch (auditErr) {
+    console.warn('Audit log creation failed for delegation submit:', auditErr);
   }
 
   return {
@@ -1142,17 +1238,35 @@ async function getCorporateDashboardStats(corporateUserId) {
     approvedVisasCount += (emp.visaHistory || []).filter((v) => v.status === 'ACTIVE').length;
   });
 
-  const upcomingAppointment = await prisma.appointment.findFirst({
+  const now = new Date();
+  let upcomingAppointment = await prisma.appointment.findFirst({
     where: {
       userId: corporateUserId,
       status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+      timeSlot: {
+        date: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
     },
     include: {
       timeSlot: true,
       groupBatch: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { timeSlot: { date: 'asc' } },
   });
+
+  if (!upcomingAppointment) {
+    upcomingAppointment = await prisma.appointment.findFirst({
+      where: {
+        userId: corporateUserId,
+        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+      },
+      include: {
+        timeSlot: true,
+        groupBatch: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
   let wallet = await prisma.wallet.findUnique({
     where: { userId: corporateUserId },
@@ -1169,7 +1283,15 @@ async function getCorporateDashboardStats(corporateUserId) {
     take: 5,
   });
 
-  const mappedBatches = batches.slice(0, 5).map((b) => {
+  const sortedBatches = [...batches].sort((a, b) => {
+    const aEmp = a.dossiers.reduce((acc, d) => acc + (d.applicants?.length || 0), 0);
+    const bEmp = b.dossiers.reduce((acc, d) => acc + (d.applicants?.length || 0), 0);
+    if (aEmp > 0 && bEmp === 0) return -1;
+    if (bEmp > 0 && aEmp === 0) return 1;
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+
+  const mappedBatches = sortedBatches.slice(0, 5).map((b) => {
     let empCount = 0;
     let totalDocs = 0;
     for (const d of b.dossiers) {
@@ -1222,6 +1344,248 @@ async function getCorporateDashboardStats(corporateUserId) {
   };
 }
 
+async function getCorporateDepartments(corporateUserId) {
+  let departments = await prisma.corporateDepartment.findMany({
+    where: { corporateUserId },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  if (departments.length === 0) {
+    const defaults = [
+      { name: 'Engineering & Technology', annualBudget: 60000.0, spentBudget: 14500.0 },
+      { name: 'Executive & Board', annualBudget: 85000.0, spentBudget: 22300.0 },
+      { name: 'Commercial & Global Sales', annualBudget: 45000.0, spentBudget: 8750.0 },
+      { name: 'Operations & Legal', annualBudget: 30000.0, spentBudget: 3200.0 },
+    ];
+
+    for (const d of defaults) {
+      await prisma.corporateDepartment.create({
+        data: {
+          corporateUserId,
+          name: d.name,
+          annualBudget: d.annualBudget,
+          spentBudget: d.spentBudget,
+          currency: 'EUR',
+        },
+      });
+    }
+
+    departments = await prisma.corporateDepartment.findMany({
+      where: { corporateUserId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  const employees = await prisma.corporateEmployee.findMany({
+    where: { corporateUserId },
+    select: { department: true },
+  });
+
+  return departments.map((dept) => {
+    const empCount = employees.filter(
+      (e) => e.department && e.department.toLowerCase() === dept.name.toLowerCase()
+    ).length;
+    const remaining = Math.max(0, dept.annualBudget - dept.spentBudget);
+    const percentUsed = dept.annualBudget > 0 ? Math.min(100, Math.round((dept.spentBudget / dept.annualBudget) * 100)) : 0;
+
+    return {
+      ...dept,
+      employeeCount: empCount,
+      remainingBudget: remaining,
+      percentUsed,
+    };
+  });
+}
+
+async function createCorporateDepartment(corporateUserId, { name, annualBudget, currency = 'EUR' }) {
+  if (!name || !name.trim()) {
+    const error = new Error('Department name is required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const budget = Number(annualBudget) || 50000.0;
+
+  return prisma.corporateDepartment.create({
+    data: {
+      corporateUserId,
+      name: name.trim(),
+      annualBudget: budget,
+      spentBudget: 0.0,
+      currency: currency || 'EUR',
+    },
+  });
+}
+
+async function updateCorporateDepartment(corporateUserId, departmentId, data) {
+  const dept = await prisma.corporateDepartment.findFirst({
+    where: { id: departmentId, corporateUserId },
+  });
+
+  if (!dept) {
+    const error = new Error('Department not found or unauthorized');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const updateData = {};
+  if (data.name !== undefined) updateData.name = data.name.trim();
+  if (data.annualBudget !== undefined) updateData.annualBudget = Number(data.annualBudget);
+  if (data.spentBudget !== undefined) updateData.spentBudget = Number(data.spentBudget);
+  if (data.currency !== undefined) updateData.currency = data.currency;
+
+  return prisma.corporateDepartment.update({
+    where: { id: departmentId },
+    data: updateData,
+  });
+}
+
+async function deleteCorporateDepartment(corporateUserId, departmentId) {
+  const dept = await prisma.corporateDepartment.findFirst({
+    where: { id: departmentId, corporateUserId },
+  });
+
+  if (!dept) {
+    const error = new Error('Department not found or unauthorized');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return prisma.corporateDepartment.delete({
+    where: { id: departmentId },
+  });
+}
+
+async function getPassportRadar(corporateUserId) {
+  const employees = await prisma.corporateEmployee.findMany({
+    where: { corporateUserId },
+    include: { visaHistory: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const now = new Date();
+  const critical = [];
+  const warning = [];
+  const valid = [];
+  const expired = [];
+
+  const items = employees.map((emp) => {
+    let daysRemaining = null;
+    let status = 'UNKNOWN';
+    let alertMessage = 'Passport expiry date not recorded';
+
+    if (emp.passportExpiry) {
+      const expDate = new Date(emp.passportExpiry);
+      const diffTime = expDate.getTime() - now.getTime();
+      daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (daysRemaining < 0) {
+        status = 'EXPIRED';
+        alertMessage = `Passport expired ${Math.abs(daysRemaining)} days ago! Immediate replacement required.`;
+      } else if (daysRemaining < 90) {
+        status = 'CRITICAL';
+        alertMessage = `Expires in ${daysRemaining} days! Fails Schengen 3-month validity rule. Renewal mandatory.`;
+      } else if (daysRemaining <= 180) {
+        status = 'WARNING';
+        alertMessage = `Expires in ${daysRemaining} days (< 6 months). Renewal strongly recommended.`;
+      } else {
+        status = 'VALID';
+        alertMessage = `Valid for ${daysRemaining} days (${Math.round(daysRemaining / 30)} months).`;
+      }
+    }
+
+    const item = {
+      id: emp.id,
+      name: `${emp.firstName} ${emp.lastName}`.trim(),
+      passportNumber: emp.passportNumber || 'N/A',
+      passportExpiry: emp.passportExpiry ? emp.passportExpiry.toISOString().split('T')[0] : null,
+      daysRemaining,
+      status,
+      alertMessage,
+      department: emp.department || 'General',
+      jobTitle: emp.jobTitle || 'Employee',
+      email: emp.email || '',
+    };
+
+    if (status === 'EXPIRED') expired.push(item);
+    else if (status === 'CRITICAL') critical.push(item);
+    else if (status === 'WARNING') warning.push(item);
+    else if (status === 'VALID') valid.push(item);
+
+    return item;
+  });
+
+  return {
+    summary: {
+      totalEmployees: employees.length,
+      criticalCount: critical.length,
+      warningCount: warning.length,
+      validCount: valid.length,
+      expiredCount: expired.length,
+    },
+    critical,
+    warning,
+    valid,
+    expired,
+    items,
+  };
+}
+
+async function getGuaranteeLetterPdf({ corporateUserId, employeeId }) {
+  const corporateUser = await prisma.user.findUnique({
+    where: { id: corporateUserId },
+  });
+
+  if (!corporateUser) {
+    const error = new Error('Corporate account not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  let employee = await prisma.corporateEmployee.findFirst({
+    where: { id: employeeId, corporateUserId },
+  });
+
+  let applicant = null;
+  if (!employee) {
+    applicant = await prisma.applicant.findFirst({
+      where: {
+        id: employeeId,
+        dossier: { groupBatch: { userId: corporateUserId } },
+      },
+      include: { dossier: { include: { country: true } } },
+    });
+
+    if (applicant) {
+      employee = {
+        id: applicant.id,
+        firstName: applicant.firstName,
+        lastName: applicant.lastName,
+        passportNumber: applicant.passportNumber,
+      };
+    }
+  }
+
+  if (!employee) {
+    const error = new Error('Employee not found in corporate directory');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const dossier = applicant?.dossier || {
+    dossierNumber: `CORP-${employee.passportNumber || employee.id.slice(0, 8)}`,
+    country: { name: 'Hungary / Schengen Member State' },
+  };
+
+  const pdfResult = await pdfUtil.generateCorporateGuaranteeLetterPdf(dossier, employee, corporateUser);
+
+  return {
+    fileName: pdfResult.fileName,
+    pdfUrl: pdfResult.fileUrl,
+    employeeName: `${employee.firstName} ${employee.lastName}`,
+  };
+}
+
 module.exports = {
   createBatch,
   getCorporateBatches,
@@ -1244,5 +1608,11 @@ module.exports = {
   updateCorporateBatch,
   deleteCorporateBatch,
   getInvoicePdf,
+  getCorporateDepartments,
+  createCorporateDepartment,
+  updateCorporateDepartment,
+  deleteCorporateDepartment,
+  getPassportRadar,
+  getGuaranteeLetterPdf,
 };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { corporateService } from '@/shared/api/services/corporate.service';
 import { documentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
@@ -56,6 +56,8 @@ const REQUIRED_CORP_DOCS = [
 
 export default function CorporateBatches() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const urlBatchId = searchParams.get('batchId');
     const { showSuccess, showError } = useToast();
 
     // --- State-lər ---
@@ -173,6 +175,20 @@ export default function CorporateBatches() {
     useEffect(() => {
         fetchBatches();
     }, []);
+
+    // Auto-select or filter if batchId is provided in URL
+    useEffect(() => {
+        if (urlBatchId && batches.length > 0) {
+            const found = batches.find(b => b.id === urlBatchId || b.code === urlBatchId);
+            if (found) {
+                if (found.employees && found.employees.length > 0) {
+                    handleManageEmployee(found, found.employees[0]);
+                } else {
+                    setSearchQuery(found.code || found.name);
+                }
+            }
+        }
+    }, [urlBatchId, batches]);
 
     // Mövcud Ölkələr siyahısı
     const destinations = useMemo(() => {
@@ -789,6 +805,11 @@ export default function CorporateBatches() {
     ];
 
     const uploadedDocTypes = new Set(activeEmployee?.documents.map(d => d.requiredDocumentType) || []);
+    const reqDocTypes = useMemo(() => new Set(REQUIRED_CORP_DOCS.map(d => d.type)), []);
+    const additionalDocs = useMemo(() => {
+        return (activeEmployee?.documents || []).filter(d => !reqDocTypes.has(d.requiredDocumentType));
+    }, [activeEmployee, reqDocTypes]);
+    const uploadedMandatoryCount = REQUIRED_CORP_DOCS.filter(d => uploadedDocTypes.has(d.type)).length;
 
     return (
         <div className="corp-batches-content fade-in">
@@ -994,12 +1015,15 @@ export default function CorporateBatches() {
                         <div className="docs-tracker-card-vertical">
                             <div className="tracker-header">
                                 <h3>Document Checklist</h3>
-                                <span className="tracker-count">{activeEmployee?.documents.length || 0} / {REQUIRED_CORP_DOCS.length} Uploaded</span>
+                                <span className="tracker-count">
+                                    {uploadedMandatoryCount} / {REQUIRED_CORP_DOCS.length} Required
+                                    {additionalDocs.length > 0 ? ` (+${additionalDocs.length} extra)` : ''}
+                                </span>
                             </div>
                             <div className="tracker-progress-bar">
                                 <div 
                                     className="progress-fill" 
-                                    style={{ width: `${Math.min(100, Math.round(((activeEmployee?.documents.length || 0) / REQUIRED_CORP_DOCS.length) * 100))}%` }}
+                                    style={{ width: `${Math.min(100, Math.round((uploadedMandatoryCount / REQUIRED_CORP_DOCS.length) * 100))}%` }}
                                 ></div>
                             </div>
                             <div className="tracker-items-vertical">
@@ -1024,6 +1048,31 @@ export default function CorporateBatches() {
                                         </div>
                                     );
                                 })}
+
+                                {additionalDocs.length > 0 && (
+                                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed #CBD5E1' }}>
+                                        <h4 style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: '#64748B', marginBottom: '8px', fontWeight: 700 }}>
+                                            Additional Profile Documents ({additionalDocs.length})
+                                        </h4>
+                                        {additionalDocs.map((extraDoc, idx) => {
+                                            const isRejected = extraDoc.status === 'REJECTED';
+                                            const isVerified = extraDoc.status === 'VERIFIED';
+                                            const label = extraDoc.originalFileName || extraDoc.fileName || `Additional Document #${idx + 1}`;
+                                            return (
+                                                <div key={extraDoc.id || idx} className={`tracker-item-vert ${isRejected ? 'rejected' : isVerified ? 'completed' : 'completed'}`} style={{ marginBottom: '6px' }}>
+                                                    <div className="tracker-icon-vert">
+                                                        {isRejected ? (
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                        ) : (
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                                        )}
+                                                    </div>
+                                                    <span className="tracker-label-vert" title={label}>{label}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </aside>
@@ -1077,6 +1126,79 @@ export default function CorporateBatches() {
                                 </div>
                             );
                         })}
+
+                        {additionalDocs.length > 0 && (
+                            <div style={{ marginTop: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '0.8rem', background: '#EFF6FF', color: '#1D4ED8', padding: '4px 10px', borderRadius: '12px', fontWeight: 700 }}>
+                                            Additional Uploaded Documents ({additionalDocs.length})
+                                        </span>
+                                        <span style={{ fontSize: '0.85rem', color: '#64748B' }}>
+                                            Uploaded from employee profile or external self-fill link
+                                        </span>
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        className="btn-outline-secondary"
+                                        style={{ padding: '6px 12px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '6px' }}
+                                        onClick={() => triggerUpload('OTHER')}
+                                    >
+                                        + Upload Extra File
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {additionalDocs.map((extraDoc, idx) => {
+                                        const isRejected = extraDoc.status === 'REJECTED';
+                                        const isVerified = extraDoc.status === 'VERIFIED';
+                                        const fileUrl = extraDoc.fileUrl
+                                            ? (extraDoc.fileUrl.startsWith('http') ? extraDoc.fileUrl : `http://localhost:5000${extraDoc.fileUrl}`)
+                                            : '';
+                                        const fileName = extraDoc.originalFileName || extraDoc.fileName || `Additional Document ${idx + 1}`;
+
+                                        return (
+                                            <div 
+                                                key={extraDoc.id || idx} 
+                                                className={`doc-card-premium ${isRejected ? 'rejected' : isVerified ? 'verified' : 'verified'}`}
+                                            >
+                                                <div className="doc-card-icon" style={{ backgroundColor: '#F1F5F9', color: '#334155' }}>
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                                </div>
+                                                <div className="doc-card-info">
+                                                    <div className="doc-card-header">
+                                                        <h3>{fileName}</h3>
+                                                        <span className={`doc-badge ${isRejected ? 'action-req' : isVerified ? 'verified' : 'verified'}`}>
+                                                            {isRejected ? 'Action Required' : isVerified ? 'Verified' : 'Uploaded (Additional)'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="doc-explanatory-text">
+                                                        Type: <strong>{extraDoc.requiredDocumentType || 'Extra Document'}</strong> • Uploaded {extraDoc.createdAt ? new Date(extraDoc.createdAt).toLocaleDateString('en-US') : 'recently'}
+                                                    </p>
+                                                    {isRejected && extraDoc.operatorNotes && (
+                                                        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', padding: '10px 14px', borderRadius: '8px', color: '#991B1B', fontSize: '0.85rem', marginTop: '8px' }}>
+                                                            <strong>Operator Feedback: </strong>{extraDoc.operatorNotes}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="doc-card-actions">
+                                                    {fileUrl && (
+                                                        <a 
+                                                            href={fileUrl} 
+                                                            target="_blank" 
+                                                            rel="noreferrer"
+                                                            className="btn-upload-primary"
+                                                            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                        >
+                                                            Download / View
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </section>
                 </div>
             )}

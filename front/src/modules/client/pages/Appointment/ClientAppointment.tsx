@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService, appointmentService, TimeSlot } from '@/shared/api/services';
+import { createGoogleCalendarUrl, downloadIcsFile } from '@/shared/utils/calendar.util';
 import './ClientAppointment.css';
 
 export default function ClientAppointment() {
@@ -40,7 +41,7 @@ export default function ClientAppointment() {
 
                 // Check real appointments from DB
                 if (active.appointments && active.appointments.length > 0) {
-                    const appt = active.appointments[0];
+                    const appt = active.appointments.find((a: any) => a.status === 'CONFIRMED' || a.status === 'RESCHEDULED') || active.appointments[0];
                     setAppointment(appt);
                     if (appt.status === 'CANCELLED') {
                         setStatus('cancelled');
@@ -49,6 +50,19 @@ export default function ClientAppointment() {
                     } else {
                         setStatus('confirmed');
                     }
+                } else if (active.appointmentDate) {
+                    const fallbackSlotDate = active.appointmentDate;
+                    setAppointment({
+                        status: 'CONFIRMED',
+                        appointmentDate: fallbackSlotDate,
+                        location: active.appointmentLocation || 'EuroTech Visa Application Center',
+                        timeSlot: {
+                            date: fallbackSlotDate,
+                            startTime: '10:30 AM',
+                            location: active.appointmentLocation || 'EuroTech Visa Application Center',
+                        }
+                    });
+                    setStatus('confirmed');
                 } else {
                     setAppointment(null);
                     setStatus('not_scheduled');
@@ -125,21 +139,36 @@ export default function ClientAppointment() {
             showError('Please select an appointment time slot.');
             return;
         }
-        if (!dossier?.id) {
+
+        let targetDossierId = dossier?.id;
+        if (!targetDossierId) {
+            const fresh = await dossierService.getMyDossiers().catch(() => null);
+            if (fresh?.data?.dossiers?.[0]?.id) {
+                targetDossierId = fresh.data.dossiers[0].id;
+                setDossier(fresh.data.dossiers[0]);
+            }
+        }
+
+        if (!targetDossierId) {
             showError('No active dossier found. Please start an application first.');
             return;
         }
+
         setIsSubmitting(true);
         try {
-            await appointmentService.bookAppointment({
-                dossierId: dossier.id,
-                timeSlotId: selectedSlotId,
-            });
+            if (appointment?.id && appointment.status !== 'CANCELLED') {
+                await appointmentService.rescheduleAppointment(appointment.id, selectedSlotId);
+            } else {
+                await appointmentService.bookAppointment({
+                    dossierId: targetDossierId,
+                    timeSlotId: selectedSlotId,
+                });
+            }
             showSuccess('Biometric appointment booked and confirmed successfully!');
             setIsBookingModalOpen(false);
             await loadAppointmentData();
         } catch (err: any) {
-            showError(err.message || 'Failed to book appointment.');
+            showError(err?.response?.data?.message || err?.message || 'Failed to book appointment.');
         } finally {
             setIsSubmitting(false);
         }
@@ -213,6 +242,47 @@ export default function ClientAppointment() {
         }
     };
 
+    const getAppointmentDateObj = () => {
+        if (!appointment?.timeSlot?.date) return new Date();
+        const d = new Date(appointment.timeSlot.date);
+        const match = (appointment.timeSlot.startTime || '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+        if (match) {
+            let h = parseInt(match[1], 10);
+            const m = parseInt(match[2], 10);
+            const ampm = (match[3] || '').toUpperCase();
+            if (ampm === 'PM' && h < 12) h += 12;
+            if (ampm === 'AM' && h === 12) h = 0;
+            d.setHours(h, m, 0, 0);
+        }
+        return d;
+    };
+
+    const handleAddToGoogleCalendar = () => {
+        if (!appointment) return;
+        const eventDate = getAppointmentDateObj();
+        const url = createGoogleCalendarUrl({
+            title: `EuroTech Biometric Visa Appointment (${dossier?.destinationCountry || 'Schengen'})`,
+            description: `Official biometric submission and consular dossier handover for ${applicantNames}.\nDossier ID: ${dossier?.id || ''}\nCenter: ${venueLocation}`,
+            location: venueLocation,
+            startDate: eventDate,
+            durationMinutes: 45
+        });
+        window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleDownloadIcsPass = () => {
+        if (!appointment) return;
+        const eventDate = getAppointmentDateObj();
+        downloadIcsFile({
+            title: `EuroTech Biometric Visa Appointment (${dossier?.destinationCountry || 'Schengen'})`,
+            description: `Official biometric submission and consular dossier handover for ${applicantNames}.\nDossier ID: ${dossier?.id || ''}\nCenter: ${venueLocation}`,
+            location: venueLocation,
+            startDate: eventDate,
+            durationMinutes: 45
+        }, `eurotech_appointment_${appointment?.id?.slice(0, 8) || 'biometrics'}.ics`);
+        showSuccess('iCalendar (.ics) pass downloaded!');
+    };
+
     // Group available slots by date for modal display
     const groupedSlots = useMemo(() => {
         const groups: Record<string, TimeSlot[]> = {};
@@ -244,15 +314,17 @@ export default function ClientAppointment() {
         return groups;
     }, [availableSlots]);
 
-    const formattedDate = appointment?.timeSlot?.date 
-        ? new Date(appointment.timeSlot.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    const formattedDate = appointment?.timeSlot?.date || appointment?.appointmentDate
+        ? new Date(appointment.timeSlot?.date || appointment.appointmentDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
         : '—';
 
     const formattedTime = appointment?.timeSlot?.startTime 
         ? `${appointment.timeSlot.startTime} (Local Time)`
-        : '—';
+        : appointment?.appointmentTime
+        ? `${appointment.appointmentTime} (Local Time)`
+        : '10:30 AM (Local Time)';
 
-    const venueLocation = appointment?.timeSlot?.location || appointment?.location || 'EuroTech Visa Application Center';
+    const venueLocation = appointment?.timeSlot?.location || appointment?.location || dossier?.appointmentLocation || 'EuroTech Visa Application Center';
 
     return (
         <div className="appointment-page-content fade-in">
@@ -263,15 +335,35 @@ export default function ClientAppointment() {
                     <p className="docs-subtitle">View your scheduled biometric data submission and document handover details.</p>
                 </div>
                 {(status === 'confirmed' || status === 'rescheduled') && (
-                    <button 
-                        className="btn-secondary" 
-                        onClick={handleDownloadConfirmationLetter} 
-                        disabled={isDownloading}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        {isDownloading ? 'Generating...' : 'Download Confirmation (PDF)'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <button 
+                            className="btn-secondary" 
+                            onClick={handleDownloadConfirmationLetter} 
+                            disabled={isDownloading}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            {isDownloading ? 'Generating...' : 'Confirmation PDF'}
+                        </button>
+                        <button 
+                            className="btn-outline" 
+                            onClick={handleAddToGoogleCalendar}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                            title="Add event to Google Calendar"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            Google Calendar
+                        </button>
+                        <button 
+                            className="btn-outline" 
+                            onClick={handleDownloadIcsPass}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                            title="Download Apple / Outlook .ics calendar pass"
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            .ics Pass
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -363,6 +455,14 @@ export default function ClientAppointment() {
                                     <button className="btn-secondary" onClick={handleDownloadConfirmationLetter} disabled={isDownloading}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                                         Confirmation Letter (PDF)
+                                    </button>
+                                    <button className="btn-outline" onClick={handleAddToGoogleCalendar}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        Google Calendar
+                                    </button>
+                                    <button className="btn-outline" onClick={handleDownloadIcsPass}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                        iCal .ics
                                     </button>
                                     <button className="btn-outline" onClick={handleOpenReschedule}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-7.27l-3.27-3.27"/></svg>

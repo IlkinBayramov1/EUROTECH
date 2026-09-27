@@ -37,9 +37,9 @@ export default function AgentFinance() {
     const loadWalletData = async () => {
         setLoading(true);
         try {
-            const res = await agentService.getWallet();
-            if (res.data?.wallet) {
-                const w = res.data.wallet;
+            const res: any = await agentService.getWallet();
+            const w = res?.data?.wallet || res?.wallet || res?.data;
+            if (w) {
                 setWallet(w);
                 
                 // Pre-fill real bank details if configured in DB
@@ -48,20 +48,39 @@ export default function AgentFinance() {
                 if (w.iban) setIban(w.iban);
                 if (w.accountHolder) setAccountHolder(w.accountHolder);
 
-                const txList = w.transactions || [];
+                const txList = Array.isArray(w.transactions) ? w.transactions : [];
                 const mapped: Transaction[] = txList.map((tx: any) => ({
-                    id: tx.id?.substring(0, 8) || 'TRX-101',
-                    date: new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                    id: (tx.id && typeof tx.id === 'string') ? tx.id.substring(0, 8) : 'TRX-101',
+                    date: tx.createdAt ? new Date(tx.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
                     reference: tx.referenceId || tx.referenceType || 'COMMISSION',
                     description: tx.description || 'Agent Commission',
-                    amount: tx.type === 'DEBIT' ? -Math.abs(tx.amount) : Math.abs(tx.amount),
+                    amount: tx.type === 'DEBIT' ? -Math.abs(Number(tx.amount || 0)) : Math.abs(Number(tx.amount || 0)),
                     status: tx.status === 'COMPLETED' || tx.status === 'PAID' ? 'paid' : tx.status === 'PENDING' ? 'pending' : 'processing',
                 }));
                 setTransactions(mapped);
+            } else {
+                setWallet({
+                    balance: 0,
+                    pendingBalance: 0,
+                    totalEarnedYtd: 0,
+                    agentTier: 'SILVER',
+                    ratePerPax: 25,
+                    totalPaxLifetime: 0,
+                    transactions: []
+                });
             }
         } catch (err: any) {
             console.error('Error loading wallet:', err);
-            showError('Maliyyə balansı yüklənərkən xəta baş verdi.');
+            setWallet({
+                balance: 0,
+                pendingBalance: 0,
+                totalEarnedYtd: 0,
+                agentTier: 'SILVER',
+                ratePerPax: 25,
+                totalPaxLifetime: 0,
+                transactions: []
+            });
+            showError(err.message || 'Maliyyə balansı yüklənərkən xəta baş verdi.');
         } finally {
             setLoading(false);
         }
@@ -213,6 +232,59 @@ export default function AgentFinance() {
                     </div>
                     <div className="stat-icon-wrapper green-tint">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                    </div>
+                </div>
+            </div>
+
+            {/* B2B Partner Tier Progress Card */}
+            <div style={{
+                background: 'linear-gradient(135deg, #0F1E36 0%, #1E3A8A 100%)',
+                color: '#FFFFFF',
+                borderRadius: '14px',
+                padding: '24px 28px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+                boxShadow: '0 4px 20px -2px rgba(15, 30, 54, 0.15)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{
+                                background: (wallet?.agentTier || 'SILVER') === 'PLATINUM' ? '#E0E7FF' : (wallet?.agentTier || 'SILVER') === 'GOLD' ? '#FEF08A' : (wallet?.agentTier || 'SILVER') === 'SILVER' ? '#E2E8F0' : '#FED7AA',
+                                color: (wallet?.agentTier || 'SILVER') === 'PLATINUM' ? '#3730A3' : (wallet?.agentTier || 'SILVER') === 'GOLD' ? '#854D0E' : (wallet?.agentTier || 'SILVER') === 'SILVER' ? '#1E293B' : '#9A3412',
+                                padding: '4px 12px',
+                                borderRadius: '20px',
+                                fontWeight: 800,
+                                fontSize: '0.8rem',
+                                letterSpacing: '0.5px'
+                            }}>
+                                {wallet?.agentTier || 'SILVER'} PARTNER TIER
+                            </span>
+                            <span style={{ fontSize: '0.9rem', color: '#93C5FD' }}>
+                                Commission Rate: <strong>€{Number(wallet?.ratePerPax || 25).toFixed(2)} / passenger</strong>
+                            </span>
+                        </div>
+                        <h3 style={{ margin: '8px 0 0 0', fontSize: '1.25rem', fontWeight: 700 }}>
+                            Agency Volume & Reward Progression
+                        </h3>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#93C5FD', display: 'block' }}>Processed Volume</span>
+                        <strong style={{ fontSize: '1.4rem', color: '#FDE047' }}>{Number(wallet?.totalPaxLifetime || 0)} Travelers</strong>
+                    </div>
+                </div>
+
+                {/* Tier Milestones Progress Bar */}
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#BFDBFE', marginBottom: '6px' }}>
+                        <span>Bronze (€20)</span>
+                        <span>Silver (€25) - 25+ Pax</span>
+                        <span>Gold (€28) - 60+ Pax</span>
+                        <span>Platinum (€32) - 120+ Pax</span>
+                    </div>
+                    <div style={{ height: '8px', background: 'rgba(255, 255, 255, 0.2)', borderRadius: '4px', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(100, Math.max(8, (Number(wallet?.totalPaxLifetime || 0) / 120) * 100))}%`, height: '100%', background: '#FACC15', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
                     </div>
                 </div>
             </div>
@@ -396,7 +468,7 @@ export default function AgentFinance() {
                                                 step="0.01"
                                                 max={currentBalance || 10000} 
                                                 value={payoutAmount} 
-                                                onChange={(e) => setPayoutAmount(Number(e.target.value))} 
+                                                onChange={(e) => setPayoutAmount(Number(e.target.value) || 0)} 
                                                 required 
                                             />
                                         </div>
@@ -457,7 +529,7 @@ export default function AgentFinance() {
                                 className="btn-modal-primary" 
                                 disabled={isSaving || currentBalance < 10 || currentBalance < payoutAmount}
                             >
-                                {isSaving ? 'Göndərilir...' : `Withdraw € ${payoutAmount.toFixed(2)}`}
+                                {isSaving ? 'Göndərilir...' : `Withdraw € ${(Number(payoutAmount) || 0).toFixed(2)}`}
                             </button>
                         </div>
                     </div>

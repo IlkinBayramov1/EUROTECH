@@ -47,13 +47,18 @@ export const agentService = {
 
   getGroupById: (groupId: string) => apiClient.get(`/agent/groups/${groupId}`),
 
-  updateGroup: (groupId: string, payload: { name: string }) =>
+  updateGroup: (groupId: string, payload: { name?: string; paymentStatus?: string; travelDate?: string; destination?: string }) =>
     apiClient.patch(`/agent/groups/${groupId}`, payload),
+
+  setGroupAppointment: (groupId: string, payload: { appointmentDate: string; appointmentTime?: string; location?: string }) =>
+    apiClient.post(`/agent/groups/${groupId}/appointment`, payload),
 
   deleteGroup: (groupId: string) =>
     apiClient.delete(`/agent/groups/${groupId}`),
 
   submitGroup: (groupId: string) => apiClient.post(`/agent/groups/${groupId}/submit`),
+
+  getGroupInvoicePdf: (groupId: string) => apiClient.get(`/agent/groups/${groupId}/invoice-pdf`),
 
   getWallet: () => apiClient.get('/agent/wallet'),
 
@@ -62,7 +67,7 @@ export const agentService = {
   saveBankDetails: (payload: { bankName: string; iban: string; swiftBic: string; accountHolder?: string }) =>
     apiClient.post('/agent/wallet/bank-details', payload),
 
-  addApplicant: (groupId: string, payload: { firstName?: string; lastName?: string; passportNumber?: string; name?: string; passport?: string; formData?: any }) =>
+  addApplicant: (groupId: string, payload: { firstName?: string; lastName?: string; passportNumber?: string; name?: string; passport?: string; dob?: string; birthDate?: string; formData?: any; [key: string]: any }) =>
     apiClient.post(`/agent/groups/${groupId}/applicants`, payload),
 
   removeApplicant: (groupId: string, applicantId: string) =>
@@ -70,6 +75,15 @@ export const agentService = {
 
   saveApplicantForm: (groupId: string, applicantId: string, formData: any) =>
     apiClient.patch(`/agent/groups/${groupId}/applicants/${applicantId}/form`, { formData }),
+
+  getCustomerSelfFillData: (groupId: string, applicantId: string) =>
+    apiClient.get(`/agent/self-fill/${groupId}/${applicantId}`),
+
+  submitCustomerSelfFill: (groupId: string, applicantId: string, payload: any) =>
+    apiClient.post(`/agent/self-fill/${groupId}/${applicantId}`, payload),
+
+  uploadCustomerDoc: (groupId: string, applicantId: string, formData: FormData) =>
+    apiClient.post(`/agent/self-fill/${groupId}/${applicantId}/upload`, formData),
 
   exportCsv: async () => {
     const token = getAuthToken();

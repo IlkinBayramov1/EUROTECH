@@ -321,13 +321,31 @@ export default function ClientServices() {
         setShowCheckoutModal(true);
     };
 
+    // Azericard Payment Form State
+    const [cardHolder, setCardHolder] = useState('E. Abdullayev');
+    const [cardNumber, setCardNumber] = useState('4169 7820 9182 4310');
+    const [cardExpiry, setCardExpiry] = useState('12/28');
+    const [cardCvv, setCardCvv] = useState('892');
+
     const executeCheckout = async () => {
-        if (!dossierId || cart.length === 0) return;
+        let activeId = dossierId;
+        if (!activeId) {
+            const fresh = await dossierService.getMyDossiers().catch(() => null);
+            if (fresh?.data?.dossiers?.[0]?.id) {
+                activeId = fresh.data.dossiers[0].id;
+                setDossierId(activeId);
+            }
+        }
+
+        if (!activeId || cart.length === 0) {
+            showError('Please select at least one service and ensure your dossier is active.');
+            return;
+        }
 
         setIsProcessing(true);
         try {
             const payload = {
-                dossierId,
+                dossierId: activeId,
                 items: cart.map(c => ({
                     serviceType: c.serviceId,
                     applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
@@ -335,14 +353,14 @@ export default function ClientServices() {
             };
 
             const res = await serviceService.checkout(payload);
-            const msg = res.data?.message || `Successfully booked ${cart.length} service(s) for ${totalAmount.toFixed(2)} AZN!`;
+            const msg = res.data?.message || `Azericard ilə ${totalAmount.toFixed(2)} AZN məbləğində ödəniş uğurla tamamlandı! ${cart.length} xidmət aktivləşdirildi.`;
             showSuccess(msg);
             setCart([]);
             setShowCheckoutModal(false);
             await loadDossierData();
         } catch (err: any) {
             console.error('Checkout error:', err);
-            showError(err.response?.data?.message || err.message || 'Payment processing failed.');
+            showError(err.response?.data?.message || err.message || 'Azericard payment processing failed.');
         } finally {
             setIsProcessing(false);
         }
@@ -636,53 +654,107 @@ export default function ClientServices() {
                                         </div>
                                     );
                                 })}
+                                                 {/* Azericard 3D-Secure Payment Portal */}
+                            <div className="azericard-portal-box" style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderRadius: '12px', padding: '16px', marginTop: '14px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #E2E8F0', paddingBottom: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ background: '#0F1E36', color: '#FFFFFF', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.5px' }}>AZERICARD</span>
+                                        <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>3D-Secure Bank Gateway</strong>
+                                    </div>
+                                    <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 700, background: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
+                                        🔒 256-bit Encrypted
+                                    </span>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Cardholder Full Name</label>
+                                        <input 
+                                            type="text" 
+                                            value={cardHolder} 
+                                            onChange={(e) => setCardHolder(e.target.value)}
+                                            style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF' }}
+                                            placeholder="CARDHOLDER NAME"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Card Number (Visa / Mastercard / MilliKart)</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <input 
+                                                type="text" 
+                                                value={cardNumber} 
+                                                onChange={(e) => setCardNumber(e.target.value)}
+                                                maxLength={19}
+                                                style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', letterSpacing: '1px' }}
+                                                placeholder="4169 0000 0000 0000"
+                                            />
+                                            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem' }}>💳</span>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Expiry Date</label>
+                                            <input 
+                                                type="text" 
+                                                value={cardExpiry} 
+                                                onChange={(e) => setCardExpiry(e.target.value)}
+                                                maxLength={5}
+                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center' }}
+                                                placeholder="MM/YY"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>CVV / CVC</label>
+                                            <input 
+                                                type="password" 
+                                                value={cardCvv} 
+                                                onChange={(e) => setCardCvv(e.target.value)}
+                                                maxLength={3}
+                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center', letterSpacing: '2px' }}
+                                                placeholder="•••"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <div className="modal-payment-gateway-box">
-                                <div className="gateway-header">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                                    <span>EuroTech Visa Center Payment Gateway</span>
-                                </div>
-                                <div className="gateway-details">
-                                    <span>Currency: <strong>AZN</strong></span>
-                                    <span>Status: <strong>Immediate Confirmation</strong></span>
-                                </div>
-                            </div>
-
-                            <div className="modal-total-summary-row">
-                                <span>Grand Total to Pay:</span>
+                            <div className="modal-total-summary-row" style={{ marginTop: '14px' }}>
+                                <span>Total Payable (AZN):</span>
                                 <span className="modal-grand-amount">{totalAmount.toFixed(2)} AZN</span>
                             </div>
                         </div>
 
                         <div className="checkout-modal-footer">
                             <button 
-                                type="button"
+                                type="button" 
                                 className="btn-secondary" 
                                 onClick={() => setShowCheckoutModal(false)}
                                 disabled={isProcessing}
                             >
-                                Back / Modify
+                                Cancel
                             </button>
                             <button 
-                                type="button"
+                                type="button" 
                                 className="btn-primary modal-confirm-btn" 
                                 onClick={executeCheckout}
                                 disabled={isProcessing}
+                                style={{ background: '#0F1E36', borderColor: '#0F1E36' }}
                             >
                                 {isProcessing ? (
                                     <>
                                         <svg className="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-                                        Processing Payment...
+                                        Azericard 3D-Secure Processing...
                                     </>
                                 ) : (
                                     <>
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                        Confirm & Pay {totalAmount.toFixed(2)} AZN
+                                        <span>🔒</span>
+                                        Pay {totalAmount.toFixed(2)} AZN with Azericard
                                     </>
                                 )}
                             </button>
-                        </div>
+                        </div>         </div>
                     </div>
                 </div>
             )}

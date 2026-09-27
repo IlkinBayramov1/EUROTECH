@@ -19,6 +19,8 @@ interface DocumentItem {
     fileSize?: number;
     fileUrl?: string;
     isMandatory?: boolean;
+    isSharedWithFamily?: boolean;
+    isInheritedFromFamily?: boolean;
 }
 
 const DEFAULT_REQUIREMENTS: DocumentItem[] = [
@@ -27,10 +29,8 @@ const DEFAULT_REQUIREMENTS: DocumentItem[] = [
         docType: 'PASSPORT',
         title: 'Valid Passport Copy',
         description: 'Provide a clear, colored scan of the main passport page containing your photo and personal details. Must be valid for at least 3 months beyond your return date.',
-        status: 'verified',
+        status: 'missing',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>,
-        fileName: 'passport_scan_primary.pdf',
-        fileSize: 1450000,
         isMandatory: true,
     },
     {
@@ -38,10 +38,8 @@ const DEFAULT_REQUIREMENTS: DocumentItem[] = [
         docType: 'BIOMETRIC_PHOTO',
         title: 'Biometric Photograph',
         description: 'Recent (no older than 6 months) color photograph measuring 3.5 x 4.5 cm. Light background, neutral expression, adherence to ICAO standards.',
-        status: 'review',
+        status: 'missing',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>,
-        fileName: 'biometric_photo_icao.jpg',
-        fileSize: 850000,
         isMandatory: true,
     },
     {
@@ -85,11 +83,8 @@ const DEFAULT_REQUIREMENTS: DocumentItem[] = [
         docType: 'INSURANCE',
         title: 'Travel Medical Insurance',
         description: 'Insurance certificate covering the entire Schengen area with a minimum coverage of €30,000 for medical emergencies.',
-        status: 'rejected',
-        feedback: 'The uploaded document is blurry and the coverage amount is unreadable. Please upload a high-resolution PDF copy.',
+        status: 'missing',
         icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M8 11h8" /><path d="M12 7v8" /></svg>,
-        fileName: 'travel_insurance_draft.pdf',
-        fileSize: 420000,
         isMandatory: true,
     }
 ];
@@ -111,19 +106,30 @@ export default function ClientDocuments() {
 
     const [documents, setDocuments] = useState<DocumentItem[]>(DEFAULT_REQUIREMENTS);
 
+    const SHARABLE_TYPES = ['ACCOMMODATION', 'INSURANCE', 'FLIGHT_ITINERARY'];
+
     // Map documents for the chosen applicant
     const syncDocumentsForApplicant = useCallback((targetAppId: string, currentDossier: any) => {
         if (!currentDossier) return;
 
         const allDocs = currentDossier.documents || [];
-        const applicantDocs = allDocs.filter((d: any) => d.applicantId === targetAppId);
 
-        // If this applicant has actual documents stored in DB, map them accurately
-        if (applicantDocs.length > 0) {
+        // If this dossier has documents, map direct or family-shared ones
+        if (allDocs.length > 0) {
             setDocuments(prev => prev.map(req => {
-                const found = applicantDocs.find(
-                    (d: any) => d.requiredDocumentType === req.docType || d.requiredDocumentType?.toLowerCase() === req.docType.toLowerCase()
+                const directDoc = allDocs.find(
+                    (d: any) => d.applicantId === targetAppId &&
+                    (d.requiredDocumentType === req.docType || d.requiredDocumentType?.toLowerCase() === req.docType.toLowerCase())
                 );
+
+                const sharedDoc = !directDoc && SHARABLE_TYPES.includes(req.docType)
+                    ? allDocs.find((d: any) =>
+                        d.isSharedWithFamily &&
+                        (d.requiredDocumentType === req.docType || d.requiredDocumentType?.toLowerCase() === req.docType.toLowerCase())
+                      )
+                    : null;
+
+                const found = directDoc || sharedDoc;
 
                 if (found) {
                     let status: DocStatus = 'review';
@@ -139,6 +145,8 @@ export default function ClientDocuments() {
                         fileSize: found.fileSize,
                         fileUrl: found.fileUrl,
                         feedback: found.operatorNotes || undefined,
+                        isSharedWithFamily: Boolean(found.isSharedWithFamily),
+                        isInheritedFromFamily: Boolean(sharedDoc && !directDoc),
                     };
                 } else {
                     return {
@@ -149,20 +157,11 @@ export default function ClientDocuments() {
                         fileSize: undefined,
                         fileUrl: undefined,
                         feedback: undefined,
+                        isSharedWithFamily: false,
+                        isInheritedFromFamily: false,
                     };
                 }
             }));
-        } else if (allDocs.length > 0) {
-            // Dossier has documents, but this specific co-applicant has none yet
-            setDocuments(prev => prev.map(req => ({
-                ...req,
-                status: 'missing' as DocStatus,
-                backendDocId: undefined,
-                fileName: undefined,
-                fileSize: undefined,
-                fileUrl: undefined,
-                feedback: undefined,
-            })));
         } else {
             // First time visit / demo state: keep DEFAULT_REQUIREMENTS
             setDocuments(DEFAULT_REQUIREMENTS);
@@ -219,12 +218,36 @@ export default function ClientDocuments() {
 
         setUploadingDocId(docId);
         try {
-            if (dossierId && selectedApplicant) {
+            let currentDossierId = dossierId;
+            let currentApplicantId = selectedApplicant;
+
+            if (!currentDossierId || !currentApplicantId || currentApplicantId === 'app-1') {
+                try {
+                    const freshRes = await dossierService.getMyDossiers();
+                    const dossiers = freshRes.data?.dossiers || [];
+                    if (dossiers.length > 0) {
+                        const active = dossiers[0];
+                        currentDossierId = active.id;
+                        setDossier(active);
+                        setDossierId(active.id);
+                        if (active.applicants && active.applicants.length > 0) {
+                            currentApplicantId = active.applicants[0].id;
+                            setSelectedApplicant(currentApplicantId);
+                        }
+                    }
+                } catch (freshErr) {
+                    console.warn('Could not auto-resolve dossier:', freshErr);
+                }
+            }
+
+            if (currentDossierId && currentApplicantId && currentApplicantId !== 'app-1') {
+                const isSharable = SHARABLE_TYPES.includes(docType);
                 const res = await documentService.uploadDocument({
-                    dossierId,
-                    applicantId: selectedApplicant,
+                    dossierId: currentDossierId,
+                    applicantId: currentApplicantId,
                     requiredDocumentType: docType,
                     isMandatory: true,
+                    isSharedWithFamily: isSharable,
                     file,
                 });
                 const backendDoc = res.data?.document;
@@ -237,6 +260,7 @@ export default function ClientDocuments() {
                     fileName: file.name,
                     fileSize: file.size,
                     fileUrl: backendDoc?.fileUrl,
+                    isSharedWithFamily: isSharable,
                     feedback: undefined
                 } : d));
 
@@ -251,6 +275,19 @@ export default function ClientDocuments() {
         } finally {
             setUploadingDocId(null);
             e.target.value = '';
+        }
+    };
+
+    // Toggle Family Sharing for Vouchers/Insurance
+    const handleToggleFamilyShare = async (doc: DocumentItem, checked: boolean) => {
+        if (!doc.backendDocId) return;
+        try {
+            await documentService.toggleFamilySharing(doc.backendDocId, checked);
+            showSuccess(checked ? 'Document shared with all family co-applicants' : 'Family sharing turned off');
+            await loadDossierData();
+        } catch (err: any) {
+            console.error('Family share toggle error:', err);
+            showError(err.message || 'Failed to update sharing preference');
         }
     };
 
@@ -343,8 +380,16 @@ export default function ClientDocuments() {
 
     // Header Action: Download Official Submission Checklist (PDF)
     const handleDownloadChecklistPdf = async () => {
-        if (!dossierId) {
-            showError('Active dossier not found.');
+        let activeId = dossierId || dossier?.id;
+        if (!activeId) {
+            const fresh = await dossierService.getMyDossiers().catch(() => null);
+            if (fresh?.data?.dossiers?.[0]?.id) {
+                activeId = fresh.data.dossiers[0].id;
+                setDossierId(activeId);
+            }
+        }
+        if (!activeId) {
+            showError('Active dossier not found. Please start an application first.');
             return;
         }
         setExportingPdf(true);
@@ -376,8 +421,16 @@ export default function ClientDocuments() {
 
     // Header Action: Export Document Inventory (Excel/CSV)
     const handleExportChecklistExcel = async () => {
-        if (!dossierId) {
-            showError('Active dossier not found.');
+        let activeId = dossierId || dossier?.id;
+        if (!activeId) {
+            const fresh = await dossierService.getMyDossiers().catch(() => null);
+            if (fresh?.data?.dossiers?.[0]?.id) {
+                activeId = fresh.data.dossiers[0].id;
+                setDossierId(activeId);
+            }
+        }
+        if (!activeId) {
+            showError('Active dossier not found. Please start an application first.');
             return;
         }
         setExportingExcel(true);
@@ -534,6 +587,38 @@ export default function ClientDocuments() {
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
                                         <span className="file-name">{doc.fileName}</span>
                                         {doc.fileSize && <span className="file-size">({formatFileSize(doc.fileSize)})</span>}
+                                    </div>
+                                )}
+
+                                {SHARABLE_TYPES.includes(doc.docType) && doc.fileName && (
+                                    <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <label style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '0.82rem',
+                                            color: doc.isInheritedFromFamily ? '#166534' : '#1E40AF',
+                                            background: doc.isInheritedFromFamily ? '#F0FDF4' : '#EFF6FF',
+                                            padding: '5px 12px',
+                                            borderRadius: '20px',
+                                            border: `1px solid ${doc.isInheritedFromFamily ? '#BBF7D0' : '#BFDBFE'}`,
+                                            cursor: doc.isInheritedFromFamily ? 'default' : 'pointer',
+                                            fontWeight: 500
+                                        }}>
+                                            {!doc.isInheritedFromFamily && (
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={doc.isSharedWithFamily || false} 
+                                                    onChange={(e) => handleToggleFamilyShare(doc, e.target.checked)} 
+                                                    style={{ cursor: 'pointer' }}
+                                                />
+                                            )}
+                                            <span>
+                                                {doc.isInheritedFromFamily 
+                                                    ? '👥 Shared voucher inherited from primary applicant' 
+                                                    : '👥 Share with all accompanying family co-applicants'}
+                                            </span>
+                                        </label>
                                     </div>
                                 )}
 

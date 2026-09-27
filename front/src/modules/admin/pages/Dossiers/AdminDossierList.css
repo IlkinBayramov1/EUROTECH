@@ -1,0 +1,291 @@
+/* ==========================================================================
+   ADMIN DOSSIER LIST STYLES
+   ========================================================================== */
+
+.admin-dossier-list-view {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.dossiers-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+
+.dossiers-title {
+  font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: #F8FAFC;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+
+.dossiers-subtitle {
+  font-size: 0.95rem;
+  color: #94A3B8;
+  margin: 0;
+}
+
+.dossiers-header-meta {
+  display: flex;
+  align-items: center;
+}
+
+.count-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #94A3B8;
+}
+
+.count-pill strong {
+  color: #F87171;
+  font-weight: 700;
+}
+
+/* --- FILTERS BAR --- */
+.dossiers-filter-bar {
+  background: #0E1626;
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  border-radius: 10px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-search-box {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.filter-search-box:focus-within {
+  border-color: #DC2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+}
+
+.filter-search-box svg {
+  width: 16px;
+  height: 16px;
+  color: #64748B;
+  flex-shrink: 0;
+}
+
+.filter-search-box input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #F8FAFC;
+  font-size: 0.88rem;
+  width: 100%;
+}
+
+.clear-search-btn {
+  background: transparent;
+  border: none;
+  color: #64748B;
+  font-size: 1.1rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.clear-search-btn:hover {
+  color: #CBD5E1;
+}
+
+.filter-select-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-select-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #94A3B8;
+  white-space: nowrap;
+}
+
+.filter-select-group select {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  color: #F8FAFC;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.filter-select-group select:focus {
+  border-color: #DC2626;
+}
+
+.btn-reset-filters {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #F87171;
+  padding: 7px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-reset-filters:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* --- TABLE PANEL --- */
+.dossiers-table-panel {
+  background: #0E1626;
+  border: 1px solid rgba(226, 232, 240, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.passport-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  color: #94A3B8;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.appointment-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.appt-date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #CBD5E1;
+}
+
+.appt-loc {
+  font-size: 0.72rem;
+  color: #64748B;
+}
+
+/* --- PAGINATION --- */
+.dossiers-pagination {
+  padding: 16px 24px;
+  border-top: 1px solid rgba(226, 232, 240, 0.06);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: #94A3B8;
+}
+
+.pagination-info strong {
+  color: #F8FAFC;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-page {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(226, 232, 240, 0.1);
+  color: #CBD5E1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-page:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+.btn-page:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-page-number {
+  min-width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #94A3B8;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-page-number:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #FFFFFF;
+}
+
+.btn-page-number.active {
+  background: #DC2626;
+  color: #FFFFFF;
+  border-color: #DC2626;
+}
+
+.page-ellipsis {
+  color: #64748B;
+  padding: 0 4px;
+}
+
+/* --- EMPTY / LOADING --- */
+.dossiers-loading,
+.dossiers-empty {
+  padding: 64px 24px;
+  text-align: center;
+  color: #64748B;
+}
+
+.dossiers-empty svg {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  color: #475569;
+}
+
+.dossiers-empty h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin: 0 0 8px;
+}
+
+.dossiers-empty p {
+  font-size: 0.9rem;
+  color: #94A3B8;
+  margin: 0 0 20px;
+}

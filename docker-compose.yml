@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. Backend API & Cron Worker
+  # ==========================================
+  backend:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    container_name: eurotech-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - DATABASE_URL=mysql://eurotech_user:EuroTechSecurePass2026!@mysql:3306/eurotech_db
+      - JWT_SECRET=eurotech_super_secret_jwt_key_2026_safe_and_secure_production
+      - STRIPE_SECRET_KEY=sk_test_mock_eurotech_stripe_key
+      - STRIPE_WEBHOOK_SECRET=whsec_mock_eurotech_webhook_secret
+      - STORAGE_DRIVER=local
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET_NAME=eurotech-documents
+      - S3_ACCESS_KEY_ID=minioadmin
+      - S3_SECRET_ACCESS_KEY=minioadmin
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - backend_uploads:/usr/src/app/uploads
+      - backend_archives:/usr/src/app/archives
+    networks:
+      - eurotech-net
+
+  # ==========================================
+  # 2. Frontend React SPA (Nginx)
+  # ==========================================
+  frontend:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: eurotech-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - eurotech-net
+
+  # ==========================================
+  # 3. MySQL 8.0 Database
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: eurotech-mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: RootSecurePassword2026!
+      MYSQL_DATABASE: eurotech_db
+      MYSQL_USER: eurotech_user
+      MYSQL_PASSWORD: EuroTechSecurePass2026!
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pRootSecurePassword2026!"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - eurotech-net
+
+  # ==========================================
+  # 4. Redis 7.0 (Caching & Rate Limiting)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: eurotech-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - eurotech-net
+
+  # ==========================================
+  # 5. MinIO (S3-Compatible Private Storage)
+  # ==========================================
+  minio:
+    image: minio/minio:latest
+    container_name: eurotech-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - eurotech-net
+
+volumes:
+  mysql_data:
+  redis_data:
+  minio_data:
+  backend_uploads:
+  backend_archives:
+
+networks:
+  eurotech-net:
+    driver: bridge

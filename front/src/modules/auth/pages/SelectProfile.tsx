@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/shared/context/AuthContext';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
 import './SelectProfile.css';
 
@@ -9,16 +10,37 @@ export default function SelectProfile() {
   const [selectedProfile, setSelectedProfile] = useState<ProfileType | null>(null);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
 
   const handleEnterProfile = (profile: ProfileType, targetMode?: 'login' | 'register') => {
     if (!profile) return;
 
     if (profile === 'individual') {
-      navigate(targetMode ? `/login/individual?mode=${targetMode}` : '/login/individual');
+      if (targetMode === 'register') {
+        if (isAuthenticated && user?.role === 'INDIVIDUAL') {
+          navigate('/individual/wizard');
+        } else {
+          navigate('/login/individual?mode=register');
+        }
+      } else {
+        if (isAuthenticated && user?.role === 'INDIVIDUAL') {
+          navigate('/client');
+        } else {
+          navigate('/login/individual?mode=login');
+        }
+      }
     } else if (profile === 'agent') {
-      navigate(targetMode ? `/login/agent?mode=${targetMode}` : '/login/agent');
+      if (isAuthenticated && (user?.role === 'AGENT' || user?.role === 'AGENT_TUR_OPERATOR')) {
+        navigate('/agent');
+      } else {
+        navigate(targetMode ? `/login/agent?mode=${targetMode}` : '/login/agent');
+      }
     } else if (profile === 'corporate') {
-      navigate(targetMode ? `/login/corporate?mode=${targetMode}` : '/login/corporate');
+      if (isAuthenticated && (user?.role === 'CORPORATE' || user?.role === 'CORPORATE_HR')) {
+        navigate('/corporate');
+      } else {
+        navigate(targetMode ? `/login/corporate?mode=${targetMode}` : '/login/corporate');
+      }
     }
   };
 
@@ -28,7 +50,7 @@ export default function SelectProfile() {
 
   const handleCardDoubleClick = (profile: ProfileType) => {
     setSelectedProfile(profile);
-    handleEnterProfile(profile);
+    handleEnterProfile(profile, 'login');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, profile: ProfileType) => {
