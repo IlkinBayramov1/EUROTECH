@@ -38,8 +38,30 @@ async function updateDossierDecision(req, res, next) {
   }
 }
 
+async function getAgentPayouts(req, res, next) {
+  try {
+    const payouts = await adminService.getAgentPayouts();
+    return ApiResponse.success(res, { payouts }, 'Agent payout requests retrieved');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function updateAgentPayoutStatus(req, res, next) {
+  try {
+    const { payoutId } = req.params;
+    const { status } = req.body;
+    const payout = await adminService.updateAgentPayoutStatus(payoutId, status);
+    return ApiResponse.success(res, { payout }, `Payout status updated to ${status}`);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   getDashboardMetrics,
   getAllDossiers,
   updateDossierDecision,
+  getAgentPayouts,
+  updateAgentPayoutStatus,
 };

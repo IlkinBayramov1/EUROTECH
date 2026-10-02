@@ -163,29 +163,39 @@ async function createPaymentIntent(dossierId, userId, idempotencyKey = null) {
   const amountInCents = Math.round(dossier.totalAmount * 100);
 
   let paymentIntent;
-  try {
-    paymentIntent = await stripe.paymentIntents.create(
-      {
-        amount: amountInCents,
-        currency: 'eur',
-        metadata: {
-          dossierId: dossier.id,
-          dossierNumber: dossier.dossierNumber,
-          userId,
-        },
-      },
-      {
-        idempotencyKey: generatedIdempotencyKey,
-      }
-    );
-  } catch (err) {
-    console.warn('Stripe SDK live error (using sandbox fallback):', err.message);
+  const isMockStripe = !env.STRIPE_SECRET_KEY || env.STRIPE_SECRET_KEY.includes('mock');
+  if (isMockStripe) {
     const mockId = `pi_mock_${Date.now()}`;
     paymentIntent = {
       id: mockId,
       client_secret: `${mockId}_secret`,
       amount: amountInCents,
     };
+  } else {
+    try {
+      paymentIntent = await stripe.paymentIntents.create(
+        {
+          amount: amountInCents,
+          currency: 'eur',
+          metadata: {
+            dossierId: dossier.id,
+            dossierNumber: dossier.dossierNumber,
+            userId,
+          },
+        },
+        {
+          idempotencyKey: generatedIdempotencyKey,
+        }
+      );
+    } catch (err) {
+      console.warn('Stripe SDK live error (using sandbox fallback):', err.message);
+      const mockId = `pi_mock_${Date.now()}`;
+      paymentIntent = {
+        id: mockId,
+        client_secret: `${mockId}_secret`,
+        amount: amountInCents,
+      };
+    }
   }
 
   await prisma.transaction.create({

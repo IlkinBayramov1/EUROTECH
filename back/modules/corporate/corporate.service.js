@@ -28,7 +28,7 @@ function sanitizeTextForPdf(text) {
 
 function generateBatchCode() {
   const year = new Date().getFullYear();
-  const digits = Math.floor(100 + Math.random() * 900);
+  const digits = Math.floor(100000 + Math.random() * 900000);
   return `BCH-${year}-${digits}`;
 }
 

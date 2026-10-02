@@ -37,6 +37,25 @@ async function sendEmail({ to, subject, html, attachments = [], templateName = n
     // If DB log fails, proceed with email send
   }
 
+  // Development Sandbox / Simulator Mode for Mock Credentials
+  const isMockSmtp = !env.SMTP_USER || env.SMTP_USER === 'mock_smtp_user' || env.SMTP_USER.includes('mock');
+  if (isMockSmtp) {
+    const mockId = `mock-email-${Date.now()}`;
+    console.log(`[EMAIL SANDBOX] Email '${subject}' dispatched to ${to} (Attachments: ${attachments.length})`);
+    if (logRecord) {
+      try {
+        await prisma.outboundMessageLog.update({
+          where: { id: logRecord.id },
+          data: {
+            status: 'SENT',
+            providerMessageId: mockId,
+          },
+        });
+      } catch (e) {}
+    }
+    return { success: true, messageId: mockId, sandbox: true };
+  }
+
   try {
     const info = await transporter.sendMail({
       from: env.SMTP_FROM,

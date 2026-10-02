@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { corporateService } from '@/shared/api/services/corporate.service';
-import { documentService } from '@/shared/api/services';
+import { documentService, dossierService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import './CorporateBatches.css';
 
@@ -53,6 +53,8 @@ const REQUIRED_CORP_DOCS = [
     { type: 'INSURANCE', title: 'Corporate Travel Insurance', desc: 'International travel insurance covering medical emergency and repatriation.' },
     { type: 'TRAVEL_ORDER', title: 'Corporate Travel Order / Mission Order', desc: 'Internal company delegation decree signed and sealed by management.' },
 ];
+
+const REQ_CORP_DOC_TYPES = new Set(REQUIRED_CORP_DOCS.map(d => d.type));
 
 export default function CorporateBatches() {
     const navigate = useNavigate();
@@ -172,6 +174,32 @@ export default function CorporateBatches() {
         }
     };
 
+    // --- Funksiyalar (Hoisted before effects) ---
+    const handleManageEmployee = (batch: Batch, employee: Employee) => {
+        setActiveBatch(batch);
+        setActiveEmployee(employee);
+        setEmployeeFormData({
+            firstName: employee.firstName || employee.fullName.split(' ')[0] || '',
+            lastName: employee.lastName || employee.fullName.split(' ').slice(1).join(' ') || '',
+            passportNumber: employee.passportNumber || employee.passport || '',
+            dob: employee.dob || '',
+            expiryDate: employee.expiryDate || '',
+            jobTitle: employee.formDataJson?.jobTitle || '',
+            department: employee.formDataJson?.department || '',
+            hotelAccommodation: employee.formDataJson?.hotelAccommodation || '',
+            specialNotes: employee.formDataJson?.specialNotes || '',
+        });
+        setManageTab('form');
+        setCurrentFormStep(1);
+        setView('manage');
+    };
+
+    const handleBackToList = () => {
+        setView('list');
+        setActiveBatch(null);
+        setActiveEmployee(null);
+    };
+
     useEffect(() => {
         fetchBatches();
     }, []);
@@ -216,32 +244,6 @@ export default function CorporateBatches() {
             return matchesQuery && matchesDest && matchesStatus;
         });
     }, [batches, searchQuery, destinationFilter, statusFilter]);
-
-    // --- Funksiyalar ---
-    const handleManageEmployee = (batch: Batch, employee: Employee) => {
-        setActiveBatch(batch);
-        setActiveEmployee(employee);
-        setEmployeeFormData({
-            firstName: employee.firstName || employee.fullName.split(' ')[0] || '',
-            lastName: employee.lastName || employee.fullName.split(' ').slice(1).join(' ') || '',
-            passportNumber: employee.passportNumber || employee.passport || '',
-            dob: employee.dob || '',
-            expiryDate: employee.expiryDate || '',
-            jobTitle: employee.formDataJson?.jobTitle || '',
-            department: employee.formDataJson?.department || '',
-            hotelAccommodation: employee.formDataJson?.hotelAccommodation || '',
-            specialNotes: employee.formDataJson?.specialNotes || '',
-        });
-        setManageTab('form');
-        setCurrentFormStep(1);
-        setView('manage');
-    };
-
-    const handleBackToList = () => {
-        setView('list');
-        setActiveBatch(null);
-        setActiveEmployee(null);
-    };
 
     const handleSubmitBatch = async (batchId: string) => {
         try {
@@ -365,6 +367,46 @@ export default function CorporateBatches() {
         const fallbackUrl = `${window.location.origin}/corporate/delegation?token=del_${empId}`;
         await navigator.clipboard.writeText(fallbackUrl);
         showSuccess(`Delegation link for ${empName} copied to clipboard!`);
+    };
+
+    const handleDownloadSchengenPdf = async (batch: Batch, employee: Employee) => {
+        try {
+            showSuccess(`${employee.fullName} üçün rəsmi Şengen vizası ərizə forması (PDF) hazırlanır...`);
+            const dossierId = employee.dossierId || batch.id;
+            const res = await dossierService.getApplicationFormPdf(dossierId, employee.id, {
+                ...(employee.formDataJson || {}),
+                firstName: employee.firstName,
+                lastName: employee.lastName,
+                passportNumber: employee.passport,
+                destination: batch.destination,
+                purpose: 'Business',
+                arrivalDate: batch.travelDate,
+                employerName: 'Corporate Partner',
+                costCoveredBy: 'By Sponsor / Employer',
+            });
+
+            if (res.data?.downloadUrl) {
+                const fullUrl = res.data.downloadUrl.startsWith('http')
+                    ? res.data.downloadUrl
+                    : `http://localhost:5000${res.data.downloadUrl}`;
+                
+                const fileRes = await fetch(fullUrl);
+                if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
+                const blob = await fileRes.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = res.data.fileName || `Schengen_Form_${employee.firstName || 'Employee'}_${employee.lastName || ''}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+                showSuccess(`${employee.fullName} üçün Şengen forması (PDF) uğurla endirildi!`);
+            }
+        } catch (err: any) {
+            console.error('Schengen PDF error:', err);
+            showError('Şengen PDF formasını yükləmək mümkün olmadı.');
+        }
     };
 
     // Modal Funksiyaları
@@ -696,6 +738,14 @@ export default function CorporateBatches() {
                                                             </td>
                                                             <td className="cell-actions text-right">
                                                                 <div className="action-group-right">
+                                                                    <button 
+                                                                        className="btn-icon-secondary" 
+                                                                        title="Download Official Schengen Visa Form (PDF)" 
+                                                                        onClick={() => handleDownloadSchengenPdf(batch, emp)}
+                                                                        style={{ color: '#EF4444' }}
+                                                                    >
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                                                    </button>
                                                                     <button className="btn-icon-secondary" title="Copy Delegation Link" onClick={() => handleCopyDelegationLink(emp.id, emp.fullName, batch.id)}>
                                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                                                                     </button>
@@ -805,10 +855,7 @@ export default function CorporateBatches() {
     ];
 
     const uploadedDocTypes = new Set(activeEmployee?.documents.map(d => d.requiredDocumentType) || []);
-    const reqDocTypes = useMemo(() => new Set(REQUIRED_CORP_DOCS.map(d => d.type)), []);
-    const additionalDocs = useMemo(() => {
-        return (activeEmployee?.documents || []).filter(d => !reqDocTypes.has(d.requiredDocumentType));
-    }, [activeEmployee, reqDocTypes]);
+    const additionalDocs = (activeEmployee?.documents || []).filter(d => !REQ_CORP_DOC_TYPES.has(d.requiredDocumentType));
     const uploadedMandatoryCount = REQUIRED_CORP_DOCS.filter(d => uploadedDocTypes.has(d.type)).length;
 
     return (
@@ -832,6 +879,19 @@ export default function CorporateBatches() {
                     <div className="employee-id-badge">Batch: <strong>{activeBatch?.name}</strong></div>
                     <h2 className="manage-title">Employee: {activeEmployee?.fullName}</h2>
                 </div>
+                {activeBatch && activeEmployee && (
+                    <div style={{ marginLeft: 'auto' }}>
+                        <button 
+                            type="button" 
+                            className="btn-action-outline"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                            onClick={() => handleDownloadSchengenPdf(activeBatch, activeEmployee)}
+                        >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            📄 Şengen Forması (PDF)
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Premium Tabs */}

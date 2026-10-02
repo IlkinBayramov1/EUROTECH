@@ -10,5 +10,7 @@ router.use(requireRoles(['OPERATOR', 'MANAGER', 'ADMIN']));
 router.get('/metrics', adminController.getDashboardMetrics);
 router.get('/dossiers', adminController.getAllDossiers);
 router.patch('/dossier/:dossierId/decision', adminController.updateDossierDecision);
+router.get('/agent-payouts', adminController.getAgentPayouts);
+router.patch('/agent-payouts/:payoutId', adminController.updateAgentPayoutStatus);
 
 module.exports = router;

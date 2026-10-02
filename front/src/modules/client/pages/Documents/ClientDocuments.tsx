@@ -89,6 +89,8 @@ const DEFAULT_REQUIREMENTS: DocumentItem[] = [
     }
 ];
 
+const SHARABLE_TYPES = ['ACCOMMODATION', 'INSURANCE', 'FLIGHT_ITINERARY'];
+
 export default function ClientDocuments() {
     const { showSuccess, showError } = useToast();
     const [dossier, setDossier] = useState<any>(null);
@@ -105,8 +107,6 @@ export default function ClientDocuments() {
     ]);
 
     const [documents, setDocuments] = useState<DocumentItem[]>(DEFAULT_REQUIREMENTS);
-
-    const SHARABLE_TYPES = ['ACCOMMODATION', 'INSURANCE', 'FLIGHT_ITINERARY'];
 
     // Map documents for the chosen applicant
     const syncDocumentsForApplicant = useCallback((targetAppId: string, currentDossier: any) => {

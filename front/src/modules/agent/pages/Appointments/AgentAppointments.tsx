@@ -68,7 +68,7 @@ export default function AgentAppointments() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const loadAppointments = async (targetYear = year, targetMonth = month) => {
+    const loadAppointments = React.useCallback(async (targetYear = year, targetMonth = month) => {
         setLoading(true);
         try {
             const res: any = await agentService.getAgentAppointments();
@@ -96,22 +96,20 @@ export default function AgentAppointments() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [year, month, showError]);
 
     useEffect(() => {
         loadAppointments(year, month);
-    }, []);
+    }, [year, month, loadAppointments]);
 
     const handlePrevMonth = () => {
         const prev = new Date(year, month - 1, 1);
         setCurrentViewDate(prev);
-        loadAppointments(prev.getFullYear(), prev.getMonth());
     };
 
     const handleNextMonth = () => {
         const next = new Date(year, month + 1, 1);
         setCurrentViewDate(next);
-        loadAppointments(next.getFullYear(), next.getMonth());
     };
 
     // Calculate which days have appointments in this month

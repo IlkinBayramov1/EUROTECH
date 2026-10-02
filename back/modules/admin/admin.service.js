@@ -119,8 +119,91 @@ async function updateDossierStatusAndDecision({ dossierId, nextStatus, notes, re
   return updatedDossier;
 }
 
+async function getAgentPayouts() {
+  const payouts = await prisma.payoutRequest.findMany({
+    include: {
+      wallet: {
+        include: {
+          user: {
+            select: { id: true, fullName: true, email: true, companyName: true, phone: true },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return payouts.map((p) => ({
+    id: p.id,
+    walletId: p.walletId,
+    agentName: p.wallet?.user?.fullName || 'Agent',
+    companyName: p.wallet?.user?.companyName || 'Travel Partner',
+    email: p.wallet?.user?.email,
+    phone: p.wallet?.user?.phone,
+    amount: p.amount,
+    bankName: p.bankName,
+    iban: p.iban,
+    swiftBic: p.swiftBic,
+    status: p.status,
+    createdAt: p.createdAt,
+    processedAt: p.processedAt,
+  }));
+}
+
+async function updateAgentPayoutStatus(payoutId, status) {
+  const payout = await prisma.payoutRequest.findUnique({
+    where: { id: payoutId },
+    include: { wallet: true },
+  });
+
+  if (!payout) {
+    const error = new Error('Payout request not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const updated = await tx.payoutRequest.update({
+      where: { id: payoutId },
+      data: {
+        status,
+        processedAt: new Date(),
+      },
+    });
+
+    const txRecord = await tx.walletTransaction.findFirst({
+      where: { walletId: payout.walletId, referenceId: payoutId, referenceType: 'PAYOUT' },
+    });
+
+    if (status === 'PROCESSED') {
+      if (txRecord) {
+        await tx.walletTransaction.update({
+          where: { id: txRecord.id },
+          data: { status: 'PAID' },
+        });
+      }
+    } else if (status === 'REJECTED') {
+      if (txRecord) {
+        await tx.walletTransaction.update({
+          where: { id: txRecord.id },
+          data: { status: 'REFUNDED' },
+        });
+      }
+      // Refund back to agent balance
+      await tx.wallet.update({
+        where: { id: payout.walletId },
+        data: { balance: { increment: payout.amount } },
+      });
+    }
+
+    return updated;
+  });
+}
+
 module.exports = {
   getDashboardMetrics,
   getAllDossiers,
   updateDossierStatusAndDecision,
+  getAgentPayouts,
+  updateAgentPayoutStatus,
 };

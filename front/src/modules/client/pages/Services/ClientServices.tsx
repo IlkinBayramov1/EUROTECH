@@ -242,9 +242,7 @@ export default function ClientServices() {
                         isPrimary: idx === 0
                     }));
                     setApplicants(mapped);
-                    if (!selectedApplicant || !mapped.some(m => m.id === selectedApplicant)) {
-                        setSelectedApplicant(mapped[0].id);
-                    }
+                    setSelectedApplicant(prev => (!prev || !mapped.some(m => m.id === prev) ? mapped[0].id : prev));
                 } else {
                     // Fallback to default primary applicant if no relations exist yet
                     const fallbackApplicant: Applicant = {
@@ -253,7 +251,7 @@ export default function ClientServices() {
                         isPrimary: true
                     };
                     setApplicants([fallbackApplicant]);
-                    setSelectedApplicant(fallbackApplicant.id);
+                    setSelectedApplicant(prev => prev || fallbackApplicant.id);
                 }
             }
         } catch (err) {
@@ -262,7 +260,7 @@ export default function ClientServices() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedApplicant, showError]);
+    }, [showError]);
 
     useEffect(() => {
         loadDossierData();

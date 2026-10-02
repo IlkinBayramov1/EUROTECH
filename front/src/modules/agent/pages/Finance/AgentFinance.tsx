@@ -12,9 +12,28 @@ interface Transaction {
     status: 'paid' | 'pending' | 'processing';
 }
 
+interface GroupInvoice {
+    groupId: string;
+    groupCode: string;
+    groupName: string;
+    destination: string;
+    paxCount: number;
+    governmentFee: number;
+    serviceFee: number;
+    totalAmount: number;
+    currency: string;
+    paymentStatus: string;
+    groupStatus: string;
+    createdDate: string;
+    travelDate: string;
+}
+
 export default function AgentFinance() {
     const { showSuccess, showError } = useToast();
     
+    // Tab State
+    const [activeTab, setActiveTab] = useState<'commissions' | 'invoices'>('commissions');
+
     // Modal State
     const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
     const [isRequestPayoutOpen, setIsRequestPayoutOpen] = useState(false);
@@ -32,7 +51,9 @@ export default function AgentFinance() {
     const [filterType, setFilterType] = useState<'all' | 'commissions' | 'payouts'>('all');
     const [payoutAmount, setPayoutAmount] = useState<number>(50);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [groupInvoices, setGroupInvoices] = useState<GroupInvoice[]>([]);
     const [isExporting, setIsExporting] = useState<boolean>(false);
+    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
     const loadWalletData = async () => {
         setLoading(true);
@@ -58,15 +79,21 @@ export default function AgentFinance() {
                     status: tx.status === 'COMPLETED' || tx.status === 'PAID' ? 'paid' : tx.status === 'PENDING' ? 'pending' : 'processing',
                 }));
                 setTransactions(mapped);
+
+                if (Array.isArray(w.groupInvoices)) {
+                    setGroupInvoices(w.groupInvoices);
+                }
             } else {
                 setWallet({
                     balance: 0,
                     pendingBalance: 0,
                     totalEarnedYtd: 0,
-                    agentTier: 'SILVER',
-                    ratePerPax: 25,
+                    agentTier: 'BRONZE',
+                    ratePerPax: 20,
                     totalPaxLifetime: 0,
-                    transactions: []
+                    totalPaxDraft: 0,
+                    transactions: [],
+                    groupInvoices: [],
                 });
             }
         } catch (err: any) {
@@ -75,10 +102,12 @@ export default function AgentFinance() {
                 balance: 0,
                 pendingBalance: 0,
                 totalEarnedYtd: 0,
-                agentTier: 'SILVER',
-                ratePerPax: 25,
+                agentTier: 'BRONZE',
+                ratePerPax: 20,
                 totalPaxLifetime: 0,
-                transactions: []
+                totalPaxDraft: 0,
+                transactions: [],
+                groupInvoices: [],
             });
             showError(err.message || 'Maliyyə balansı yüklənərkən xəta baş verdi.');
         } finally {
@@ -98,6 +127,15 @@ export default function AgentFinance() {
         }
     };
 
+    const renderPaymentStatusBadge = (status: string) => {
+        const s = (status || 'PENDING').toUpperCase();
+        switch (s) {
+            case 'PAID': return <span className="finance-badge paid">Ödənilib</span>;
+            case 'PARTIALLY_PAID': return <span className="finance-badge processing">Qismən</span>;
+            case 'PENDING': default: return <span className="finance-badge pending">Gözləmədə</span>;
+        }
+    };
+
     const handleSavePayoutMethod = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
@@ -108,7 +146,7 @@ export default function AgentFinance() {
                 swiftBic,
                 accountHolder: accountHolder || 'Beneficiary',
             });
-            showSuccess('Bank rekvizitləri databazada uğurla yadda saxlanıldı!');
+            showSuccess('Bank rekvizitləri bazada uğurla yadda saxlanıldı!');
             setIsPayoutModalOpen(false);
             await loadWalletData();
         } catch (err: any) {
@@ -170,6 +208,50 @@ export default function AgentFinance() {
         }
     };
 
+    // Qrupu birbaşa maliyyə səhifəsindən emala göndərmək
+    const handleSubmitDraftGroup = async (groupId: string, code: string) => {
+        setActionLoadingId(groupId);
+        try {
+            const res = await agentService.submitGroup(groupId);
+            showSuccess(`"${code}" qrupu rəsmi emala göndərildi! Qazanılan komissiya: €${res.data?.commissionCredited || 20} balansa köçürüldü.`);
+            await loadWalletData();
+        } catch (err: any) {
+            console.error('Submit group error:', err);
+            showError(err.message || 'Qrupu emala göndərmək mümkün olmadı.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    // Rəsmi Qrup Fakturası (PDF) Yükləməsi
+    const handleDownloadGroupInvoice = async (groupId: string, code: string) => {
+        setActionLoadingId(groupId);
+        try {
+            showSuccess(`"${code}" üçün rəsmi B2B faktura (PDF) hazırlanır...`);
+            const res = await agentService.getGroupInvoicePdf(groupId);
+            const fileUrl = res.data?.fileUrl;
+            if (fileUrl) {
+                const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+                const fileRes = await fetch(fullUrl);
+                const blob = await fileRes.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = res.data?.fileName || `group_invoice_${code}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+                showSuccess('Rəsmi Qrup Fakturası (PDF) uğurla endirildi!');
+            }
+        } catch (err: any) {
+            console.error('Invoice download error:', err);
+            showError(err.message || 'Faktura faylını endirmək mümkün olmadı.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
     // Filter transactions
     const filteredTransactions = transactions.filter(tx => {
         if (filterType === 'commissions') return tx.amount > 0;
@@ -180,6 +262,10 @@ export default function AgentFinance() {
     const currentBalance = Number(wallet?.balance || 0);
     const pendingBalance = Number(wallet?.pendingBalance || 0);
     const totalEarnedYtd = Number(wallet?.totalEarnedYtd || 0);
+    const tier = wallet?.agentTier || 'BRONZE';
+    const ratePerPax = Number(wallet?.ratePerPax || 20);
+    const processedPax = Number(wallet?.totalPaxLifetime || 0);
+    const draftPax = Number(wallet?.totalPaxDraft || 0);
 
     return (
         <div className="agent-finance-content fade-in">
@@ -187,7 +273,7 @@ export default function AgentFinance() {
             <div className="agent-finance-header">
                 <div className="header-titles">
                     <h1 className="dash-title">Finance & Commissions</h1>
-                    <p className="dash-subtitle">Track your agency earnings, and manage wallet balances.</p>
+                    <p className="dash-subtitle">Track your agency earnings, manage wallet balances, and inspect group fees.</p>
                 </div>
                 <div className="header-actions">
                     <button className="btn-outline-secondary" onClick={handleExportCsv} disabled={isExporting} title="Download CSV report">
@@ -251,18 +337,18 @@ export default function AgentFinance() {
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{
-                                background: (wallet?.agentTier || 'SILVER') === 'PLATINUM' ? '#E0E7FF' : (wallet?.agentTier || 'SILVER') === 'GOLD' ? '#FEF08A' : (wallet?.agentTier || 'SILVER') === 'SILVER' ? '#E2E8F0' : '#FED7AA',
-                                color: (wallet?.agentTier || 'SILVER') === 'PLATINUM' ? '#3730A3' : (wallet?.agentTier || 'SILVER') === 'GOLD' ? '#854D0E' : (wallet?.agentTier || 'SILVER') === 'SILVER' ? '#1E293B' : '#9A3412',
+                                background: tier === 'PLATINUM' ? '#E0E7FF' : tier === 'GOLD' ? '#FEF08A' : tier === 'SILVER' ? '#E2E8F0' : '#FED7AA',
+                                color: tier === 'PLATINUM' ? '#3730A3' : tier === 'GOLD' ? '#854D0E' : tier === 'SILVER' ? '#1E293B' : '#9A3412',
                                 padding: '4px 12px',
                                 borderRadius: '20px',
                                 fontWeight: 800,
                                 fontSize: '0.8rem',
                                 letterSpacing: '0.5px'
                             }}>
-                                {wallet?.agentTier || 'SILVER'} PARTNER TIER
+                                {tier} PARTNER TIER
                             </span>
                             <span style={{ fontSize: '0.9rem', color: '#93C5FD' }}>
-                                Commission Rate: <strong>€{Number(wallet?.ratePerPax || 25).toFixed(2)} / passenger</strong>
+                                Commission Rate: <strong>€{ratePerPax.toFixed(2)} / passenger</strong>
                             </span>
                         </div>
                         <h3 style={{ margin: '8px 0 0 0', fontSize: '1.25rem', fontWeight: 700 }}>
@@ -271,7 +357,9 @@ export default function AgentFinance() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <span style={{ fontSize: '0.8rem', color: '#93C5FD', display: 'block' }}>Processed Volume</span>
-                        <strong style={{ fontSize: '1.4rem', color: '#FDE047' }}>{Number(wallet?.totalPaxLifetime || 0)} Travelers</strong>
+                        <strong style={{ fontSize: '1.4rem', color: '#FDE047' }}>
+                            {processedPax} Completed {draftPax > 0 ? `(${draftPax} In Draft)` : ''}
+                        </strong>
                     </div>
                 </div>
 
@@ -284,77 +372,259 @@ export default function AgentFinance() {
                         <span>Platinum (€32) - 120+ Pax</span>
                     </div>
                     <div style={{ height: '8px', background: 'rgba(255, 255, 255, 0.2)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.min(100, Math.max(8, (Number(wallet?.totalPaxLifetime || 0) / 120) * 100))}%`, height: '100%', background: '#FACC15', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
+                        <div style={{ width: `${Math.min(100, Math.max(8, (processedPax / 120) * 100))}%`, height: '100%', background: '#FACC15', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
                     </div>
                 </div>
             </div>
 
+            {/* TAB NAVIGATION: Commissions vs Group Invoices */}
+            <div className="finance-tabs-nav">
+                <button 
+                    className={`finance-tab-btn ${activeTab === 'commissions' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('commissions')}
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+                    Commissions & Wallet
+                    <span className="finance-tab-badge">{transactions.length}</span>
+                </button>
+                <button 
+                    className={`finance-tab-btn ${activeTab === 'invoices' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('invoices')}
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 14h.01"/></svg>
+                    Group Invoices & Consular Fees
+                    <span className="finance-tab-badge">{groupInvoices.length}</span>
+                </button>
+            </div>
+
             {/* Main Content Layout */}
             <div className="finance-grid-main">
-                {/* LEFT COLUMN: Transaction Table */}
+                {/* LEFT COLUMN: Active Tab Content */}
                 <div className="finance-column-left">
-                    <div className="finance-card">
-                        <div className="card-header-premium">
-                            <h3>Transaction History</h3>
-                            <div className="filter-select-wrapper compact">
-                                <select 
-                                    className="finance-select"
-                                    value={filterType}
-                                    onChange={(e) => setFilterType(e.target.value as any)}
-                                >
-                                    <option value="all">All Transactions</option>
-                                    <option value="commissions">Commissions Only</option>
-                                    <option value="payouts">Payouts Only</option>
-                                </select>
+                    {activeTab === 'commissions' ? (
+                        <div className="finance-card">
+                            <div className="card-header-premium">
+                                <h3>Commission & Payout History</h3>
+                                <div className="filter-select-wrapper compact">
+                                    <select 
+                                        className="finance-select"
+                                        value={filterType}
+                                        onChange={(e) => setFilterType(e.target.value as any)}
+                                    >
+                                        <option value="all">All Transactions</option>
+                                        <option value="commissions">Commissions Only</option>
+                                        <option value="payouts">Payouts Only</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div className="premium-table-container">
+                                <table className="premium-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Reference ID</th>
+                                            <th>Description</th>
+                                            <th className="text-right">Amount</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {loading ? (
+                                            <tr>
+                                                <td colSpan={5} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-neutral)' }}>
+                                                    Maliyyə əməliyyatları bazadan yüklənir...
+                                                </td>
+                                            </tr>
+                                        ) : filteredTransactions.length > 0 ? (
+                                            filteredTransactions.map(trx => (
+                                                <tr key={trx.id}>
+                                                    <td className="cell-date">{trx.date}</td>
+                                                    <td className="cell-bold">{trx.reference}</td>
+                                                    <td className="cell-desc" title={trx.description}>{trx.description}</td>
+                                                    <td className={`cell-amount text-right ${trx.amount > 0 ? 'positive' : 'negative'}`}>
+                                                        {trx.amount > 0 ? '+' : '-'}€ {Math.abs(trx.amount).toFixed(2)}
+                                                    </td>
+                                                    <td>{renderStatusBadge(trx.status)}</td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={5} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 36, height: 36, margin: '0 auto 12px', opacity: 0.4 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                                    <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>No financial transactions recorded yet</p>
+                                                    <p style={{ margin: 0, fontSize: '0.88rem' }}>Commissions are automatically credited when you register and submit tour groups for processing.</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-                        
-                        <div className="premium-table-container">
-                            <table className="premium-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Reference ID</th>
-                                        <th>Description</th>
-                                        <th className="text-right">Amount</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {loading ? (
+                    ) : (
+                        /* TAB 2: Group Invoices & Consular Fees */
+                        <div className="finance-card">
+                            <div className="card-header-premium">
+                                <h3>Delegation Invoices & Consular Fees</h3>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral)' }}>Official B2B invoices and payment receipts</span>
+                            </div>
+
+                            <div className="premium-table-container">
+                                <table className="premium-table">
+                                    <thead>
                                         <tr>
-                                            <td colSpan={5} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-neutral)' }}>
-                                                Maliyyə əməliyyatları bazadan yüklənir...
-                                            </td>
+                                            <th>Group Name</th>
+                                            <th>Code</th>
+                                            <th>Travelers</th>
+                                            <th>Total Fees</th>
+                                            <th>Payment Status</th>
+                                            <th style={{ textAlign: 'right' }}>Actions</th>
                                         </tr>
-                                    ) : filteredTransactions.length > 0 ? (
-                                        filteredTransactions.map(trx => (
-                                            <tr key={trx.id}>
-                                                <td className="cell-date">{trx.date}</td>
-                                                <td className="cell-bold">{trx.reference}</td>
-                                                <td className="cell-desc" title={trx.description}>{trx.description}</td>
-                                                <td className={`cell-amount text-right ${trx.amount > 0 ? 'positive' : 'negative'}`}>
-                                                    {trx.amount > 0 ? '+' : '-'}€ {Math.abs(trx.amount).toFixed(2)}
+                                    </thead>
+                                    <tbody>
+                                        {loading ? (
+                                            <tr>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: 'var(--color-neutral)' }}>
+                                                    Qrup faktura məlumatları yüklənir...
                                                 </td>
-                                                <td>{renderStatusBadge(trx.status)}</td>
                                             </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={5} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 36, height: 36, margin: '0 auto 12px', opacity: 0.4 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                                <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>No financial transactions recorded yet</p>
-                                                <p style={{ margin: 0, fontSize: '0.88rem' }}>Commissions are automatically credited when you register and submit tour groups for processing.</p>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
+                                        ) : groupInvoices.length > 0 ? (
+                                            groupInvoices.map(inv => (
+                                                <tr key={inv.groupId}>
+                                                    <td>
+                                                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                            <strong style={{ color: 'var(--color-primary)' }}>{inv.groupName}</strong>
+                                                            <span style={{ fontSize: '0.78rem', color: 'var(--color-neutral)' }}>{inv.destination} • {inv.createdDate}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="cell-bold">{inv.groupCode}</td>
+                                                    <td>
+                                                        <span style={{ fontWeight: 600 }}>{inv.paxCount} Pax</span>
+                                                    </td>
+                                                    <td className="cell-bold">
+                                                        € {inv.totalAmount.toFixed(2)}
+                                                        <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 400, color: 'var(--color-neutral)' }}>
+                                                            Gov: €{inv.governmentFee} | Srv: €{inv.serviceFee}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {renderPaymentStatusBadge(inv.paymentStatus)}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                        <div style={{ display: 'inline-flex', gap: '8px' }}>
+                                                            {inv.groupStatus === 'DRAFT' && (
+                                                                <button 
+                                                                    className="btn-table-action primary"
+                                                                    onClick={() => handleSubmitDraftGroup(inv.groupId, inv.groupCode)}
+                                                                    disabled={actionLoadingId === inv.groupId}
+                                                                    title="Qrupu emala göndər və komissiyanı əldə et"
+                                                                >
+                                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                                                    {actionLoadingId === inv.groupId ? 'Göndərilir...' : 'Submit Group'}
+                                                                </button>
+                                                            )}
+                                                            <button 
+                                                                className="btn-table-action"
+                                                                onClick={() => handleDownloadGroupInvoice(inv.groupId, inv.groupCode)}
+                                                                disabled={actionLoadingId === inv.groupId}
+                                                                title="Official B2B Tax Invoice (PDF) endir"
+                                                            >
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                                                Invoice PDF
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
+                                                    <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>Heç bir qrup fakturası tapılmadı</p>
+                                                    <p style={{ margin: 0, fontSize: '0.88rem' }}>Qrup qeydiyyatdan keçirdikdə avtomatik hesab-faktura formalaşacaq.</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
-                <div className="finance-column-right">
+                {/* RIGHT COLUMN: Bank Account Info & Tier Breakdown */}
+                <div className="finance-column-right" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {/* Verified Bank Account Widget */}
+                    <div className="finance-widget-card">
+                        <h4>
+                            <span>Verified Payout Account</span>
+                            {wallet?.iban && (
+                                <span className="verified-badge">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ width: 12, height: 12 }}><polyline points="20 6 9 17 4 12"/></svg>
+                                    Active
+                                </span>
+                            )}
+                        </h4>
+
+                        {wallet?.iban ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div className="bank-detail-item">
+                                    <span className="label">Beneficiary</span>
+                                    <span className="val" style={{ fontFamily: 'inherit' }}>{wallet.accountHolder || 'Agency Partner'}</span>
+                                </div>
+                                <div className="bank-detail-item">
+                                    <span className="label">Bank Name</span>
+                                    <span className="val" style={{ fontFamily: 'inherit' }}>{wallet.bankName || 'Partner Bank'}</span>
+                                </div>
+                                <div className="bank-detail-item">
+                                    <span className="label">IBAN</span>
+                                    <span className="val">{wallet.iban}</span>
+                                </div>
+                                <div className="bank-detail-item">
+                                    <span className="label">SWIFT / BIC</span>
+                                    <span className="val">{wallet.swiftBic || 'N/A'}</span>
+                                </div>
+                                <button 
+                                    className="btn-outline-secondary" 
+                                    style={{ marginTop: '8px', justifyContent: 'center' }}
+                                    onClick={() => setIsPayoutModalOpen(true)}
+                                >
+                                    ✎ Rekvizitləri Yenilə
+                                </button>
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '16px 8px' }}>
+                                <p style={{ fontSize: '0.88rem', color: 'var(--color-neutral)', margin: '0 0 16px 0' }}>
+                                    Bank rekvizitlərinizi daxil edin ki, qazandığınız komissiyaları birbaşa bank hesabınıza çıxara biləsiniz.
+                                </p>
+                                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsPayoutModalOpen(true)}>
+                                    + Bank Hesabı Əlavə Et
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tier Benefits Quick Card */}
+                    <div className="finance-widget-card">
+                        <h4>B2B Commission Matrix</h4>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'BRONZE' ? '#FEF3C7' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'BRONZE' ? 700 : 500 }}>
+                                <span>Bronze (0 - 24 Pax)</span>
+                                <strong>€ 20.00 / pax</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'SILVER' ? '#E0E7FF' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'SILVER' ? 700 : 500 }}>
+                                <span>Silver (25 - 59 Pax)</span>
+                                <strong>€ 25.00 / pax</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'GOLD' ? '#FEF08A' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'GOLD' ? 700 : 500 }}>
+                                <span>Gold (60 - 119 Pax)</span>
+                                <strong>€ 28.00 / pax</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'PLATINUM' ? '#EDE9FE' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'PLATINUM' ? 700 : 500 }}>
+                                <span>Platinum (120+ Pax)</span>
+                                <strong>€ 32.00 / pax</strong>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

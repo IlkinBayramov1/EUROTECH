@@ -411,3 +411,143 @@ select.client-input {
     .client-form-grid { grid-template-columns: 1fr; }
     .client-input-group.full-width { grid-column: span 1; }
 }
+
+/* --- Conditional Sections & Sub-Cards --- */
+.conditional-card {
+    background: rgba(248, 250, 252, 0.6);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    transition: all 0.25s ease;
+}
+
+.conditional-card.active {
+    background: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.08);
+}
+
+.conditional-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.conditional-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.conditional-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.conditional-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+    text-transform: uppercase;
+}
+
+.toggle-switch-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-neutral);
+}
+
+/* Segmented Control / Host Type Switcher */
+.segmented-control {
+    display: flex;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 4px;
+    margin-bottom: 16px;
+}
+
+.segmented-btn {
+    flex: 1;
+    padding: 8px 14px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    border: none;
+    background: transparent;
+    color: var(--color-neutral);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.segmented-btn.active {
+    background: #ffffff;
+    color: var(--color-primary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+/* Checkbox Matrix / Means of Support */
+.checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.checkbox-card-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+    font-size: 0.88rem;
+    color: var(--color-primary);
+}
+
+.checkbox-card-item:hover {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.02);
+}
+
+.checkbox-card-item.checked {
+    border-color: #2563eb;
+    background: rgba(37, 99, 235, 0.06);
+    color: #1e40af;
+    font-weight: 600;
+}
+
+.checkbox-card-item input[type="checkbox"] {
+    accent-color: #2563eb;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.field-sublabel {
+    font-size: 0.78rem;
+    color: var(--color-neutral);
+    margin-top: 4px;
+    display: block;
+}

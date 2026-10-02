@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { agentService } from '@/shared/api/services';
+import { agentService, dossierService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import './AgentApplicantFill.css';
 
@@ -158,6 +158,50 @@ export default function AgentApplicantFill() {
         }
     };
 
+    const handleDownloadMySchengenPdf = async () => {
+        try {
+            showSuccess('Rəsmi Şengen vizası ərizə forması (PDF) hazırlanır...');
+            const dossierId = groupData?.dossierId || groupData?.id || groupId || 'agent-group';
+            const res = await dossierService.getApplicationFormPdf(dossierId, applicantId || 'applicant', {
+                firstName,
+                lastName,
+                passportNumber,
+                birthDate: dob,
+                issueDate,
+                passportExpiry: expiryDate,
+                phone: contactPhone,
+                email: contactEmail,
+                hotelAccommodation: accommodation,
+                durationOfStay: stayDuration,
+                destination: groupData?.destination || 'Europe / Schengen',
+                purpose: groupData?.projectReason || 'Tourism',
+                arrivalDate: groupData?.travelDate,
+            });
+
+            if (res.data?.downloadUrl) {
+                const fullUrl = res.data.downloadUrl.startsWith('http')
+                    ? res.data.downloadUrl
+                    : `http://localhost:5000${res.data.downloadUrl}`;
+                
+                const fileRes = await fetch(fullUrl);
+                if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
+                const blob = await fileRes.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = res.data.fileName || `Schengen_Form_${firstName}_${lastName}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+                showSuccess('Şengen forması (PDF) uğurla endirildi!');
+            }
+        } catch (err: any) {
+            console.error('Schengen PDF download error:', err);
+            showError('Şengen PDF formasını yükləmək mümkün olmadı.');
+        }
+    };
+
     if (loading) {
         return (
             <div className="agent-fill-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -203,6 +247,17 @@ export default function AgentApplicantFill() {
                             <div style={{ marginBottom: '6px' }}>📍 Qrup / Səfər: <strong>{groupData?.name}</strong></div>
                             <div style={{ marginBottom: '6px' }}>🌍 Təyinat Ölkəsi: <strong>{groupData?.destination}</strong></div>
                             <div>📄 Yüklənmiş Sənədlər: <strong>{documents.length} ədəd</strong></div>
+                        </div>
+                        <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
+                            <button 
+                                type="button" 
+                                onClick={handleDownloadMySchengenPdf}
+                                className="btn-submit-customer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#EF4444', width: 'auto', padding: '12px 24px', cursor: 'pointer' }}
+                            >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                📄 Rəsmi Şengen Formasını Yüklə (PDF)
+                            </button>
                         </div>
                         <p style={{ marginTop: '24px', fontSize: '0.85rem', color: '#94A3B8' }}>
                             Təşəkkür edirik! Bu səhifəni bağlaya bilərsiniz.

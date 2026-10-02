@@ -411,7 +411,7 @@ export default function CorporateEmployees() {
         showSuccess('İşçi siyahısı Excel (CSV) formatında uğurla yükləndi!');
     };
 
-    const handleDownloadEmployeeDoc = (doc: ArchivedDoc, emp: EmployeeProfile) => {
+    const handleDownloadEmployeeDoc = (doc: ArchivedDoc, _emp: EmployeeProfile) => {
         if (doc.fileUrl) {
             const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl}`;
             const link = document.createElement('a');

@@ -3,7 +3,7 @@ const prisma = require('../../config/db');
 const pdfUtil = require('../../utils/pdf.util');
 
 function generateGroupCode() {
-  const digits = Math.floor(1000 + Math.random() * 9000);
+  const digits = Math.floor(100000 + Math.random() * 900000);
   return `GRP-${digits}`;
 }
 
@@ -330,9 +330,9 @@ async function submitGroup(groupId, userId) {
 
     // Fetch agent tier
     const user = await tx.user.findUnique({ where: { id: userId } });
-    const tier = user?.agentTier || 'SILVER';
+    const tier = user?.agentTier || 'BRONZE';
 
-    let ratePerPax = 25.0;
+    let ratePerPax = 20.0;
     if (tier === 'BRONZE') ratePerPax = 20.0;
     else if (tier === 'SILVER') ratePerPax = 25.0;
     else if (tier === 'GOLD') ratePerPax = 28.0;
@@ -348,21 +348,51 @@ async function submitGroup(groupId, userId) {
       });
     }
 
-    // Credit commission
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { balance: { increment: commissionAmount } },
+    // Check if an existing transaction for this group exists
+    const existingTx = await tx.walletTransaction.findFirst({
+      where: { walletId: wallet.id, referenceId: group.code, referenceType: 'COMMISSION' },
     });
 
-    await tx.walletTransaction.create({
+    if (existingTx) {
+      await tx.walletTransaction.update({
+        where: { id: existingTx.id },
+        data: {
+          amount: commissionAmount,
+          status: 'PAID',
+          description: `Commission: ${group.name} (${totalPassengers} Applicants @ €${ratePerPax} [${tier}])`,
+        },
+      });
+    } else {
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          amount: commissionAmount,
+          type: 'CREDIT',
+          referenceType: 'COMMISSION',
+          referenceId: group.code,
+          description: `Commission: ${group.name} (${totalPassengers} Applicants @ €${ratePerPax} [${tier}])`,
+          status: 'PAID',
+        },
+      });
+    }
+
+    // Recalculate wallet balances accurately
+    const allTxs = await tx.walletTransaction.findMany({ where: { walletId: wallet.id } });
+    let newBalance = 0;
+    let newPending = 0;
+    allTxs.forEach((t) => {
+      if (t.status === 'PAID') {
+        newBalance += t.amount;
+      } else if (t.status === 'PENDING' && t.type === 'CREDIT') {
+        newPending += t.amount;
+      }
+    });
+
+    await tx.wallet.update({
+      where: { id: wallet.id },
       data: {
-        walletId: wallet.id,
-        amount: commissionAmount,
-        type: 'CREDIT',
-        referenceType: 'COMMISSION',
-        referenceId: group.code,
-        description: `Commission: ${group.name} (${totalPassengers} Applicants @ €${ratePerPax} [${tier}])`,
-        status: 'PAID',
+        balance: Math.max(0, newBalance),
+        pendingBalance: Math.max(0, newPending),
       },
     });
 
@@ -381,11 +411,11 @@ async function getAgentWallet(userId) {
     include: {
       transactions: {
         orderBy: { createdAt: 'desc' },
-        take: 50,
+        take: 100,
       },
       payoutRequests: {
         orderBy: { createdAt: 'desc' },
-        take: 20,
+        take: 50,
       },
     },
   });
@@ -400,41 +430,168 @@ async function getAgentWallet(userId) {
     });
   }
 
-  // Calculate real YTD earned from database CREDIT transactions
-  const creditAgg = await prisma.walletTransaction.aggregate({
-    _sum: { amount: true },
-    where: { walletId: wallet.id, type: 'CREDIT' },
-  });
-
-  const totalEarnedYtd = creditAgg._sum.amount || 0.0;
-
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } });
-  const tier = user?.agentTier || 'SILVER';
+  const tier = user?.agentTier || 'BRONZE';
 
-  let ratePerPax = 25.0;
+  let ratePerPax = 20.0;
   if (tier === 'BRONZE') ratePerPax = 20.0;
   else if (tier === 'SILVER') ratePerPax = 25.0;
   else if (tier === 'GOLD') ratePerPax = 28.0;
   else if (tier === 'PLATINUM') ratePerPax = 32.0;
 
+  // Retrieve all groups for this agent with dossiers and applicants
   const allGroups = await prisma.groupBatch.findMany({
     where: { userId },
-    include: { dossiers: { include: { applicants: true } } },
+    include: {
+      dossiers: {
+        include: {
+          applicants: true,
+          country: true,
+          visaCategory: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
   });
 
   let totalPaxLifetime = 0;
-  allGroups.forEach(g => {
-    g.dossiers.forEach(d => {
-      totalPaxLifetime += (d.applicants ? d.applicants.length : 0);
+  let totalPaxDraft = 0;
+
+  // Synchronize / ensure commission records exist for every group
+  for (const group of allGroups) {
+    let paxCount = 0;
+    group.dossiers.forEach((d) => {
+      paxCount += (d.applicants ? d.applicants.length : 0);
     });
+
+    const isProcessed = group.status === 'PROCESSING' || group.status === 'READY' || group.status === 'COMPLETED';
+
+    if (isProcessed) {
+      totalPaxLifetime += paxCount;
+    } else {
+      totalPaxDraft += paxCount;
+    }
+
+    if (paxCount > 0) {
+      const commissionAmount = paxCount * ratePerPax;
+      const expectedStatus = isProcessed ? 'PAID' : 'PENDING';
+
+      const existingTx = await prisma.walletTransaction.findFirst({
+        where: {
+          walletId: wallet.id,
+          referenceId: group.code,
+          referenceType: 'COMMISSION',
+        },
+      });
+
+      if (!existingTx) {
+        await prisma.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            amount: commissionAmount,
+            type: 'CREDIT',
+            referenceType: 'COMMISSION',
+            referenceId: group.code,
+            description: expectedStatus === 'PENDING'
+              ? `Pending Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`
+              : `Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`,
+            status: expectedStatus,
+          },
+        });
+      } else {
+        // Keep status, amount and description up to date
+        if (existingTx.status !== expectedStatus || Math.abs(existingTx.amount - commissionAmount) > 0.01) {
+          await prisma.walletTransaction.update({
+            where: { id: existingTx.id },
+            data: {
+              amount: commissionAmount,
+              status: expectedStatus,
+              description: expectedStatus === 'PENDING'
+                ? `Pending Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`
+                : `Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Refetch transactions after synchronization
+  const updatedTransactions = await prisma.walletTransaction.findMany({
+    where: { walletId: wallet.id },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  // Calculate real balances
+  let computedBalance = 0;
+  let computedPending = 0;
+  let totalEarnedYtd = 0;
+
+  updatedTransactions.forEach((tx) => {
+    if (tx.status === 'PAID') {
+      computedBalance += tx.amount;
+      if (tx.type === 'CREDIT') {
+        totalEarnedYtd += tx.amount;
+      }
+    } else if (tx.status === 'PENDING' && tx.type === 'CREDIT') {
+      computedPending += tx.amount;
+    }
+  });
+
+  computedBalance = Math.max(0, computedBalance);
+  computedPending = Math.max(0, computedPending);
+
+  // Update wallet record in DB if values differ
+  if (Math.abs(wallet.balance - computedBalance) > 0.001 || Math.abs(wallet.pendingBalance - computedPending) > 0.001) {
+    wallet = await prisma.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        balance: computedBalance,
+        pendingBalance: computedPending,
+      },
+      include: {
+        payoutRequests: { orderBy: { createdAt: 'desc' }, take: 50 },
+      },
+    });
+  }
+
+  // Build group invoices & consular payments list
+  const groupInvoices = allGroups.map((g) => {
+    const primaryDossier = g.dossiers?.[0];
+    const paxCount = g.dossiers.reduce((acc, d) => acc + (d.applicants ? d.applicants.length : 0), 0);
+    const govFee = primaryDossier ? (primaryDossier.governmentFee || 80.0) * (paxCount || 1) : 80.0 * (paxCount || 1);
+    const srvFee = primaryDossier ? (primaryDossier.serviceFee || 90.0) * (paxCount || 1) : 90.0 * (paxCount || 1);
+    const totalAmount = govFee + srvFee;
+
+    return {
+      groupId: g.id,
+      groupCode: g.code,
+      groupName: g.name,
+      destination: g.destination,
+      paxCount,
+      governmentFee: govFee,
+      serviceFee: srvFee,
+      totalAmount,
+      currency: 'EUR',
+      paymentStatus: primaryDossier?.paymentStatus || 'PENDING',
+      groupStatus: g.status,
+      createdDate: g.createdAt ? new Date(g.createdAt).toISOString().split('T')[0] : 'Recent',
+      travelDate: g.travelDate ? new Date(g.travelDate).toISOString().split('T')[0] : 'Flexible',
+    };
   });
 
   return {
     ...wallet,
+    balance: computedBalance,
+    pendingBalance: computedPending,
     totalEarnedYtd,
     agentTier: tier,
     ratePerPax,
     totalPaxLifetime,
+    totalPaxDraft,
+    transactions: updatedTransactions,
+    groupInvoices,
   };
 }
 

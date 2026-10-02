@@ -4,6 +4,7 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const prisma = require('../../config/db');
 const env = require('../../config/env');
 const { generateDossierNumber } = require('../../utils/dossierCode.util');
+const { fillSchengenPDF } = require('../../utils/schengenPdfFiller.util');
 
 const uploadDir = path.resolve(env.UPLOAD_DIR);
 if (!fs.existsSync(uploadDir)) {
@@ -589,6 +590,31 @@ async function generateApplicationFormPdf(dossierId, applicantId, customData = {
     } catch (e) {
       // ignore
     }
+  }
+
+  const customFormJson = (customData?.formDataJson && typeof customData.formDataJson === 'object')
+    ? customData.formDataJson
+    : (customData?.formData && typeof customData.formData === 'object' ? customData.formData : {});
+
+  const combinedApplicant = {
+    ...(applicant || {}),
+    firstName: customData.firstName || customFormJson.firstName || applicant?.firstName || '',
+    lastName: customData.lastName || customFormJson.lastName || applicant?.lastName || '',
+    passportNumber: customData.passportNumber || customFormJson.passportNumber || applicant?.passportNumber || '',
+    birthDate: customData.birthDate || customFormJson.birthDate || (applicant?.birthDate ? new Date(applicant.birthDate).toISOString().split('T')[0] : ''),
+    nationality: customData.nationality || customFormJson.nationality || applicant?.nationality || '',
+    gender: customData.gender || customFormJson.gender || applicant?.gender || '',
+    formDataJson: {
+      ...(applicant?.formDataJson && typeof applicant.formDataJson === 'object' ? applicant.formDataJson : {}),
+      ...(customData || {}),
+      ...customFormJson,
+    },
+  };
+
+  try {
+    return await fillSchengenPDF(combinedApplicant, dossier || {});
+  } catch (schengenErr) {
+    console.error('[SCHENGEN FORM FILLER ERROR, FALLING BACK TO LEGACY]', schengenErr);
   }
 
   const formData = {

@@ -8,7 +8,7 @@ import { useToast } from '@/shared/context/ToastContext';
 import './ClientPrivacy.css';
 
 export default function ClientPrivacy() {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const { showSuccess, showError } = useToast();
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);

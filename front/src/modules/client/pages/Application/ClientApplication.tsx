@@ -21,12 +21,21 @@ interface ApplicantData {
 const DEFAULT_FORM_DATA: Record<string, any> = {
     // Step 1: Your plans
     purpose: 'Tourism',
+    purposeOtherDetails: '',
+    purposeDetails: '',
     destination: 'Hungary',
     firstEntry: 'Hungary',
     entriesRequested: 'Single',
     arrivalDate: '',
     departureDate: '',
     durationOfStay: '',
+    hasPreviousFingerprints: 'No',
+    fingerprintDate: '',
+    fingerprintVisaNumber: '',
+    hasFinalDestinationPermit: 'No',
+    finalDestinationAuthority: '',
+    finalDestinationValidFrom: '',
+    finalDestinationValidUntil: '',
 
     // Step 2: Personal Information 
     firstName: '',
@@ -36,24 +45,54 @@ const DEFAULT_FORM_DATA: Record<string, any> = {
     birthPlace: '',
     birthCountry: 'Azerbaijan',
     nationality: 'Azerbaijan',
-    gender: '',
-    maritalStatus: '',
+    nationalityAtBirth: '',
+    otherNationalities: '',
+    gender: 'Male',
+    maritalStatus: 'Single',
     nationalId: '',
+    isMinor: 'No',
+    guardianSurname: '',
+    guardianName: '',
+    guardianAddress: '',
+    guardianPhone: '',
+    guardianEmail: '',
+    guardianNationality: 'Azerbaijan',
 
     // Step 3: Travel Document
     passportType: 'Ordinary passport',
+    otherDocTypeDetails: '',
     passportNumber: '',
     issueDate: '',
     passportExpiry: '',
-    issuedBy: '',
+    issuedBy: 'Ministry of Internal Affairs',
+    hasOtherResidence: 'No',
+    otherResidenceType: '',
+    otherResidenceNumber: '',
+    otherResidenceValidUntil: '',
+    hasEuFamilyMember: 'No',
+    euFamilySurname: '',
+    euFamilyName: '',
+    euFamilyDob: '',
+    euFamilyNationality: '',
+    euFamilyDocNumber: '',
+    euFamilyRelationship: '',
 
     // Step 4: Your stay & accommodation
+    invitingType: 'individual',
     invitingParty: '',
     address: '',
     stayEmail: '',
     stayPhone: '',
+    companyName: '',
+    companyAddress: '',
+    companyContactName: '',
+    companyContactAddress: '',
+    companyContactEmail: '',
+    companyContactPhone: '',
     costCoveredBy: 'By applicant himself',
-    meansOfSupport: '',
+    meansOfSupport: 'Credit card & Cash',
+    meansOfSupportApplicant: ['cash', 'credit_card'],
+    meansOfSupportSponsor: ['accommodation', 'all_expenses'],
 
     // Step 5: Contacts & Employment
     homeAddress: '',
@@ -62,6 +101,12 @@ const DEFAULT_FORM_DATA: Record<string, any> = {
     currentOccupation: '',
     employerName: '',
     employerAddress: '',
+    employerPhone: '',
+    hasRepresentative: 'No',
+    representativeName: '',
+    representativeAddress: '',
+    representativeEmail: '',
+    representativePhone: '',
 };
 
 function calculateFormProgress(form: Record<string, any>): number {
@@ -75,7 +120,7 @@ function calculateFormProgress(form: Record<string, any>): number {
     // Step 3 checks (travel document)
     if (form.passportNumber && (form.issueDate || form.passportExpiry || form.issuedBy)) score += 20;
     // Step 4 checks (stay & accommodation)
-    if ((form.invitingParty || form.address) && form.costCoveredBy) score += 20;
+    if ((form.invitingParty || form.companyName || form.address) && form.costCoveredBy) score += 20;
     // Step 5 checks (contact & employment)
     if (form.homeAddress || form.homeEmail || form.homePhone || form.currentOccupation) score += 20;
 
@@ -215,6 +260,24 @@ export default function ClientApplication() {
             ...prev,
             [field]: value,
         }));
+    };
+
+    // Means of support multi-checkbox helper
+    const handleMeansOfSupportToggle = (category: 'applicant' | 'sponsor', key: string) => {
+        const fieldName = category === 'applicant' ? 'meansOfSupportApplicant' : 'meansOfSupportSponsor';
+        setFormData(prev => {
+            const current: string[] = Array.isArray(prev[fieldName]) ? [...prev[fieldName]] : [];
+            const idx = current.indexOf(key);
+            if (idx > -1) {
+                current.splice(idx, 1);
+            } else {
+                current.push(key);
+            }
+            return {
+                ...prev,
+                [fieldName]: current,
+            };
+        });
     };
 
     // Helper to persist current form step data to backend database
@@ -456,14 +519,20 @@ export default function ClientApplication() {
             ['1. Identification', 'Place of Birth', appForm.birthPlace || '—'],
             ['1. Identification', 'Country of Birth', appForm.birthCountry || '—'],
             ['1. Identification', 'Current Nationality', appForm.nationality || 'Azerbaijan'],
+            ['1. Identification', 'Nationality at Birth', appForm.nationalityAtBirth || '—'],
+            ['1. Identification', 'Other Nationalities', appForm.otherNationalities || '—'],
             ['1. Identification', 'Gender', appForm.gender || '—'],
             ['1. Identification', 'Marital Status', appForm.maritalStatus || '—'],
             ['1. Identification', 'National ID / FIN', appForm.nationalId || '—'],
+            ['1. Identification', 'Minor Legal Guardian', appForm.hasGuardian ? `${appForm.guardianSurname || ''} ${appForm.guardianName || ''} (${appForm.guardianPhone || ''})` : 'No'],
             ['2. Travel Document', 'Document Type', appForm.passportType || 'Ordinary passport'],
+            ['2. Travel Document', 'Other Document Type Details', appForm.otherDocTypeDetails || '—'],
             ['2. Travel Document', 'Passport Number', (appForm.passportNumber || '—').toUpperCase()],
             ['2. Travel Document', 'Date of Issue', appForm.issueDate || '—'],
             ['2. Travel Document', 'Valid Until (Expiry)', appForm.passportExpiry || '—'],
             ['2. Travel Document', 'Issued By Authority', appForm.issuedBy || '—'],
+            ['2. Travel Document', 'Other Country Residence Permit', appForm.hasOtherResidence ? `${appForm.otherResidenceType || ''} #${appForm.otherResidenceNumber || ''}` : 'No'],
+            ['2. Travel Document', 'EU Family Member', appForm.hasEuFamilyMember ? `${appForm.euFamilySurname || ''} ${appForm.euFamilyName || ''} (${appForm.euFamilyRelationship || ''})` : 'No'],
             ['3. Trip Plans', 'Main Purpose of Visit', appForm.purpose || '—'],
             ['3. Trip Plans', 'Destination Member State', appForm.destination || '—'],
             ['3. Trip Plans', 'First Entry Member State', appForm.firstEntry || '—'],
@@ -471,18 +540,26 @@ export default function ClientApplication() {
             ['3. Trip Plans', 'Intended Date of Arrival', appForm.arrivalDate || '—'],
             ['3. Trip Plans', 'Intended Date of Departure', appForm.departureDate || '—'],
             ['3. Trip Plans', 'Duration of Stay (Days)', appForm.durationOfStay || '—'],
+            ['3. Trip Plans', 'Previous Fingerprints Collected', appForm.hasPreviousFingerprints === 'Yes' ? `Yes (${appForm.fingerprintsDate || 'Date unspec.'})` : 'No'],
+            ['3. Trip Plans', 'Final Destination Entry Permit', appForm.hasFinalDestinationPermit ? `${appForm.finalDestinationAuthority || ''}` : 'No'],
+            ['4. Stay & Inviting', 'Inviting Host Category', appForm.invitingType || 'individual'],
             ['4. Stay & Inviting', 'Inviting Host / Hotel', appForm.invitingParty || '—'],
+            ['4. Stay & Inviting', 'Inviting Company Name', appForm.companyName || '—'],
+            ['4. Stay & Inviting', 'Company Contact Person', appForm.companyContactName || '—'],
             ['4. Stay & Inviting', 'Accommodation Address', appForm.address || '—'],
             ['4. Stay & Inviting', 'Host Contact Email', appForm.stayEmail || '—'],
             ['4. Stay & Inviting', 'Host Contact Phone', appForm.stayPhone || '—'],
             ['4. Stay & Inviting', 'Cost Covered By', appForm.costCoveredBy || 'By applicant himself'],
-            ['4. Stay & Inviting', 'Means of Support', appForm.meansOfSupport || '—'],
+            ['4. Stay & Inviting', 'Applicant Means of Support', Array.isArray(appForm.meansOfSupportApplicant) ? appForm.meansOfSupportApplicant.join(', ') : (appForm.meansOfSupport || '—')],
+            ['4. Stay & Inviting', 'Sponsor Means of Support', Array.isArray(appForm.meansOfSupportSponsor) ? appForm.meansOfSupportSponsor.join(', ') : '—'],
             ['5. Contacts & Job', 'Home Address', appForm.homeAddress || '—'],
             ['5. Contacts & Job', 'Applicant Email', appForm.homeEmail || user?.email || '—'],
             ['5. Contacts & Job', 'Applicant Telephone', appForm.homePhone || user?.phone || '—'],
             ['5. Contacts & Job', 'Current Occupation', appForm.currentOccupation || '—'],
             ['5. Contacts & Job', 'Employer / University Name', appForm.employerName || '—'],
             ['5. Contacts & Job', 'Employer Address & Tel', appForm.employerAddress || '—'],
+            ['5. Contacts & Job', 'Employer Phone (Box 22)', appForm.employerPhone || '—'],
+            ['5. Contacts & Job', 'Authorized Representative (Box 34)', appForm.hasRepresentative ? `${appForm.representativeName || ''} (${appForm.representativePhone || ''})` : 'No'],
             ['Application Status', 'Form Progress', `${app.progress}%`],
             ['Application Status', 'Submission Status', app.status.toUpperCase()],
         ];
@@ -783,11 +860,11 @@ export default function ClientApplication() {
                     {currentFormStep === 1 && (
                         <div className="step-content-block">
                             <h2>1. Your Plans & Trip Information</h2>
-                            <p className="app-step-desc">Provide particulars regarding the main purpose and duration of your intended stay in the Schengen Area.</p>
+                            <p className="app-step-desc">Provide particulars regarding the main purpose and duration of your intended stay in the Schengen Area (Boxes 21, 23, 24, 25, 27, 28).</p>
                             
                             <div className="client-form-grid">
                                 <div className="client-input-group full-width">
-                                    <label>Main Purpose(s) of the Journey</label>
+                                    <label>Main Purpose(s) of the Journey (Box 21) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.purpose || 'Tourism'}
@@ -807,8 +884,33 @@ export default function ClientApplication() {
                                     </select>
                                 </div>
 
+                                {formData.purpose === 'Other' && (
+                                    <div className="client-input-group full-width fade-in">
+                                        <label>Specify Other Purpose of Stay (Box 21) *</label>
+                                        <input 
+                                            type="text" 
+                                            className="client-input" 
+                                            value={formData.purposeOtherDetails || ''} 
+                                            onChange={(e) => handleFieldChange('purposeOtherDetails', e.target.value)} 
+                                            placeholder="Please specify the exact nature of your visit..." 
+                                            required
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="client-input-group full-width">
+                                    <label>Additional Information on Purpose of Stay (Box 24, Optional)</label>
+                                    <input 
+                                        type="text" 
+                                        className="client-input" 
+                                        value={formData.purposeDetails || ''} 
+                                        onChange={(e) => handleFieldChange('purposeDetails', e.target.value)} 
+                                        placeholder="e.g. Participating in bilateral symposium in Budapest" 
+                                    />
+                                </div>
+
                                 <div className="client-input-group">
-                                    <label>Member State of Main Destination</label>
+                                    <label>Member State of Main Destination (Box 23) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.destination || 'Hungary'}
@@ -826,7 +928,7 @@ export default function ClientApplication() {
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Member State of First Entry</label>
+                                    <label>Member State of First Entry (Box 23) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.firstEntry || 'Hungary'}
@@ -841,7 +943,7 @@ export default function ClientApplication() {
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Number of Entries Requested</label>
+                                    <label>Number of Entries Requested (Box 28)</label>
                                     <select 
                                         className="client-input"
                                         value={formData.entriesRequested || 'Single'}
@@ -854,7 +956,7 @@ export default function ClientApplication() {
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Duration of Intended Stay (Days)</label>
+                                    <label>Duration of Intended Stay (Days) *</label>
                                     <input 
                                         type="number" 
                                         className="client-input" 
@@ -862,11 +964,12 @@ export default function ClientApplication() {
                                         onChange={(e) => handleFieldChange('durationOfStay', e.target.value)}
                                         min="1" 
                                         max="90" 
+                                        required
                                     />
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Intended Date of Arrival</label>
+                                    <label>Intended Date of Arrival *</label>
                                     <input 
                                         type="date" 
                                         className="client-input" 
@@ -877,7 +980,7 @@ export default function ClientApplication() {
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Intended Date of Departure</label>
+                                    <label>Intended Date of Departure *</label>
                                     <input 
                                         type="date" 
                                         className="client-input" 
@@ -885,6 +988,107 @@ export default function ClientApplication() {
                                         onChange={(e) => handleFieldChange('departureDate', e.target.value)}
                                         required
                                     />
+                                </div>
+
+                                {/* Box 27: Fingerprints Collected Previously */}
+                                <div className={`conditional-card full-width ${formData.hasPreviousFingerprints === 'Yes' ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header" onClick={() => handleFieldChange('hasPreviousFingerprints', formData.hasPreviousFingerprints === 'Yes' ? 'No' : 'Yes')}>
+                                        <div className="conditional-title-wrap">
+                                            <span className="conditional-badge">Box 27</span>
+                                            <h4 className="conditional-title">Biometric Data: Fingerprints Collected Previously</h4>
+                                        </div>
+                                        <div className="toggle-switch-pill">
+                                            <span>{formData.hasPreviousFingerprints === 'Yes' ? 'YES (Bəli)' : 'NO (Xeyr)'}</span>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.hasPreviousFingerprints === 'Yes'} 
+                                                onChange={(e) => handleFieldChange('hasPreviousFingerprints', e.target.checked ? 'Yes' : 'No')}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <span className="field-sublabel" style={{ marginTop: 4 }}>
+                                        Have your fingerprints been collected previously for the purpose of applying for a Schengen visa?
+                                    </span>
+                                    {formData.hasPreviousFingerprints === 'Yes' && (
+                                        <div className="client-form-grid fade-in" style={{ marginTop: 14 }}>
+                                            <div className="client-input-group">
+                                                <label>Date of Collection (if known)</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="client-input" 
+                                                    value={formData.fingerprintDate || ''} 
+                                                    onChange={(e) => handleFieldChange('fingerprintDate', e.target.value)} 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Visa Sticker Number (if known)</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.fingerprintVisaNumber || ''} 
+                                                    onChange={(e) => handleFieldChange('fingerprintVisaNumber', e.target.value)} 
+                                                    placeholder="e.g. V-HUN-1234567" 
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Box 25: Transit Final Destination Permit */}
+                                <div className={`conditional-card full-width ${formData.hasFinalDestinationPermit === 'Yes' ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header" onClick={() => handleFieldChange('hasFinalDestinationPermit', formData.hasFinalDestinationPermit === 'Yes' ? 'No' : 'Yes')}>
+                                        <div className="conditional-title-wrap">
+                                            <span className="conditional-badge">Box 25</span>
+                                            <h4 className="conditional-title">Entry Permit for Final Country of Destination (Transit Only)</h4>
+                                        </div>
+                                        <div className="toggle-switch-pill">
+                                            <span>{formData.hasFinalDestinationPermit === 'Yes' ? 'YES (Bəli)' : 'NO (Xeyr)'}</span>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.hasFinalDestinationPermit === 'Yes'} 
+                                                onChange={(e) => handleFieldChange('hasFinalDestinationPermit', e.target.checked ? 'Yes' : 'No')}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <span className="field-sublabel" style={{ marginTop: 4 }}>
+                                        Son təyinat ölkəsinə giriş icazəniz (viza / yaşayış icazəsi) varsa qeyd edin.
+                                    </span>
+                                    {formData.hasFinalDestinationPermit === 'Yes' && (
+                                        <div className="client-form-grid fade-in" style={{ marginTop: 14 }}>
+                                            <div className="client-input-group full-width">
+                                                <label>Issued by Authority</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.finalDestinationAuthority || ''} 
+                                                    onChange={(e) => handleFieldChange('finalDestinationAuthority', e.target.value)} 
+                                                    placeholder="e.g. Ministry of Foreign Affairs" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Valid From</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="client-input" 
+                                                    value={formData.finalDestinationValidFrom || ''} 
+                                                    onChange={(e) => handleFieldChange('finalDestinationValidFrom', e.target.value)} 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Valid Until</label>
+                                                <input 
+                                                    type="date" 
+                                                    className="client-input" 
+                                                    value={formData.finalDestinationValidUntil || ''} 
+                                                    onChange={(e) => handleFieldChange('finalDestinationValidUntil', e.target.value)} 
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -979,7 +1183,29 @@ export default function ClientApplication() {
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Sex (Gender)</label>
+                                    <label>Nationality at Birth (if different - Box 7)</label>
+                                    <input 
+                                        type="text" 
+                                        className="client-input" 
+                                        value={formData.nationalityAtBirth || ''} 
+                                        onChange={(e) => handleFieldChange('nationalityAtBirth', e.target.value)} 
+                                        placeholder="Optional if same as current" 
+                                    />
+                                </div>
+
+                                <div className="client-input-group">
+                                    <label>Other Nationalities / Dual Citizenship (Box 7)</label>
+                                    <input 
+                                        type="text" 
+                                        className="client-input" 
+                                        value={formData.otherNationalities || ''} 
+                                        onChange={(e) => handleFieldChange('otherNationalities', e.target.value)} 
+                                        placeholder="e.g. None / Turkey" 
+                                    />
+                                </div>
+
+                                <div className="client-input-group">
+                                    <label>Sex (Gender - Box 8) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.gender || 'Male'}
@@ -987,11 +1213,12 @@ export default function ClientApplication() {
                                     >
                                         <option value="Male">Male</option>
                                         <option value="Female">Female</option>
+                                        <option value="Other">Other</option>
                                     </select>
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>Marital Status</label>
+                                    <label>Marital Status (Box 9) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.maritalStatus || 'Single'}
@@ -999,21 +1226,109 @@ export default function ClientApplication() {
                                     >
                                         <option value="Single">Single</option>
                                         <option value="Married">Married</option>
+                                        <option value="Registered Partnership">Registered Partnership</option>
                                         <option value="Divorced">Divorced</option>
                                         <option value="Widowed">Widowed</option>
                                         <option value="Separated">Separated</option>
+                                        <option value="Other">Other</option>
                                     </select>
                                 </div>
 
                                 <div className="client-input-group">
-                                    <label>National ID / FIN Code</label>
+                                    <label>National ID / FIN Code (Box 11)</label>
                                     <input 
                                         type="text" 
                                         className="client-input" 
-                                        value={formData.nationalId || ''}
-                                        onChange={(e) => handleFieldChange('nationalId', e.target.value.toUpperCase())}
+                                        value={formData.nationalId || ''} 
+                                        onChange={(e) => handleFieldChange('nationalId', e.target.value.toUpperCase())} 
                                         placeholder="e.g. 7A1BC23" 
                                     />
+                                </div>
+
+                                {/* Box 10: Minor Parental Authority / Legal Guardian */}
+                                <div className={`conditional-card full-width ${formData.isMinor === 'Yes' ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header" onClick={() => handleFieldChange('isMinor', formData.isMinor === 'Yes' ? 'No' : 'Yes')}>
+                                        <div className="conditional-title-wrap">
+                                            <span className="conditional-badge">Box 10</span>
+                                            <h4 className="conditional-title">Parental Authority / Legal Guardian (In the case of minors)</h4>
+                                        </div>
+                                        <div className="toggle-switch-pill">
+                                            <span>{formData.isMinor === 'Yes' ? 'APPLICABLE (Bəli)' : 'NOT APPLICABLE (Xeyr)'}</span>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={formData.isMinor === 'Yes'} 
+                                                onChange={(e) => handleFieldChange('isMinor', e.target.checked ? 'Yes' : 'No')}
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb' }}
+                                            />
+                                        </div>
+                                    </div>
+                                    <span className="field-sublabel" style={{ marginTop: 4 }}>
+                                        18 yaşına çatmamış ərizəçilər üçün qanuni qəyyum və ya valideynin rəsmi məlumatları.
+                                    </span>
+                                    {formData.isMinor === 'Yes' && (
+                                        <div className="client-form-grid fade-in" style={{ marginTop: 14 }}>
+                                            <div className="client-input-group">
+                                                <label>Guardian Surname (Soyad) *</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.guardianSurname || ''} 
+                                                    onChange={(e) => handleFieldChange('guardianSurname', e.target.value)} 
+                                                    placeholder="e.g. Bayramov" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Guardian First Name (Ad) *</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.guardianName || ''} 
+                                                    onChange={(e) => handleFieldChange('guardianName', e.target.value)} 
+                                                    placeholder="e.g. Rəşad" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group full-width">
+                                                <label>Guardian Residential Address (if different from applicant)</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.guardianAddress || ''} 
+                                                    onChange={(e) => handleFieldChange('guardianAddress', e.target.value)} 
+                                                    placeholder="e.g. Samad Vurgun str. 45, Baku" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Guardian Telephone Number</label>
+                                                <input 
+                                                    type="tel" 
+                                                    className="client-input" 
+                                                    value={formData.guardianPhone || ''} 
+                                                    onChange={(e) => handleFieldChange('guardianPhone', e.target.value)} 
+                                                    placeholder="+994 (__) ___-__-__" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Guardian Email Address</label>
+                                                <input 
+                                                    type="email" 
+                                                    className="client-input" 
+                                                    value={formData.guardianEmail || ''} 
+                                                    onChange={(e) => handleFieldChange('guardianEmail', e.target.value)} 
+                                                    placeholder="guardian@example.com" 
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Guardian Nationality</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={formData.guardianNationality || 'Azerbaijan'} 
+                                                    onChange={(e) => handleFieldChange('guardianNationality', e.target.value)} 
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1027,7 +1342,7 @@ export default function ClientApplication() {
                             
                             <div className="client-form-grid">
                                 <div className="client-input-group full-width">
-                                    <label>Type of Travel Document</label>
+                                    <label>Type of Travel Document (Box 12)</label>
                                     <select 
                                         className="client-input"
                                         value={formData.passportType || 'Ordinary passport'}
@@ -1038,8 +1353,22 @@ export default function ClientApplication() {
                                         <option value="Service passport">Service Passport</option>
                                         <option value="Official passport">Official Passport</option>
                                         <option value="Special passport">Special Passport</option>
+                                        <option value="Other (please specify below)">Other Travel Document (please specify)</option>
                                     </select>
                                 </div>
+
+                                {formData.passportType === 'Other (please specify below)' && (
+                                    <div className="client-input-group full-width">
+                                        <label>Specify Travel Document Type</label>
+                                        <input 
+                                            type="text" 
+                                            className="client-input" 
+                                            value={formData.otherDocTypeDetails || ''} 
+                                            onChange={(e) => handleFieldChange('otherDocTypeDetails', e.target.value)} 
+                                            placeholder="e.g. Alien's passport, Seaman's book, Travel document for refugees" 
+                                        />
+                                    </div>
+                                )}
 
                                 <div className="client-input-group">
                                     <label>Passport Number</label>
@@ -1084,6 +1413,147 @@ export default function ClientApplication() {
                                         required 
                                     />
                                 </div>
+
+                                {/* Box 20: Residence in Another Country */}
+                                <div className={`conditional-card full-width ${formData.hasOtherResidence ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header">
+                                        <div>
+                                            <h4>Residence in Another Country (Box 20)</h4>
+                                            <p>Do you currently reside in a country other than your country of current nationality?</p>
+                                        </div>
+                                        <label className="switch">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={Boolean(formData.hasOtherResidence)} 
+                                                onChange={(e) => handleFieldChange('hasOtherResidence', e.target.checked)} 
+                                            />
+                                            <span className="slider round"></span>
+                                        </label>
+                                    </div>
+                                    {formData.hasOtherResidence && (
+                                        <div className="conditional-body">
+                                            <div className="client-form-grid">
+                                                <div className="client-input-group">
+                                                    <label>Residence Permit / Equivalent Title</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.otherResidenceType || ''} 
+                                                        onChange={(e) => handleFieldChange('otherResidenceType', e.target.value)} 
+                                                        placeholder="e.g. Temporary Residence Permit, EU Blue Card" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Residence Permit Number</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.otherResidenceNumber || ''} 
+                                                        onChange={(e) => handleFieldChange('otherResidenceNumber', e.target.value)} 
+                                                        placeholder="e.g. TRP-987654321" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Valid Until (Expiry Date)</label>
+                                                    <input 
+                                                        type="date" 
+                                                        className="client-input" 
+                                                        value={formData.otherResidenceValidUntil || ''} 
+                                                        onChange={(e) => handleFieldChange('otherResidenceValidUntil', e.target.value)} 
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Boxes 30 & 31: Family Member of EU, EEA or CH Citizen */}
+                                <div className={`conditional-card full-width ${formData.hasEuFamilyMember ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header">
+                                        <div>
+                                            <h4>Family Member of an EU, EEA or CH Citizen (Boxes 30 & 31)</h4>
+                                            <p>Are you an immediate family member of an EU, EEA, or Swiss Confederation citizen?</p>
+                                        </div>
+                                        <label className="switch">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={Boolean(formData.hasEuFamilyMember)} 
+                                                onChange={(e) => handleFieldChange('hasEuFamilyMember', e.target.checked)} 
+                                            />
+                                            <span className="slider round"></span>
+                                        </label>
+                                    </div>
+                                    {formData.hasEuFamilyMember && (
+                                        <div className="conditional-body">
+                                            <div className="client-form-grid">
+                                                <div className="client-input-group">
+                                                    <label>EU Citizen Surname(s)</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.euFamilySurname || ''} 
+                                                        onChange={(e) => handleFieldChange('euFamilySurname', e.target.value)} 
+                                                        placeholder="Surname of EU family member" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>EU Citizen Given Name(s)</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.euFamilyName || ''} 
+                                                        onChange={(e) => handleFieldChange('euFamilyName', e.target.value)} 
+                                                        placeholder="First name of EU family member" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Date of Birth</label>
+                                                    <input 
+                                                        type="date" 
+                                                        className="client-input" 
+                                                        value={formData.euFamilyDob || ''} 
+                                                        onChange={(e) => handleFieldChange('euFamilyDob', e.target.value)} 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Nationality</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.euFamilyNationality || ''} 
+                                                        onChange={(e) => handleFieldChange('euFamilyNationality', e.target.value)} 
+                                                        placeholder="e.g. French, German, Italian" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Travel Document or ID Card Number</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.euFamilyDocNumber || ''} 
+                                                        onChange={(e) => handleFieldChange('euFamilyDocNumber', e.target.value)} 
+                                                        placeholder="e.g. ID98765432" 
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Family Relationship (Box 31)</label>
+                                                    <select 
+                                                        className="client-input" 
+                                                        value={formData.euFamilyRelationship || 'Spouse'} 
+                                                        onChange={(e) => handleFieldChange('euFamilyRelationship', e.target.value)}
+                                                    >
+                                                        <option value="Spouse">Spouse</option>
+                                                        <option value="Child">Child</option>
+                                                        <option value="Grandchild">Grandchild</option>
+                                                        <option value="Dependent ascendant">Dependent ascendant (Parent / Grandparent)</option>
+                                                        <option value="Registered Partnership">Registered Partnership</option>
+                                                        <option value="Other">Other</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -1094,79 +1564,290 @@ export default function ClientApplication() {
                             <h2>4. Inviting Party, Accommodation & Funding</h2>
                             <p className="app-step-desc">Enter details of the host or lodging establishment covering your stay in the Schengen Area.</p>
                             
+                            {/* Host Type Selector */}
+                            <div className="segmented-control" style={{ marginBottom: '24px' }}>
+                                <button 
+                                    type="button" 
+                                    className={`segmented-btn ${(formData.invitingType || 'individual') === 'individual' ? 'active' : ''}`}
+                                    onClick={() => handleFieldChange('invitingType', 'individual')}
+                                >
+                                    Individual Host / Hotel Booking (Box 29)
+                                </button>
+                                <button 
+                                    type="button" 
+                                    className={`segmented-btn ${formData.invitingType === 'company' ? 'active' : ''}`}
+                                    onClick={() => handleFieldChange('invitingType', 'company')}
+                                >
+                                    Inviting Company / Organisation (Box 30)
+                                </button>
+                            </div>
+
                             <div className="client-form-grid">
-                                <div className="client-input-group full-width">
-                                    <label>Inviting Organization, Person, or Hotel Name</label>
-                                    <input 
-                                        type="text" 
-                                        className="client-input" 
-                                        value={formData.invitingParty || ''}
-                                        onChange={(e) => handleFieldChange('invitingParty', e.target.value)}
-                                        placeholder="e.g. Hotel Sas Budapest or EuroTech Kft." 
-                                        required
-                                    />
-                                </div>
+                                {(formData.invitingType || 'individual') === 'individual' ? (
+                                    <>
+                                        <div className="client-input-group full-width">
+                                            <label>Inviting Person(s) or Hotel Name (Box 29) *</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.invitingParty || ''} 
+                                                onChange={(e) => handleFieldChange('invitingParty', e.target.value)} 
+                                                placeholder="e.g. Hotel Sas Budapest or John Doe" 
+                                                required
+                                            />
+                                        </div>
 
-                                <div className="client-input-group full-width">
-                                    <label>Full Address of Inviting Party / Hotel</label>
-                                    <input 
-                                        type="text" 
-                                        className="client-input" 
-                                        value={formData.address || ''}
-                                        onChange={(e) => handleFieldChange('address', e.target.value)}
-                                        placeholder="e.g. 1051 Budapest, Sas utca 12, Hungary" 
-                                        required
-                                    />
-                                </div>
+                                        <div className="client-input-group full-width">
+                                            <label>Full Address of Inviting Person / Hotel *</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.address || ''} 
+                                                onChange={(e) => handleFieldChange('address', e.target.value)} 
+                                                placeholder="e.g. 1051 Budapest, Sas utca 12, Hungary" 
+                                                required
+                                            />
+                                        </div>
 
-                                <div className="client-input-group">
-                                    <label>Contact Email of Host / Hotel</label>
-                                    <input 
-                                        type="email" 
-                                        className="client-input" 
-                                        value={formData.stayEmail || ''}
-                                        onChange={(e) => handleFieldChange('stayEmail', e.target.value)}
-                                        placeholder="e.g. reservation@hotelsas.hu" 
-                                    />
-                                </div>
+                                        <div className="client-input-group">
+                                            <label>Contact Email of Host / Hotel</label>
+                                            <input 
+                                                type="email" 
+                                                className="client-input" 
+                                                value={formData.stayEmail || ''} 
+                                                onChange={(e) => handleFieldChange('stayEmail', e.target.value)} 
+                                                placeholder="e.g. reservation@hotelsas.hu" 
+                                            />
+                                        </div>
 
-                                <div className="client-input-group">
-                                    <label>Telephone of Host / Hotel</label>
-                                    <input 
-                                        type="tel" 
-                                        className="client-input" 
-                                        value={formData.stayPhone || ''}
-                                        onChange={(e) => handleFieldChange('stayPhone', e.target.value)}
-                                        placeholder="e.g. +36 1 234 5678" 
-                                    />
-                                </div>
+                                        <div className="client-input-group">
+                                            <label>Telephone of Host / Hotel</label>
+                                            <input 
+                                                type="tel" 
+                                                className="client-input" 
+                                                value={formData.stayPhone || ''} 
+                                                onChange={(e) => handleFieldChange('stayPhone', e.target.value)} 
+                                                placeholder="e.g. +36 1 234 5678" 
+                                            />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="client-input-group full-width">
+                                            <label>Inviting Company / Organisation Name (Box 30) *</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.companyName || formData.invitingParty || ''} 
+                                                onChange={(e) => {
+                                                    handleFieldChange('companyName', e.target.value);
+                                                    handleFieldChange('invitingParty', e.target.value);
+                                                }} 
+                                                placeholder="e.g. EuroTech Global Technologies Kft." 
+                                                required
+                                            />
+                                        </div>
 
-                                <div className="client-input-group">
-                                    <label>Cost of Travelling Covered By</label>
+                                        <div className="client-input-group full-width">
+                                            <label>Company Physical Address *</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.companyAddress || formData.address || ''} 
+                                                onChange={(e) => {
+                                                    handleFieldChange('companyAddress', e.target.value);
+                                                    handleFieldChange('address', e.target.value);
+                                                }} 
+                                                placeholder="e.g. 1062 Budapest, Andrassy ut 56, Hungary" 
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="client-input-group">
+                                            <label>Company Contact Person Name *</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.companyContactName || ''} 
+                                                onChange={(e) => handleFieldChange('companyContactName', e.target.value)} 
+                                                placeholder="e.g. Dr. Peter Kovacs (Head of HR)" 
+                                            />
+                                        </div>
+
+                                        <div className="client-input-group">
+                                            <label>Company Contact Person Address (if different)</label>
+                                            <input 
+                                                type="text" 
+                                                className="client-input" 
+                                                value={formData.companyContactAddress || ''} 
+                                                onChange={(e) => handleFieldChange('companyContactAddress', e.target.value)} 
+                                                placeholder="Office / branch address if different" 
+                                            />
+                                        </div>
+
+                                        <div className="client-input-group">
+                                            <label>Company Telephone Number</label>
+                                            <input 
+                                                type="tel" 
+                                                className="client-input" 
+                                                value={formData.companyContactPhone || formData.stayPhone || ''} 
+                                                onChange={(e) => {
+                                                    handleFieldChange('companyContactPhone', e.target.value);
+                                                    handleFieldChange('stayPhone', e.target.value);
+                                                }} 
+                                                placeholder="e.g. +36 1 999 8888" 
+                                            />
+                                        </div>
+
+                                        <div className="client-input-group">
+                                            <label>Company Official Email</label>
+                                            <input 
+                                                type="email" 
+                                                className="client-input" 
+                                                value={formData.companyContactEmail || formData.stayEmail || ''} 
+                                                onChange={(e) => {
+                                                    handleFieldChange('companyContactEmail', e.target.value);
+                                                    handleFieldChange('stayEmail', e.target.value);
+                                                }} 
+                                                placeholder="e.g. contact@eurotech-europe.eu" 
+                                            />
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Cost Covered By */}
+                                <div className="client-input-group full-width" style={{ marginTop: '16px' }}>
+                                    <label>Cost of Travelling and Living During Stay is Covered (Box 33) *</label>
                                     <select 
                                         className="client-input"
                                         value={formData.costCoveredBy || 'By applicant himself'}
                                         onChange={(e) => handleFieldChange('costCoveredBy', e.target.value)}
                                     >
-                                        <option value="By applicant himself">By Applicant Himself/Herself</option>
-                                        <option value="By a sponsor (host/company)">By a Sponsor (Host / Employer / Inviting Company)</option>
+                                        <option value="By applicant himself">By applicant himself / herself</option>
+                                        <option value="By a sponsor (host/company)">By a sponsor (host, company or organisation)</option>
                                     </select>
                                 </div>
 
-                                <div className="client-input-group">
-                                    <label>Means of Financial Support</label>
-                                    <select 
-                                        className="client-input"
-                                        value={formData.meansOfSupport || 'Credit card & Cash'}
-                                        onChange={(e) => handleFieldChange('meansOfSupport', e.target.value)}
-                                    >
-                                        <option value="Credit card & Cash">Credit Card & Cash</option>
-                                        <option value="Credit Card">Credit Card</option>
-                                        <option value="Cash">Cash</option>
-                                        <option value="Pre-paid accommodation">Pre-paid Accommodation</option>
-                                        <option value="Pre-paid transport">Pre-paid Transport</option>
-                                    </select>
-                                </div>
+                                {/* Means of support: APPLICANT */}
+                                {formData.costCoveredBy !== 'By a sponsor (host/company)' && (
+                                    <div className="conditional-card full-width active" style={{ gridColumn: 'span 2' }}>
+                                        <div className="conditional-header">
+                                            <div>
+                                                <h4>Means of Support — Applicant (Box 33 Left Column)</h4>
+                                                <p>Select all financial means available to you for this trip.</p>
+                                            </div>
+                                        </div>
+                                        <div className="conditional-body">
+                                            <div className="checkbox-grid">
+                                                {[
+                                                    { key: 'cash', label: 'Cash' },
+                                                    { key: 'cheques', label: "Traveller's Cheques" },
+                                                    { key: 'creditCard', label: 'Credit Card' },
+                                                    { key: 'prepaidAccommodation', label: 'Pre-paid Accommodation' },
+                                                    { key: 'prepaidTransport', label: 'Pre-paid Transport' },
+                                                    { key: 'other', label: 'Other (specify below)' },
+                                                ].map(item => {
+                                                    const isChecked = Array.isArray(formData.meansOfSupportApplicant) && formData.meansOfSupportApplicant.includes(item.key);
+                                                    return (
+                                                        <label key={item.key} className={`checkbox-card-item ${isChecked ? 'selected' : ''}`}>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={isChecked} 
+                                                                onChange={() => handleMeansOfSupportToggle('applicant', item.key)} 
+                                                            />
+                                                            <span>{item.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                            {Array.isArray(formData.meansOfSupportApplicant) && formData.meansOfSupportApplicant.includes('other') && (
+                                                <div className="client-input-group full-width" style={{ marginTop: '12px' }}>
+                                                    <label>Specify Other Means of Financial Support</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.meansOfSupportApplicantOtherDetails || ''} 
+                                                        onChange={(e) => handleFieldChange('meansOfSupportApplicantOtherDetails', e.target.value)} 
+                                                        placeholder="e.g. Bank guarantee, scholarship stipend" 
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Means of support: SPONSOR */}
+                                {formData.costCoveredBy === 'By a sponsor (host/company)' && (
+                                    <div className="conditional-card full-width active" style={{ gridColumn: 'span 2' }}>
+                                        <div className="conditional-header">
+                                            <div>
+                                                <h4>Means of Support — Sponsor (Box 33 Right Column)</h4>
+                                                <p>Select which costs are covered by the host or sponsoring organisation.</p>
+                                            </div>
+                                        </div>
+                                        <div className="conditional-body">
+                                            <div className="client-form-grid" style={{ marginBottom: '14px' }}>
+                                                <div className="client-input-group">
+                                                    <label>Sponsor Identity Category</label>
+                                                    <select 
+                                                        className="client-input" 
+                                                        value={formData.sponsorType || 'referred'} 
+                                                        onChange={(e) => handleFieldChange('sponsorType', e.target.value)}
+                                                    >
+                                                        <option value="referred">Host / Company referred to in Box 30 or 31</option>
+                                                        <option value="other">Other Sponsor (specify below)</option>
+                                                    </select>
+                                                </div>
+                                                {formData.sponsorType === 'other' && (
+                                                    <div className="client-input-group">
+                                                        <label>Other Sponsor Name & Details</label>
+                                                        <input 
+                                                            type="text" 
+                                                            className="client-input" 
+                                                            value={formData.sponsorNameDetails || ''} 
+                                                            onChange={(e) => handleFieldChange('sponsorNameDetails', e.target.value)} 
+                                                            placeholder="Full name & relation of third-party sponsor" 
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="checkbox-grid">
+                                                {[
+                                                    { key: 'cash', label: 'Cash' },
+                                                    { key: 'accommodationProvided', label: 'Accommodation Provided' },
+                                                    { key: 'allExpensesCovered', label: 'All expenses covered during stay' },
+                                                    { key: 'prepaidTransport', label: 'Pre-paid Transport' },
+                                                    { key: 'other', label: 'Other (specify below)' },
+                                                ].map(item => {
+                                                    const isChecked = Array.isArray(formData.meansOfSupportSponsor) && formData.meansOfSupportSponsor.includes(item.key);
+                                                    return (
+                                                        <label key={item.key} className={`checkbox-card-item ${isChecked ? 'selected' : ''}`}>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={isChecked} 
+                                                                onChange={() => handleMeansOfSupportToggle('sponsor', item.key)} 
+                                                            />
+                                                            <span>{item.label}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                            {Array.isArray(formData.meansOfSupportSponsor) && formData.meansOfSupportSponsor.includes('other') && (
+                                                <div className="client-input-group full-width" style={{ marginTop: '12px' }}>
+                                                    <label>Specify Other Sponsor Provision</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.meansOfSupportSponsorOtherDetails || ''} 
+                                                        onChange={(e) => handleFieldChange('meansOfSupportSponsorOtherDetails', e.target.value)} 
+                                                        placeholder="e.g. Daily subsistence allowance, per diem allowance" 
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1236,15 +1917,90 @@ export default function ClientApplication() {
                                     />
                                 </div>
 
-                                <div className="client-input-group full-width">
-                                    <label>Employer Address & Contact Phone</label>
+                                <div className="client-input-group">
+                                    <label>Employer Physical Address</label>
                                     <input 
                                         type="text" 
                                         className="client-input" 
                                         value={formData.employerAddress || ''}
                                         onChange={(e) => handleFieldChange('employerAddress', e.target.value)}
-                                        placeholder="e.g. Nobel Ave 15, Baku, (+994 12 404 0000)" 
+                                        placeholder="e.g. Nobel Ave 15, Baku, Azerbaijan"
                                     />
+                                </div>
+
+                                <div className="client-input-group">
+                                    <label>Employer Official Telephone Number (Box 22)</label>
+                                    <input 
+                                        type="tel" 
+                                        className="client-input" 
+                                        value={formData.employerPhone || ''}
+                                        onChange={(e) => handleFieldChange('employerPhone', e.target.value)}
+                                        placeholder="+994 (__) ___-__-__"
+                                    />
+                                </div>
+
+                                {/* Box 34: Person filling in form / Authorized Representative */}
+                                <div className={`conditional-card full-width ${formData.hasRepresentative ? 'active' : ''}`} style={{ gridColumn: 'span 2' }}>
+                                    <div className="conditional-header">
+                                        <div>
+                                            <h4>Authorized Representative / Form Preparer (Box 34)</h4>
+                                            <p>Is an agency, legal representative, or third party completing this form on behalf of the applicant?</p>
+                                        </div>
+                                        <label className="switch">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={Boolean(formData.hasRepresentative)}
+                                                onChange={(e) => handleFieldChange('hasRepresentative', e.target.checked)}
+                                            />
+                                            <span className="slider round"></span>
+                                        </label>
+                                    </div>
+                                    {formData.hasRepresentative && (
+                                        <div className="conditional-body">
+                                            <div className="client-form-grid">
+                                                <div className="client-input-group">
+                                                    <label>Representative / Agency Full Name</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.representativeName || ''}
+                                                        onChange={(e) => handleFieldChange('representativeName', e.target.value)}
+                                                        placeholder="e.g. EuroTech Global Visa Consultancy"
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Representative Contact Phone</label>
+                                                    <input 
+                                                        type="tel" 
+                                                        className="client-input" 
+                                                        value={formData.representativePhone || ''}
+                                                        onChange={(e) => handleFieldChange('representativePhone', e.target.value)}
+                                                        placeholder="+994 (__) ___-__-__"
+                                                    />
+                                                </div>
+                                                <div className="client-input-group full-width">
+                                                    <label>Representative Physical Address</label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="client-input" 
+                                                        value={formData.representativeAddress || ''}
+                                                        onChange={(e) => handleFieldChange('representativeAddress', e.target.value)}
+                                                        placeholder="Full address of representing agent or legal guardian"
+                                                    />
+                                                </div>
+                                                <div className="client-input-group">
+                                                    <label>Representative Email</label>
+                                                    <input 
+                                                        type="email" 
+                                                        className="client-input" 
+                                                        value={formData.representativeEmail || ''}
+                                                        onChange={(e) => handleFieldChange('representativeEmail', e.target.value)}
+                                                        placeholder="rep@eurotech.az"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

@@ -82,6 +82,48 @@ export default function CorporateDelegation() {
     }
   };
 
+  const handleDownloadMySchengenPdf = async () => {
+    try {
+      showSuccess('Rəsmi Şengen vizası ərizə forması (PDF) hazırlanır...');
+      const dossierId = profile?.dossierId || 'corporate-delegation';
+      const applicantId = profile?.applicantId || profile?.id || 'applicant';
+      const res = await apiClient.post(`/dossiers/${dossierId}/applicants/${applicantId}/application-pdf`, {
+        firstName: profile?.firstName,
+        lastName: profile?.lastName,
+        passportNumber,
+        birthDate: dob,
+        passportExpiry,
+        phone,
+        destination: profile?.destination || 'Europe / Schengen',
+        purpose: 'Business',
+        employerName: profile?.companyName || 'Corporate Partner',
+        costCoveredBy: 'By Sponsor / Employer',
+      });
+
+      if (res.data?.downloadUrl) {
+        const fullUrl = res.data.downloadUrl.startsWith('http')
+          ? res.data.downloadUrl
+          : `http://localhost:5000${res.data.downloadUrl}`;
+        
+        const fileRes = await fetch(fullUrl);
+        if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
+        const blob = await fileRes.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = res.data.fileName || `Schengen_Form_${profile?.firstName || 'Applicant'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        showSuccess('Şengen forması (PDF) uğurla endirildi!');
+      }
+    } catch (err: any) {
+      console.error('Schengen PDF error:', err);
+      showError('Şengen PDF formasını yükləmək mümkün olmadı.');
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -114,7 +156,7 @@ export default function CorporateDelegation() {
   if (isCompleted) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-        <Card style={{ maxWidth: '500px', textAlign: 'center', padding: '40px 30px' }}>
+        <Card style={{ maxWidth: '540px', textAlign: 'center', padding: '40px 30px' }}>
           <div style={{ color: 'var(--color-tertiary)', marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
             <CheckCircleIcon size={56} />
           </div>
@@ -125,9 +167,19 @@ export default function CorporateDelegation() {
             Thank you, <strong>{profile?.firstName}</strong>. Your mobility documents and details have been linked to your
             corporate visa delegation file for <strong>{profile?.companyName}</strong>.
           </p>
-          <Button variant="outline" onClick={() => navigate('/')}>
-            Back to Portal Home
-          </Button>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button 
+              variant="primary" 
+              onClick={handleDownloadMySchengenPdf}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', backgroundColor: '#EF4444', borderColor: '#EF4444' }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              📄 Şengen Formasını Yüklə (PDF)
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/')}>
+              Back to Portal Home
+            </Button>
+          </div>
         </Card>
       </div>
     );

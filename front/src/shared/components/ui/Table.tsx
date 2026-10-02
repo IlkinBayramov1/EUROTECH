@@ -1,4 +1,5 @@
 import React from 'react';
+import { Spinner } from './Spinner';
 
 export interface Column<T> {
   key: string;
@@ -52,7 +53,24 @@ export function Table<T extends { id?: string | number }>({
           </tr>
         </thead>
         <tbody>
-          {data.length === 0 ? (
+          {isLoading ? (
+            <tr>
+              <td
+                colSpan={columns.length}
+                style={{
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  color: 'var(--color-text-muted)',
+                  fontSize: '14px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}>
+                  <Spinner width="16" height="16" />
+                  <span>Loading records...</span>
+                </div>
+              </td>
+            </tr>
+          ) : data.length === 0 ? (
             <tr>
               <td
                 colSpan={columns.length}
