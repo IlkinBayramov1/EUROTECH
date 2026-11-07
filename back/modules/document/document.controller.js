@@ -67,8 +67,23 @@ async function sendFeedback(req, res, next) {
 async function downloadDocument(req, res, next) {
   try {
     const { documentId } = req.params;
-    const { token } = req.query;
+    const { token, inline } = req.query;
     const fileData = await documentService.getDocumentFileForDownload(documentId, token, req.user);
+
+    if (inline === 'true' || inline === '1') {
+      const ext = (fileData.fileName || '').split('.').pop()?.toLowerCase();
+      const mimeMap = {
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+      };
+      const contentType = mimeMap[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${fileData.fileName}"`);
+      return res.sendFile(fileData.filePath);
+    }
+
     return res.download(fileData.filePath, fileData.fileName);
   } catch (error) {
     const statusCode = error.statusCode || 400;

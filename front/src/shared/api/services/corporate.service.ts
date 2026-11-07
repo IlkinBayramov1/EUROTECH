@@ -115,6 +115,12 @@ export const corporateService = {
   deleteBatch: (batchId: string) =>
     apiClient.delete(`/corporate/batches/${batchId}`),
 
+  addEmployeeToBatch: (batchId: string, payload: any) =>
+    apiClient.post(`/corporate/batches/${batchId}/employees`, payload),
+
+  removeEmployeeFromBatch: (batchId: string, employeeId: string) =>
+    apiClient.delete(`/corporate/batches/${batchId}/employees/${employeeId}`),
+
   saveEmployeeForm: (batchId: string, employeeId: string, formData: any) =>
     apiClient.patch(`/corporate/batches/${batchId}/employees/${employeeId}/form`, { formData }),
 

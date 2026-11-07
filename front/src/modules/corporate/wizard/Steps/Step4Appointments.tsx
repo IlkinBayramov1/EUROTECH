@@ -24,9 +24,10 @@ export default function Step4Appointments({ data, updateData }: Step4Props) {
     useEffect(() => {
         if (!data.appointmentDate) return;
         appointmentService.getSlots(data.appointmentDate)
-            .then(res => {
-                if (res.data?.slots && res.data.slots.length > 0) {
-                    const mapped = res.data.slots.map((s: any) => ({
+            .then((res: any) => {
+                const slotsData = res?.slots || res?.data?.slots;
+                if (slotsData && slotsData.length > 0) {
+                    const mapped = slotsData.map((s: any) => ({
                         id: s.id || s.startTime,
                         label: s.startTime,
                         status: s.bookedCount >= s.capacity ? 'full' : 'available',
@@ -131,14 +132,14 @@ export default function Step4Appointments({ data, updateData }: Step4Props) {
                     ) : (
                         <div className="time-grid-compact fade-in">
                             {timeSlots.map(slot => {
-                                const isSelected = data.appointmentTime === slot.id;
+                                const isSelected = data.appointmentTime === slot.label || data.appointmentTime === slot.id;
                                 const isFull = slot.status === 'full';
                                 
                                 return (
                                     <div 
                                         key={slot.id} 
                                         className={`slot-card-compact ${isSelected ? 'selected' : ''} ${isFull ? 'full' : ''}`}
-                                        onClick={() => !isFull && updateData('appointmentTime', slot.id)}
+                                        onClick={() => !isFull && updateData('appointmentTime', slot.label)}
                                     >
                                         <div className="slot-time-text">{slot.label}</div>
                                         {isFull && <div className="slot-full-text">Full</div>}

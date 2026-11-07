@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { ShieldIcon, EuroTechLogo } from '@/shared/components/icons/Icons';
-import { dossierService } from '@/shared/api/services';
+import { dossierService, notificationService } from '@/shared/api/services';
 import './ClientLayout.css';
 
 export default function ClientLayout() {
@@ -34,14 +34,33 @@ export default function ClientLayout() {
 
   useEffect(() => {
     let isMounted = true;
-    dossierService.getMyDossiers()
-      .then(res => {
-        if (!isMounted) return;
-        const dossiers = res.data?.dossiers || [];
+
+    async function loadAlerts() {
+      try {
+        const notifs: any[] = [];
+
+        // 1. Fetch DB notifications
+        try {
+          const dbNotifs = await notificationService.getMyNotifications();
+          if (dbNotifs?.notifications?.length > 0) {
+            for (const n of dbNotifs.notifications) {
+              notifs.push({
+                id: n.id,
+                title: n.title,
+                desc: n.message,
+                time: new Date(n.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                unread: !n.isRead,
+              });
+            }
+          }
+        } catch {}
+
+        // 2. Fetch Dossier notifications
+        const res = await dossierService.getMyDossiers().catch(() => null);
+        const dossiers = res?.data?.dossiers || [];
         if (dossiers.length > 0) {
           const d = dossiers[0];
           const appt = d.appointments?.find((a: any) => a.status === 'CONFIRMED') || d.appointments?.[0];
-          const notifs: any[] = [];
           if (appt) {
             const dateStr = appt.timeSlot?.date ? new Date(appt.timeSlot.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Upcoming';
             const timeStr = appt.timeSlot?.startTime || '10:30 AM';
@@ -72,21 +91,27 @@ export default function ClientLayout() {
               unread: false
             });
           }
-          if (notifs.length > 0) setNotifications(notifs);
-        } else {
-          setNotifications([
-            { id: 'n-welcome', title: 'Welcome to EuroTech Portal', desc: 'Start your European visa application to begin consular processing.', time: 'Now', unread: true }
-          ]);
         }
-      })
-      .catch(() => {
+
+        if (isMounted) {
+          if (notifs.length > 0) {
+            setNotifications(notifs);
+          } else {
+            setNotifications([
+              { id: 'n-welcome', title: 'Welcome to EuroTech Portal', desc: 'Start your European visa application to begin consular processing.', time: 'Now', unread: false }
+            ]);
+          }
+        }
+      } catch (err) {
         if (isMounted) {
           setNotifications([
             { id: 'n-welcome', title: 'EuroTech Consular Portal', desc: 'Secure European visa and mobility services active.', time: 'Now', unread: false }
           ]);
         }
-      });
+      }
+    }
 
+    loadAlerts();
     return () => { isMounted = false; };
   }, []);
 
@@ -109,6 +134,7 @@ export default function ClientLayout() {
     { title: 'Schengen Visa Application Anket', path: '/client/application', category: 'Application' },
     { title: 'Consular Appointment & Biometrics', path: '/client/appointment', category: 'Appointments' },
     { title: 'Buy Value-Added Services & VIP Lounge', path: '/client/services', category: 'Services' },
+    { title: 'Wallet & Consular Invoices', path: '/client/wallet', category: 'Finance' },
     { title: 'Live Consular Status Tracking', path: '/client/tracking', category: 'Tracking' },
     { title: 'GDPR Privacy & Data Export', path: '/client/privacy', category: 'Privacy & Security' },
   ];
@@ -134,8 +160,11 @@ export default function ClientLayout() {
 
   const unreadCount = notifications.filter(n => n.unread).length;
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+    try {
+      await notificationService.markAllAsRead();
+    } catch {}
   };
 
   return (
@@ -182,6 +211,13 @@ export default function ClientLayout() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
             </span>
             Buy Services
+          </NavLink>
+
+          <NavLink to="/client/wallet" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <span className="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </span>
+            Wallet &amp; Invoices
           </NavLink>
 
           <NavLink to="/client/tracking" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>

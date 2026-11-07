@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService } from '@/shared/api/services/dossier.service';
 import { serviceService } from '@/shared/api/services/service.service';
+import { paymentService } from '@/shared/api/services/payment.service';
+import { storage } from '@/shared/utils/storage';
 import './ClientServices.css';
 
 interface ServiceItem {
@@ -10,6 +12,7 @@ interface ServiceItem {
     category: string;
     description: string;
     price: number;
+    priceEur?: number;
     icon: React.ReactNode;
 }
 
@@ -62,6 +65,159 @@ function normalizeServiceType(raw?: string | null): string {
     return CANONICAL_ALIASES[clean] || clean;
 }
 
+const BASE_AVAILABLE_SERVICES: ServiceItem[] = [
+    {
+        id: 'PREMIUM_LOUNGE',
+        title: 'Premium Lounge Access',
+        category: 'Comfort & Speed',
+        price: 157.25,
+        priceEur: 85,
+        description: 'Dedicated quiet space, prime time slots, refreshments, and personal concierge support.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+                <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+                <line x1="6" y1="1" x2="6" y2="4"/>
+                <line x1="10" y1="1" x2="10" y2="4"/>
+                <line x1="14" y1="1" x2="14" y2="4"/>
+            </svg>
+        )
+    },
+    {
+        id: 'FILE_PREPARATION',
+        title: 'File Preparation',
+        category: 'Documentation',
+        price: 92.50,
+        priceEur: 50,
+        description: 'Expert pre-check, sorting, and certified verification of your consular dossier.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+            </svg>
+        )
+    },
+    {
+        id: 'TRAVEL_INSURANCE',
+        title: 'Schengen Travel Insurance',
+        category: 'Legal Requirement',
+        price: 55.50,
+        priceEur: 30,
+        description: 'Mandatory €30,000 medical coverage policy valid across all Schengen member territories.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+        )
+    },
+    {
+        id: 'HOTEL_BOOKING',
+        title: 'Hotel Reservation Voucher',
+        category: 'Itinerary Verification',
+        price: 46.25,
+        priceEur: 25,
+        description: 'Confirmed hotel booking reservation strictly compliant with consular requirements.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 21h18"/>
+                <path d="M5 21V7l8-4v18"/>
+                <path d="M19 21V11l-6-4"/>
+                <path d="M9 9h1"/>
+                <path d="M9 13h1"/>
+                <path d="M9 17h1"/>
+            </svg>
+        )
+    },
+    {
+        id: 'FLIGHT_BOOKING',
+        title: 'Flight Itinerary Reservation',
+        category: 'Itinerary Verification',
+        price: 46.25,
+        priceEur: 25,
+        description: 'Verified verifiable roundtrip flight booking voucher with active PNR.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>
+            </svg>
+        )
+    },
+    {
+        id: 'FORM_ASSIST',
+        title: 'Form Completion & Review',
+        category: 'Expert Assistance',
+        price: 37.00,
+        priceEur: 20,
+        description: 'Expert review and precision completion of the national/Schengen visa application form.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="16 3 21 8 8 21 3 21 3 16 16 3"/>
+            </svg>
+        )
+    },
+    {
+        id: 'COURIER',
+        title: 'Courier Passport Delivery',
+        category: 'Secure Logistics',
+        price: 27.75,
+        priceEur: 15,
+        description: 'Direct secure and tracked delivery of your processed passport straight to your home or office.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="1" y="3" width="15" height="13"/>
+                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
+                <circle cx="5.5" cy="18.5" r="2.5"/>
+                <circle cx="18.5" cy="18.5" r="2.5"/>
+            </svg>
+        )
+    },
+    {
+        id: 'BIOMETRIC_PHOTO',
+        title: 'Compliant ID Photo',
+        category: 'Biometrics',
+        price: 18.50,
+        priceEur: 10,
+        description: '100% Schengen and ICAO compliant biometric passport photo service taken directly on-site.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+            </svg>
+        )
+    },
+    {
+        id: 'EXPRESS_PROCESSING',
+        title: 'Express Processing',
+        category: 'Priority',
+        price: 111.00,
+        priceEur: 60,
+        description: 'Priority document triage and expedited processing queue for rapid consular delivery.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+        )
+    },
+    {
+        id: 'TRANSLATION_APOSTILLE',
+        title: 'Translation & Apostille',
+        category: 'Legalization',
+        price: 83.25,
+        priceEur: 45,
+        description: 'Official notarized legal translation and apostille certification of required civil documents.',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+        )
+    },
+];
+
 export default function ClientServices() {
     const { showSuccess, showError } = useToast();
 
@@ -70,6 +226,7 @@ export default function ClientServices() {
     const [applicants, setApplicants] = useState<Applicant[]>([]);
     const [selectedApplicant, setSelectedApplicant] = useState<string>('');
     const [purchasedServices, setPurchasedServices] = useState<PurchasedService[]>([]);
+    const [availableServices, setAvailableServices] = useState<ServiceItem[]>(BASE_AVAILABLE_SERVICES);
 
     const [cart, setCart] = useState<CartItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -77,156 +234,62 @@ export default function ClientServices() {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [showCheckoutModal, setShowCheckoutModal] = useState(false);
 
-    const availableServices: ServiceItem[] = [
-        {
-            id: 'PREMIUM_LOUNGE',
-            title: 'Premium Lounge Access',
-            category: 'Comfort & Speed',
-            price: 81.00,
-            description: 'Dedicated quiet space, prime time slots, refreshments, and personal concierge support.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
-                    <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
-                    <line x1="6" y1="1" x2="6" y2="4"/>
-                    <line x1="10" y1="1" x2="10" y2="4"/>
-                    <line x1="14" y1="1" x2="14" y2="4"/>
-                </svg>
-            )
-        },
-        {
-            id: 'FILE_PREPARATION',
-            title: 'File Preparation',
-            category: 'Documentation',
-            price: 55.00,
-            description: 'Thorough verification of documents and completeness check to maximize visa acceptance.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                    <polyline points="10 9 9 9 8 9"/>
-                </svg>
-            )
-        },
-        {
-            id: 'TRAVEL_INSURANCE',
-            title: 'Travel Medical Insurance',
-            category: 'Required Coverage',
-            price: 35.00,
-            description: 'Official Schengen-compliant health & emergency coverage up to €30,000 for your travel dates.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                    <path d="M8 11h8"/>
-                    <path d="M12 7v8"/>
-                </svg>
-            )
-        },
-        {
-            id: 'HOTEL_BOOKING',
-            title: 'Hotel Reservation',
-            category: 'Accommodation',
-            price: 15.00,
-            description: 'Verifiable dummy hotel itinerary with valid confirmation number required for visa submission.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    <polyline points="9 22 9 12 15 12 15 22"/>
-                </svg>
-            )
-        },
-        {
-            id: 'FLIGHT_BOOKING',
-            title: 'Flight Itinerary',
-            category: 'Travel Route',
-            price: 15.00,
-            description: 'Official airline round-trip reservation with active PNR code without upfront ticket purchase.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 2 11 13"/>
-                    <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
-                </svg>
-            )
-        },
-        {
-            id: 'FORM_ASSIST',
-            title: 'Form Completion',
-            category: 'Expert Assistance',
-            price: 24.00,
-            description: 'Expert review and precision completion of the national/Schengen visa application form.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="16 3 21 8 8 21 3 21 3 16 16 3"/>
-                </svg>
-            )
-        },
-        {
-            id: 'COURIER',
-            title: 'Courier Delivery',
-            category: 'Secure Logistics',
-            price: 20.00,
-            description: 'Direct secure and tracked delivery of your processed passport straight to your home or office.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="1" y="3" width="15" height="13"/>
-                    <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
-                    <circle cx="5.5" cy="18.5" r="2.5"/>
-                    <circle cx="18.5" cy="18.5" r="2.5"/>
-                </svg>
-            )
-        },
-        {
-            id: 'BIOMETRIC_PHOTO',
-            title: 'Compliant ID Photo',
-            category: 'Biometrics',
-            price: 12.00,
-            description: '100% Schengen and ICAO compliant biometric passport photo service taken directly on-site.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    <circle cx="8.5" cy="8.5" r="1.5"/>
-                    <polyline points="21 15 16 10 5 21"/>
-                </svg>
-            )
-        },
-        {
-            id: 'EXPRESS_PROCESSING',
-            title: 'Express Processing',
-            category: 'Priority',
-            price: 60.00,
-            description: 'Priority document triage and expedited processing queue for rapid consular delivery.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                </svg>
-            )
-        },
-        {
-            id: 'TRANSLATION_APOSTILLE',
-            title: 'Translation & Apostille',
-            category: 'Legalization',
-            price: 45.00,
-            description: 'Official notarized legal translation and apostille certification of required civil documents.',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="2" y1="12" x2="22" y2="12"/>
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                </svg>
-            )
-        },
-    ];
+    // Payment Mode: 'WALLET' | 'CARD' | 'BANK_SLIP'
+    const [paymentMethod, setPaymentMethod] = useState<'WALLET' | 'CARD' | 'BANK_SLIP'>('WALLET');
+    const [walletBalanceEur, setWalletBalanceEur] = useState<number>(0);
+
+    // Online Card Form State
+    const [cardHolder, setCardHolder] = useState('E. Abdullayev');
+    const [cardNumber, setCardNumber] = useState('4169 7820 9182 4310');
+    const [cardExpiry, setCardExpiry] = useState('12/28');
+    const [cardCvv, setCardCvv] = useState('892');
+
+    // Bank Slip Upload State
+    const [slipBankName, setSlipBankName] = useState('ABB (International Bank of Azerbaijan)');
+    const [slipSenderName, setSlipSenderName] = useState('');
+    const [slipReceiptNumber, setSlipReceiptNumber] = useState('');
+    const [slipFile, setSlipFile] = useState<File | null>(null);
 
     const loadDossierData = useCallback(async () => {
         try {
+            // Load dynamic catalog from backend system settings
+            try {
+                const catalogRes = await serviceService.getCatalog();
+                if (catalogRes?.data?.services && Array.isArray(catalogRes.data.services)) {
+                    const dynamicCatalog = catalogRes.data.services;
+                    setAvailableServices(prev => prev.map(item => {
+                        const matched = dynamicCatalog.find((c: any) => c.code === item.id || normalizeServiceType(c.code) === item.id);
+                        if (matched) {
+                            return {
+                                ...item,
+                                price: matched.priceAzn || item.price,
+                                priceEur: matched.priceEur || item.priceEur,
+                                title: matched.name || item.title,
+                            };
+                        }
+                        return item;
+                    }));
+                }
+            } catch (catErr) {
+                console.warn('Dynamic catalog load notice, using standard catalog:', catErr);
+            }
+
+            try {
+                const walletRes = await paymentService.getUserWallet();
+                const bal = Number(walletRes?.data?.wallet?.balanceEur ?? walletRes?.data?.balance ?? 0);
+                setWalletBalanceEur(bal);
+            } catch (wErr) {
+                console.warn('Wallet load note:', wErr);
+            }
+
             const res = await dossierService.getMyDossiers();
             const dossiers = res.data?.dossiers || [];
             if (dossiers.length > 0) {
-                const active = dossiers[0];
+                const activeDossierId = storage.getActiveDossierId();
+                const active = (activeDossierId && dossiers.find((d: any) => d.id === activeDossierId)) || dossiers[0];
                 setDossierId(active.id);
                 setDossierNumber(active.dossierNumber || '');
+                storage.setActiveDossierId(active.id);
 
                 // Active purchased services from DB
                 const activeServices: PurchasedService[] = (active.services || []).filter(
@@ -244,7 +307,6 @@ export default function ClientServices() {
                     setApplicants(mapped);
                     setSelectedApplicant(prev => (!prev || !mapped.some(m => m.id === prev) ? mapped[0].id : prev));
                 } else {
-                    // Fallback to default primary applicant if no relations exist yet
                     const fallbackApplicant: Applicant = {
                         id: 'primary-applicant',
                         name: 'Primary Applicant',
@@ -266,7 +328,6 @@ export default function ClientServices() {
         loadDossierData();
     }, [loadDossierData]);
 
-    // Check if a service is already purchased in DB for the specified applicant
     const getPurchasedItem = (serviceId: string, applicantId: string) => {
         const canonical = normalizeServiceType(serviceId);
         return purchasedServices.find(s => {
@@ -300,8 +361,9 @@ export default function ClientServices() {
 
         setDeletingId(serviceRecordId);
         try {
-            await serviceService.removeService(serviceRecordId);
-            showSuccess(`"${serviceTitle}" has been cancelled and removed from your dossier.`);
+            const res = await serviceService.removeService(serviceRecordId);
+            const msg = res.data?.message || `"${serviceTitle}" has been cancelled and removed from your dossier.`;
+            showSuccess(msg);
             await loadDossierData();
         } catch (err: any) {
             console.error('Remove service error:', err);
@@ -319,11 +381,10 @@ export default function ClientServices() {
         setShowCheckoutModal(true);
     };
 
-    // Azericard Payment Form State
-    const [cardHolder, setCardHolder] = useState('E. Abdullayev');
-    const [cardNumber, setCardNumber] = useState('4169 7820 9182 4310');
-    const [cardExpiry, setCardExpiry] = useState('12/28');
-    const [cardCvv, setCardCvv] = useState('892');
+    const totalAmount = cart.reduce((sum, cartItem) => {
+        const service = availableServices.find(s => s.id === cartItem.serviceId);
+        return sum + (service ? service.price : 0);
+    }, 0);
 
     const executeCheckout = async () => {
         let activeId = dossierId;
@@ -342,32 +403,89 @@ export default function ClientServices() {
 
         setIsProcessing(true);
         try {
-            const payload = {
-                dossierId: activeId,
-                items: cart.map(c => ({
-                    serviceType: c.serviceId,
-                    applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
-                }))
-            };
+            if (paymentMethod === 'WALLET') {
+                const totalEur = totalAmount / 1.80;
+                if (walletBalanceEur < totalEur) {
+                    showError(`Insufficient wallet balance (€${walletBalanceEur.toFixed(2)} < €${totalEur.toFixed(2)}). Please top up first or pay via Card.`);
+                    setIsProcessing(false);
+                    return;
+                }
 
-            const res = await serviceService.checkout(payload);
-            const msg = res.data?.message || `Azericard ilə ${totalAmount.toFixed(2)} AZN məbləğində ödəniş uğurla tamamlandı! ${cart.length} xidmət aktivləşdirildi.`;
-            showSuccess(msg);
-            setCart([]);
-            setShowCheckoutModal(false);
-            await loadDossierData();
+                // 1. Checkout services onto dossier
+                const payload = {
+                    dossierId: activeId,
+                    items: cart.map(c => ({
+                        serviceType: c.serviceId,
+                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
+                    }))
+                };
+                await serviceService.checkout(payload);
+
+                // 2. Settle dossier via wallet
+                await paymentService.payWithWallet({ dossierId: activeId });
+
+                showSuccess(`Payment of ${totalAmount.toFixed(2)} AZN (€${totalEur.toFixed(2)}) settled instantly from your EuroTech Wallet! ${cart.length} service(s) activated.`);
+                setCart([]);
+                setShowCheckoutModal(false);
+                await loadDossierData();
+            } else if (paymentMethod === 'BANK_SLIP') {
+                if (!slipFile) {
+                    showError('Please select and upload your bank payment slip / receipt.');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                const fd = new FormData();
+                fd.append('dossierId', activeId);
+                fd.append('amount', totalAmount.toFixed(2));
+                fd.append('currency', 'AZN');
+                fd.append('bankName', slipBankName);
+                fd.append('senderName', slipSenderName || cardHolder || 'Applicant');
+                fd.append('receiptNumber', slipReceiptNumber || `REC-${Date.now()}`);
+                fd.append('purpose', `Value-Added Services (${cart.length} items)`);
+                fd.append('slip', slipFile);
+
+                await paymentService.submitBankSlip(fd);
+
+                // Attach services to dossier in pending state
+                const payload = {
+                    dossierId: activeId,
+                    items: cart.map(c => ({
+                        serviceType: c.serviceId,
+                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
+                    }))
+                };
+                await serviceService.checkout(payload).catch(() => {});
+
+                showSuccess('Bank payment slip submitted successfully! Services will be verified upon banking reconciliation.');
+                setCart([]);
+                setSlipFile(null);
+                setShowCheckoutModal(false);
+                await loadDossierData();
+            } else {
+                // Online Card Checkout
+                const payload = {
+                    dossierId: activeId,
+                    items: cart.map(c => ({
+                        serviceType: c.serviceId,
+                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
+                    }))
+                };
+
+                const res = await serviceService.checkout(payload);
+                const msg = res.data?.message || `Payment of ${totalAmount.toFixed(2)} AZN processed successfully! ${cart.length} service(s) activated.`;
+                showSuccess(msg);
+                setCart([]);
+                setShowCheckoutModal(false);
+                await loadDossierData();
+            }
         } catch (err: any) {
             console.error('Checkout error:', err);
-            showError(err.response?.data?.message || err.message || 'Azericard payment processing failed.');
+            showError(err.response?.data?.message || err.message || 'Payment processing failed.');
         } finally {
             setIsProcessing(false);
         }
     };
-
-    const totalAmount = cart.reduce((sum, cartItem) => {
-        const service = availableServices.find(s => s.id === cartItem.serviceId);
-        return sum + (service ? service.price : 0);
-    }, 0);
 
     const getApplicantDisplayName = (appId?: string | null) => {
         if (!appId) return 'Primary Applicant';
@@ -419,61 +537,38 @@ export default function ClientServices() {
                             return (
                                 <div 
                                     key={service.id} 
-                                    className={`premium-service-card ${isSelected ? 'selected' : ''} ${isPurchased ? 'locked' : ''}`}
+                                    className={`service-card ${isPurchased ? 'is-purchased' : isSelected ? 'is-selected' : ''}`}
                                     onClick={() => toggleService(service.id, selectedApplicant, isPurchased)}
                                 >
-                                    {isPurchased && (
-                                        <div className="locked-badge">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                                            Active in Dossier
-                                        </div>
-                                    )}
-                                    
                                     <div className="service-card-top">
-                                        <div className="service-icon">
+                                        <div className="service-icon-wrapper">
                                             {service.icon}
                                         </div>
-                                        <div className="service-price">
-                                            {service.price.toFixed(2)} <span>AZN</span>
+                                        <div className="service-price-badge">
+                                            <span className="price-val">{service.price.toFixed(2)} AZN</span>
+                                            {service.priceEur && <span className="price-sub">≈ €{service.priceEur}</span>}
                                         </div>
                                     </div>
 
                                     <div className="service-card-body">
                                         <span className="service-category">{service.category}</span>
-                                        <h3>{service.title}</h3>
-                                        <p>{service.description}</p>
+                                        <h3 className="service-title">{service.title}</h3>
+                                        <p className="service-desc">{service.description}</p>
                                     </div>
 
                                     <div className="service-card-footer">
                                         {isPurchased ? (
-                                            <div className="purchased-action-row" onClick={e => e.stopPropagation()}>
-                                                <div className="checkbox-indicator locked">
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                                                </div>
-                                                <span className="text-locked">Booked & Confirmed</span>
-                                                <button 
-                                                    type="button"
-                                                    className="btn-cancel-service" 
-                                                    disabled={deletingId === purchasedItem.id}
-                                                    onClick={() => handleRemovePurchased(purchasedItem.id, service.title)}
-                                                    title="Cancel and remove this service from your dossier"
-                                                >
-                                                    {deletingId === purchasedItem.id ? 'Removing...' : 'Remove'}
-                                                </button>
+                                            <div className="status-badge-enrolled">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                                Active on Dossier
                                             </div>
                                         ) : (
-                                            <>
-                                                <div className="checkbox-indicator">
-                                                    {isSelected ? (
-                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                                                    ) : (
-                                                        <div className="empty-circle"></div>
-                                                    )}
-                                                </div>
-                                                <span className={isSelected ? 'text-selected' : 'text-add'}>
-                                                    {isSelected ? 'Added to Cart' : 'Add to Cart'}
-                                                </span>
-                                            </>
+                                            <button 
+                                                type="button" 
+                                                className={`btn-select-service ${isSelected ? 'btn-selected' : ''}`}
+                                            >
+                                                {isSelected ? 'Selected in Cart' : '+ Add Service'}
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -481,19 +576,10 @@ export default function ClientServices() {
                         })}
                     </div>
 
-                    {/* Active Purchased Services Overview Table */}
+                    {/* Active Services Enrolled Section */}
                     {purchasedServices.length > 0 && (
-                        <div className="active-dossier-services-section">
-                            <div className="section-title-wrap">
-                                <div className="icon-badge-green">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                                </div>
-                                <div>
-                                    <h3>Confirmed Services for Dossier</h3>
-                                    <p>The following services are already active and included in your dossier record.</p>
-                                </div>
-                            </div>
-
+                        <div className="active-services-section">
+                            <h3 className="section-title">Enrolled Dossier Services</h3>
                             <div className="active-services-list">
                                 {purchasedServices.map(srv => {
                                     const canonical = normalizeServiceType(srv.serviceType);
@@ -618,7 +704,7 @@ export default function ClientServices() {
                     <div className="checkout-modal-card fade-in" onClick={e => e.stopPropagation()}>
                         <div className="checkout-modal-header">
                             <div className="modal-title-group">
-                                <h3>Confirm Value-Added Services</h3>
+                                <h3>Checkout & Payment Gateway</h3>
                                 {dossierNumber && <span className="modal-dossier-tag">Dossier: {dossierNumber}</span>}
                             </div>
                             <button 
@@ -632,10 +718,6 @@ export default function ClientServices() {
                         </div>
 
                         <div className="checkout-modal-body">
-                            <p className="modal-instructions">
-                                Please review your selected services before finalizing payment. The confirmed items will be linked to your dossier and receipt will be issued in AZN.
-                            </p>
-
                             <div className="modal-items-review-list">
                                 {cart.map((item, idx) => {
                                     const srv = availableServices.find(s => s.id === item.serviceId);
@@ -652,71 +734,206 @@ export default function ClientServices() {
                                         </div>
                                     );
                                 })}
-                                                 {/* Azericard 3D-Secure Payment Portal */}
-                            <div className="azericard-portal-box" style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderRadius: '12px', padding: '16px', marginTop: '14px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #E2E8F0', paddingBottom: '10px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ background: '#0F1E36', color: '#FFFFFF', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.5px' }}>AZERICARD</span>
-                                        <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>3D-Secure Bank Gateway</strong>
-                                    </div>
-                                    <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 700, background: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
-                                        🔒 256-bit Encrypted
-                                    </span>
-                                </div>
+                            </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Cardholder Full Name</label>
-                                        <input 
-                                            type="text" 
-                                            value={cardHolder} 
-                                            onChange={(e) => setCardHolder(e.target.value)}
-                                            style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF' }}
-                                            placeholder="CARDHOLDER NAME"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Card Number (Visa / Mastercard / MilliKart)</label>
-                                        <div style={{ position: 'relative' }}>
-                                            <input 
-                                                type="text" 
-                                                value={cardNumber} 
-                                                onChange={(e) => setCardNumber(e.target.value)}
-                                                maxLength={19}
-                                                style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', letterSpacing: '1px' }}
-                                                placeholder="4169 0000 0000 0000"
-                                            />
-                                            <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem' }}>💳</span>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Expiry Date</label>
-                                            <input 
-                                                type="text" 
-                                                value={cardExpiry} 
-                                                onChange={(e) => setCardExpiry(e.target.value)}
-                                                maxLength={5}
-                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center' }}
-                                                placeholder="MM/YY"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>CVV / CVC</label>
-                                            <input 
-                                                type="password" 
-                                                value={cardCvv} 
-                                                onChange={(e) => setCardCvv(e.target.value)}
-                                                maxLength={3}
-                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center', letterSpacing: '2px' }}
-                                                placeholder="•••"
-                                            />
-                                        </div>
-                                    </div>
+                            {/* Payment Method Selector */}
+                            <div style={{ marginTop: '16px', marginBottom: '16px' }}>
+                                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#0F1E36', marginBottom: '8px' }}>
+                                    Select Payment Method:
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentMethod('WALLET')}
+                                        style={{
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            border: paymentMethod === 'WALLET' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                            background: paymentMethod === 'WALLET' ? '#EFF6FF' : '#FFFFFF',
+                                            fontWeight: 700,
+                                            fontSize: '0.82rem',
+                                            color: paymentMethod === 'WALLET' ? '#1E3A8A' : '#475569',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        👛 Wallet (€{walletBalanceEur.toFixed(2)})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentMethod('CARD')}
+                                        style={{
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            border: paymentMethod === 'CARD' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                            background: paymentMethod === 'CARD' ? '#EFF6FF' : '#FFFFFF',
+                                            fontWeight: 700,
+                                            fontSize: '0.82rem',
+                                            color: paymentMethod === 'CARD' ? '#1E3A8A' : '#475569',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        💳 Card (Online)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPaymentMethod('BANK_SLIP')}
+                                        style={{
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            border: paymentMethod === 'BANK_SLIP' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                            background: paymentMethod === 'BANK_SLIP' ? '#EFF6FF' : '#FFFFFF',
+                                            fontWeight: 700,
+                                            fontSize: '0.82rem',
+                                            color: paymentMethod === 'BANK_SLIP' ? '#1E3A8A' : '#475569',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        📄 Bank Wire Slip
+                                    </button>
                                 </div>
                             </div>
+
+                            {paymentMethod === 'WALLET' ? (
+                                <div style={{ background: '#F8FAFC', border: '1.5px solid #BFDBFE', borderRadius: '12px', padding: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <strong style={{ fontSize: '0.92rem', color: '#0F1E36' }}>EuroTech Pre-Funded Wallet</strong>
+                                        <span style={{ fontSize: '0.78rem', background: '#DCFCE7', color: '#16A34A', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                                            Instant Settlement
+                                        </span>
+                                    </div>
+                                    <p style={{ margin: '0 0 10px 0', fontSize: '0.84rem', color: '#64748B' }}>
+                                        Available Balance: <strong style={{ color: walletBalanceEur >= (totalAmount / 1.80) ? '#059669' : '#DC2626' }}>€{walletBalanceEur.toFixed(2)}</strong> (≈ {(walletBalanceEur * 1.80).toFixed(2)} AZN)
+                                    </p>
+                                    {walletBalanceEur < (totalAmount / 1.80) ? (
+                                        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', padding: '8px 12px', fontSize: '0.8rem', color: '#B91C1C' }}>
+                                            ⚠️ Insufficient balance to cover this purchase. Top up your EuroTech Wallet under "Wallet &amp; Invoices", or choose Card / Bank Wire.
+                                        </div>
+                                    ) : (
+                                        <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.8rem', color: '#047857' }}>
+                                            ✓ Funds will be immediately deducted and your additional services will be active right away.
+                                        </div>
+                                    )}
+                                </div>
+                            ) : paymentMethod === 'CARD' ? (
+                                <div className="azericard-portal-box" style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderRadius: '12px', padding: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #E2E8F0', paddingBottom: '10px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ background: '#0F1E36', color: '#FFFFFF', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.5px' }}>AZERICARD</span>
+                                            <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>3D-Secure Bank Gateway</strong>
+                                        </div>
+                                        <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 700, background: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
+                                            🔒 256-bit Encrypted
+                                        </span>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Cardholder Full Name</label>
+                                            <input 
+                                                type="text" 
+                                                value={cardHolder} 
+                                                onChange={(e) => setCardHolder(e.target.value)}
+                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF' }}
+                                                placeholder="CARDHOLDER NAME"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Card Number (Visa / Mastercard / MilliKart)</label>
+                                            <div style={{ position: 'relative' }}>
+                                                <input 
+                                                    type="text" 
+                                                    value={cardNumber} 
+                                                    onChange={(e) => setCardNumber(e.target.value)}
+                                                    maxLength={19}
+                                                    style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', letterSpacing: '1px' }}
+                                                    placeholder="4169 0000 0000 0000"
+                                                />
+                                                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem' }}>💳</span>
+                                            </div>
+                                        </div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Expiry Date</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={cardExpiry} 
+                                                    onChange={(e) => setCardExpiry(e.target.value)}
+                                                    maxLength={5}
+                                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center' }}
+                                                    placeholder="MM/YY"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>CVV / CVC</label>
+                                                <input 
+                                                    type="password" 
+                                                    value={cardCvv} 
+                                                    onChange={(e) => setCardCvv(e.target.value)}
+                                                    maxLength={3}
+                                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', textAlign: 'center', letterSpacing: '2px' }}
+                                                    placeholder="•••"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bank-slip-portal-box" style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderRadius: '12px', padding: '16px' }}>
+                                    <h4 style={{ margin: '0 0 10px 0', fontSize: '0.88rem', color: '#0F1E36', fontWeight: 700 }}>
+                                        Upload Official Bank Payment Receipt / Slip
+                                    </h4>
+                                    <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#64748B' }}>
+                                        Please transfer {totalAmount.toFixed(2)} AZN to EuroTech Services bank account (IBAN: AZ00ABB00000000000000000000) and attach the receipt below:
+                                    </p>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Bank Name</label>
+                                            <input 
+                                                type="text" 
+                                                value={slipBankName} 
+                                                onChange={(e) => setSlipBankName(e.target.value)}
+                                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.85rem' }}
+                                            />
+                                        </div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Sender Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={slipSenderName} 
+                                                    onChange={(e) => setSlipSenderName(e.target.value)}
+                                                    placeholder="Full name as on receipt"
+                                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Receipt / Slip Number</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={slipReceiptNumber} 
+                                                    onChange={(e) => setSlipReceiptNumber(e.target.value)}
+                                                    placeholder="e.g. REC-98214"
+                                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.85rem' }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>Receipt File (PDF, JPG, PNG)</label>
+                                            <input 
+                                                type="file" 
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                onChange={(e) => setSlipFile(e.target.files?.[0] || null)}
+                                                style={{ width: '100%', padding: '8px', border: '1px dashed #CBD5E1', borderRadius: '6px', fontSize: '0.85rem', background: '#FFFFFF' }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="modal-total-summary-row" style={{ marginTop: '14px' }}>
                                 <span>Total Payable (AZN):</span>
@@ -737,22 +954,32 @@ export default function ClientServices() {
                                 type="button" 
                                 className="btn-primary modal-confirm-btn" 
                                 onClick={executeCheckout}
-                                disabled={isProcessing}
+                                disabled={isProcessing || (paymentMethod === 'WALLET' && walletBalanceEur < (totalAmount / 1.80))}
                                 style={{ background: '#0F1E36', borderColor: '#0F1E36' }}
                             >
                                 {isProcessing ? (
                                     <>
                                         <svg className="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-                                        Azericard 3D-Secure Processing...
+                                        Processing Payment...
+                                    </>
+                                ) : paymentMethod === 'WALLET' ? (
+                                    <>
+                                        <span>👛</span>
+                                        Pay {totalAmount.toFixed(2)} AZN from Wallet
+                                    </>
+                                ) : paymentMethod === 'CARD' ? (
+                                    <>
+                                        <span>🔒</span>
+                                        Pay {totalAmount.toFixed(2)} AZN with Card
                                     </>
                                 ) : (
                                     <>
-                                        <span>🔒</span>
-                                        Pay {totalAmount.toFixed(2)} AZN with Azericard
+                                        <span>📤</span>
+                                        Submit Receipt ({totalAmount.toFixed(2)} AZN)
                                     </>
                                 )}
                             </button>
-                        </div>         </div>
+                        </div>
                     </div>
                 </div>
             )}

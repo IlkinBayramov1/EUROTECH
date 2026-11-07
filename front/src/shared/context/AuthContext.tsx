@@ -90,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await apiClient.post('/auth/login', body);
       if (res.success && res.data) {
-        const { user: authUser, accessToken } = res.data;
+        const { user: authUser, accessToken, refreshToken } = res.data;
 
         // Strict defense-in-depth portal validation
         if (credentials.expectedRole && authUser.role !== 'ADMIN') {
@@ -102,11 +102,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (!isMatching) {
             storage.clearAll();
-            throw new Error('Invalid email, passport number or password.');
+            throw new Error('İstifadəçi rolu seçilmiş portala uyğun gəlmir.');
           }
         }
 
-        storage.setToken(accessToken);
+        const isPersisted = !!credentials.rememberMe;
+        storage.setToken(accessToken, isPersisted);
+        if (refreshToken) {
+          storage.setRefreshToken(refreshToken, isPersisted);
+        }
         storage.setUser(authUser);
         storage.setRole(authUser.role);
         setUser(authUser);
@@ -114,7 +118,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
     } catch (error: any) {
-      // Ensure failed logins rethrow to display error toast
       storage.clearAll();
       setUser(null);
       setRole(null);
@@ -150,8 +153,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           password: payload.password,
         });
         if (loginRes.success && loginRes.data) {
-          const { user: authUser, accessToken } = loginRes.data;
+          const { user: authUser, accessToken, refreshToken } = loginRes.data;
           storage.setToken(accessToken);
+          if (refreshToken) storage.setRefreshToken(refreshToken);
           storage.setUser(authUser);
           storage.setRole(authUser.role);
           setUser(authUser);
@@ -165,25 +169,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     } catch (error: any) {
-      if (error?.status && error.status < 500) {
-        throw error;
-      }
-      console.warn('Backend register fallback:', error);
-      const mockUser: User = {
-        id: 'mock-user-reg',
-        email: payload.email,
-        role: payload.role,
-        fullName,
-        firstName: payload.firstName || 'User',
-      };
-      storage.setToken('mock-dev-token');
-      storage.setUser(mockUser);
-      setUser(mockUser);
-      setRole(payload.role);
+      throw error;
     }
   };
 
   const logout = () => {
+    const refreshToken = storage.getRefreshToken();
+    if (refreshToken) {
+      apiClient.post('/auth/logout', { refreshToken }).catch(() => {});
+    }
     storage.clearAll();
     setUser(null);
     setRole(null);

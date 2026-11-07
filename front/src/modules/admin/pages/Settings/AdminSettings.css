@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ADMIN SETTINGS STYLES
+   ADMIN SETTINGS STYLES: LIGHT THEME (AĞ ƏSASLI)
    ========================================================================== */
 
 .admin-settings-view {
@@ -15,14 +15,14 @@
   font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
   font-size: 1.85rem;
   font-weight: 800;
-  color: #F8FAFC;
+  color: #0F172A;
   margin: 0 0 6px;
   letter-spacing: -0.5px;
 }
 
 .settings-subtitle {
   font-size: 0.95rem;
-  color: #94A3B8;
+  color: #64748B;
   margin: 0;
 }
 
@@ -40,17 +40,18 @@
 }
 
 .settings-panel {
-  background: #0E1626;
-  border: 1px solid rgba(226, 232, 240, 0.08);
-  border-radius: 12px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
   padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .settings-panel h3 {
   margin: 0 0 4px;
   font-size: 1.15rem;
   font-weight: 700;
-  color: #F8FAFC;
+  color: #0F172A;
 }
 
 .panel-desc {
@@ -67,8 +68,8 @@
 }
 
 .jurisdiction-card {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(226, 232, 240, 0.08);
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
   border-radius: 8px;
   padding: 12px 14px;
   display: flex;
@@ -85,8 +86,9 @@
 .jur-code {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 800;
-  color: #F87171;
-  background: rgba(220, 38, 38, 0.1);
+  color: #2563EB;
+  background: #EFF6FF;
+  border: 1px solid #DBEAFE;
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 0.8rem;
@@ -95,18 +97,22 @@
 .jur-info strong {
   display: block;
   font-size: 0.88rem;
-  color: #F1F5F9;
+  color: #0F172A;
 }
 
 .jur-info span {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: #64748B;
 }
 
 .status-badge-active {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #34D399;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #047857;
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  padding: 3px 8px;
+  border-radius: 20px;
 }
 
 /* --- FORM FIELDS --- */
@@ -123,19 +129,19 @@
 
 .setting-input-group label {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 600;
-  color: #CBD5E1;
+  color: #334155;
   margin-bottom: 6px;
 }
 
 .setting-input-group input {
   width: 100%;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(226, 232, 240, 0.1);
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
   border-radius: 8px;
   padding: 10px 14px;
-  color: #F8FAFC;
+  color: #0F172A;
   font-size: 0.88rem;
   font-family: inherit;
   outline: none;
@@ -143,8 +149,9 @@
 }
 
 .setting-input-group input:focus {
-  border-color: #DC2626;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+  border-color: #3B82F6;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .input-helper {
@@ -155,21 +162,22 @@
 }
 
 .btn-save-settings {
-  background: linear-gradient(135deg, #DC2626, #B91C1C);
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
   color: #FFFFFF;
   border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
+  padding: 10px 22px;
+  border-radius: 8px;
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
   transition: all 0.2s ease;
   margin-top: 8px;
 }
 
 .btn-save-settings:hover {
-  background: linear-gradient(135deg, #EF4444, #DC2626);
+  background: linear-gradient(135deg, #1D4ED8, #1E40AF);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
 }
 
 /* --- CENTERS & COMPLIANCE --- */
@@ -177,7 +185,7 @@
   display: flex;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.06);
+  border-bottom: 1px solid #F1F5F9;
 }
 
 .center-item:last-child {
@@ -192,17 +200,17 @@
 .center-item strong {
   display: block;
   font-size: 0.9rem;
-  color: #F1F5F9;
+  color: #0F172A;
 }
 
 .center-item p {
   margin: 2px 0 4px;
-  font-size: 0.8rem;
-  color: #94A3B8;
+  font-size: 0.82rem;
+  color: #475569;
 }
 
 .center-item small {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: #64748B;
 }
 
@@ -210,9 +218,9 @@
   display: flex;
   justify-content: space-between;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.04);
-  font-size: 0.85rem;
-  color: #CBD5E1;
+  border-bottom: 1px solid #F1F5F9;
+  font-size: 0.86rem;
+  color: #334155;
 }
 
 .compliance-row:last-child {

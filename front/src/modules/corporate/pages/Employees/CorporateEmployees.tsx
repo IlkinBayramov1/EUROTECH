@@ -105,13 +105,15 @@ export default function CorporateEmployees() {
     const handleDownloadGuaranteeLetter = async (emp: EmployeeProfile) => {
         try {
             showSuccess(`Generating official Corporate Guarantee Letter for ${emp.firstName} ${emp.lastName}...`);
-            const res = await corporateService.getGuaranteeLetterPdf(emp.rawId);
-            if (res.data?.pdfUrl) {
-                const fullUrl = res.data.pdfUrl.startsWith('http') ? res.data.pdfUrl : `http://localhost:5000${res.data.pdfUrl}`;
+            const res: any = await corporateService.getGuaranteeLetterPdf(emp.rawId);
+            const pdfUrl = res?.pdfUrl || res?.data?.pdfUrl;
+            const fileName = res?.fileName || res?.data?.fileName || `guarantee_letter_${emp.passportNo}.pdf`;
+            if (pdfUrl) {
+                const fullUrl = pdfUrl.startsWith('http') ? pdfUrl : `http://localhost:5000${pdfUrl}`;
                 const link = document.createElement('a');
                 link.href = fullUrl;
                 link.target = '_blank';
-                link.download = res.data.fileName || `guarantee_letter_${emp.passportNo}.pdf`;
+                link.download = fileName;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -121,6 +123,16 @@ export default function CorporateEmployees() {
             }
         } catch (err: any) {
             showError(err.message || 'Failed to generate Guarantee Letter.');
+        }
+    };
+
+    const handleRemindEmployee = async (rawEmployeeId: string, employeeName: string) => {
+        try {
+            const res: any = await corporateService.remindEmployee(rawEmployeeId);
+            const msg = res?.message || res?.data?.message || `Reminder email successfully sent to ${employeeName}`;
+            showSuccess(msg);
+        } catch (err: any) {
+            showError(err.message || 'Failed to send reminder email');
         }
     };
 
@@ -243,10 +255,14 @@ export default function CorporateEmployees() {
 
     const handleGenerateDelegation = async (rawEmployeeId: string) => {
         try {
-            const res = await corporateService.generateDelegationLink(rawEmployeeId);
-            const fullLink = res.data?.delegationUrl || `${window.location.origin}/corporate/delegation?token=${res.data?.delegationToken}`;
-            await navigator.clipboard.writeText(fullLink);
-            showSuccess('Magic Delegation Link copied to clipboard! Share it with the employee.');
+            const res: any = await corporateService.generateDelegationLink(rawEmployeeId);
+            const fullLink = res?.delegationUrl || res?.data?.delegationUrl || (res?.delegationToken ? `${window.location.origin}/corporate/delegation?token=${res.delegationToken}` : null);
+            if (fullLink) {
+                await navigator.clipboard.writeText(fullLink);
+                showSuccess('Magic Delegation Link copied to clipboard! Share it with the employee.');
+            } else {
+                showError('Could not generate delegation link URL.');
+            }
         } catch (err: any) {
             console.warn('Error generating delegation link:', err);
             showError(err.message || 'Failed to generate delegation link.');
@@ -708,6 +724,15 @@ export default function CorporateEmployees() {
                                                             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                                                             Guarantee Letter
                                                         </button>
+                                                        <button 
+                                                            className="btn-outline-secondary btn-sm" 
+                                                            title="Send Consular Requirement Reminder Email"
+                                                            onClick={(e) => { e.stopPropagation(); handleRemindEmployee(emp.rawId, `${emp.firstName} ${emp.lastName}`); }}
+                                                            style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                                        >
+                                                            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                                            Remind
+                                                        </button>
                                                         <button className="btn-outline-secondary btn-sm" onClick={(e) => { e.stopPropagation(); handleViewDossier(emp); }}>
                                                             Open Archive
                                                         </button>
@@ -871,6 +896,10 @@ export default function CorporateEmployees() {
                         <button className="btn-outline-secondary btn-sm" onClick={() => handleDownloadGuaranteeLetter(activeEmployee)}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                             Guarantee Letter (PDF)
+                        </button>
+                        <button className="btn-outline-secondary btn-sm" onClick={() => handleRemindEmployee(activeEmployee.rawId, `${activeEmployee.firstName} ${activeEmployee.lastName}`)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                            Send Reminder
                         </button>
                         <button className="btn-primary btn-sm" onClick={() => handleGenerateDelegation(activeEmployee.rawId)}>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{width:'16px', marginRight:'6px'}}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>

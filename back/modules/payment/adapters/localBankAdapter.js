@@ -56,7 +56,8 @@ class LocalBankAdapter {
     const expectedPayload = `${this.merchantId};${this.terminalId};${formattedAmount};${currency};${orderReference};${status};${timestamp}`;
     const calculatedSignature = this.generateSignature(expectedPayload);
 
-    const isValid = signature === calculatedSignature || signature === 'mock_bank_valid_sig';
+    const isMockAllowed = !env.IS_PROD;
+    const isValid = signature === calculatedSignature || (isMockAllowed && signature === 'mock_bank_valid_sig');
     return {
       isValid,
       isSuccessful: isValid && (status === 'APPROVED' || status === 'PAID' || status === '00'),

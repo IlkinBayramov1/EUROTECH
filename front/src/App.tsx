@@ -14,6 +14,7 @@ import ClientAppointment from '@/modules/client/pages/Appointment/ClientAppointm
 import ClientServices from '@/modules/client/pages/Services/ClientServices';
 import ClientTracking from '@/modules/client/pages/Tracking/ClientTracking';
 import ClientPrivacy from '@/modules/client/pages/Privacy/ClientPrivacy';
+import ClientWallet from '@/modules/client/pages/Wallet/ClientWallet';
 
 // --- AGENT PORTAL ---
 import AgentLayout from '@/layouts/AgentLayout/AgentLayout';
@@ -41,7 +42,9 @@ import AdminDossierList from '@/modules/admin/pages/Dossiers/AdminDossierList';
 import AdminDossierDetail from '@/modules/admin/pages/Dossiers/AdminDossierDetail';
 import AdminAuditLogs from '@/modules/admin/pages/AuditLogs/AdminAuditLogs';
 import AdminSettings from '@/modules/admin/pages/Settings/AdminSettings';
+import AdminFinancials from '@/modules/admin/pages/Financials/AdminFinancials';
 
+import PasswordActionPage from '@/modules/auth/pages/PasswordActionPage';
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute';
 
 export default function App() {
@@ -57,6 +60,8 @@ export default function App() {
         <Route path="/login/admin" element={<AuthPage type="admin" />} />
         <Route path="/admin/login" element={<Navigate to="/login/admin" replace />} />
         <Route path="/admin-login" element={<Navigate to="/login/admin" replace />} />
+        <Route path="/set-password" element={<PasswordActionPage action="set" />} />
+        <Route path="/reset-password" element={<PasswordActionPage action="reset" />} />
 
         {/* --- INDIVIDUAL APPLICATION WIZARD --- */}
         <Route
@@ -83,6 +88,7 @@ export default function App() {
           <Route path="application" element={<ClientApplication />} />
           <Route path="appointment" element={<ClientAppointment />} />
           <Route path="services" element={<ClientServices />} />
+          <Route path="wallet" element={<ClientWallet />} />
           <Route path="tracking" element={<ClientTracking />} />
           <Route path="privacy" element={<ClientPrivacy />} />
         </Route>
@@ -155,6 +161,7 @@ export default function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="dossiers" element={<AdminDossierList />} />
           <Route path="dossiers/:id" element={<AdminDossierDetail />} />
+          <Route path="financials" element={<AdminFinancials />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>

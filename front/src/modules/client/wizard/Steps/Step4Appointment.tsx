@@ -17,48 +17,54 @@ interface TimeSlotItem {
     remainingCapacity?: number;
 }
 
-const DEFAULT_SLOTS: TimeSlotItem[] = [
-    { id: 'slot-0900', time: '09:00 AM', available: true, remainingCapacity: 10 },
-    { id: 'slot-1030', time: '10:30 AM', available: true, remainingCapacity: 10 },
-    { id: 'slot-1400', time: '14:00 PM', available: true, remainingCapacity: 10 },
-    { id: 'slot-1600', time: '16:00 PM', available: true, remainingCapacity: 10 },
-];
+const DEFAULT_SLOTS: TimeSlotItem[] = [];
+
+const CENTER_LOCATIONS: Record<string, string> = {
+    'baku': 'EuroTech Main Center',
+    'lounge': 'EuroTech Premium Lounge',
+    'ganja': 'Ganja Regional Center',
+    'EuroTech Main Center': 'EuroTech Main Center',
+    'EuroTech Premium Lounge': 'EuroTech Premium Lounge',
+    'Ganja Regional Center': 'Ganja Regional Center',
+};
 
 export default function Step4Appointment({ data, updateData }: Step4Props) {
     const [currentViewDate, setCurrentViewDate] = useState(new Date());
-    const [slots, setSlots] = useState<TimeSlotItem[]>(DEFAULT_SLOTS);
+    const [slots, setSlots] = useState<TimeSlotItem[]>([]);
     const [loadingSlots, setLoadingSlots] = useState(false);
     const [selectedCenter, setSelectedCenter] = useState(data.visaCenter || 'baku');
 
     const handleCenterChange = (center: string) => {
         setSelectedCenter(center);
         updateData('visaCenter', center);
+        updateData('appointmentTime', '');
     };
 
     useEffect(() => {
         if (!data.appointmentDate) return;
         setLoadingSlots(true);
-        appointmentService.getSlots(data.appointmentDate)
+        const resolvedLocation = CENTER_LOCATIONS[selectedCenter] || 'EuroTech Main Center';
+        appointmentService.getSlots(data.appointmentDate, resolvedLocation)
             .then(res => {
                 if (res.data?.slots && res.data.slots.length > 0) {
                     const mapped: TimeSlotItem[] = res.data.slots.map((s: any) => ({
-                        id: s.id || s.startTime,
+                        id: s.id,
                         time: s.startTime,
                         available: (s.availableCapacity ?? (s.capacity - s.bookedCount)) > 0,
                         remainingCapacity: s.availableCapacity ?? (s.capacity - s.bookedCount)
                     }));
                     setSlots(mapped);
                 } else {
-                    setSlots(DEFAULT_SLOTS);
+                    setSlots([]);
                 }
             })
             .catch(() => {
-                setSlots(DEFAULT_SLOTS);
+                setSlots([]);
             })
             .finally(() => {
                 setLoadingSlots(false);
             });
-    }, [data.appointmentDate]);
+    }, [data.appointmentDate, selectedCenter]);
 
     // Calendar navigation
     const handlePrevMonth = () => {
@@ -122,6 +128,30 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                                 EuroTech Main Center — Baku
                             </strong>
                             <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Nizami St. 140, Landmark III (09:00 - 18:00)</span>
+                        </div>
+                    </div>
+
+                    <div 
+                        onClick={() => handleCenterChange('lounge')}
+                        style={{
+                            background: selectedCenter === 'lounge' ? '#EFF6FF' : '#FFFFFF',
+                            border: selectedCenter === 'lounge' ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '18px 20px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            gap: '14px',
+                            alignItems: 'center',
+                            boxShadow: selectedCenter === 'lounge' ? '0 4px 14px rgba(37, 99, 235, 0.12)' : '0 2px 6px rgba(15, 23, 42, 0.04)',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <div style={{ fontSize: '1.8rem' }}>👑</div>
+                        <div>
+                            <strong style={{ color: selectedCenter === 'lounge' ? '#1E3A8A' : '#0F1E36', display: 'block', fontSize: '1rem', fontWeight: 700 }}>
+                                EuroTech VIP Lounge — Baku
+                            </strong>
+                            <span style={{ fontSize: '0.82rem', color: '#64748B' }}>Neftchilar Ave. 153, Port Baku (08:30 - 19:30)</span>
                         </div>
                     </div>
 
@@ -250,6 +280,10 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                             </div>
                             {loadingSlots ? (
                                 <p style={{ color: '#64748B' }}>Loading verified consular slots...</p>
+                            ) : slots.length === 0 ? (
+                                <div style={{ padding: '24px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', color: '#B91C1C', fontSize: '0.9rem', textAlign: 'center' }}>
+                                    No appointment slots available for this date at the selected consular center. Please pick an alternate date or select another center.
+                                </div>
                             ) : (
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
                                     {slots.map(sl => {

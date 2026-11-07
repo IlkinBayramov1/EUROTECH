@@ -1,7 +1,8 @@
-const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const fs = require('fs');
 const path = require('path');
 const env = require('../config/env');
+const { fillSchengenPDF } = require('./schengenPdfFiller.util');
 
 const uploadDir = path.resolve(env.UPLOAD_DIR);
 if (!fs.existsSync(uploadDir)) {
@@ -24,7 +25,12 @@ function sanitizeTextForPdf(text) {
 }
 
 async function generateApplicationPdf(dossier, applicant) {
-  return generateHarmonizedSchengenPdf(dossier, applicant);
+  try {
+    return await fillSchengenPDF(applicant, dossier);
+  } catch (err) {
+    console.warn('fillSchengenPDF failed, falling back to generateHarmonizedSchengenPdf:', err.message);
+    return generateHarmonizedSchengenPdf(dossier, applicant);
+  }
 }
 
 /**
@@ -37,7 +43,7 @@ async function generateHarmonizedSchengenPdf(dossier, applicant) {
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
   const { width, height } = page.getSize();
-  const destCountry = dossier.country?.name || 'Schengen Member State';
+  const destCountry = dossier.country?.nameEn || dossier.country?.nameAz || dossier.country?.name || 'Schengen Member State';
   const birthStr = applicant.birthDate ? new Date(applicant.birthDate).toISOString().split('T')[0] : '1990-01-01';
 
   // --- Official Consular Header ---
@@ -347,7 +353,7 @@ async function generateCorporateGuaranteeLetterPdf(dossier, employee, corporateU
 
   const { width, height } = page.getSize();
   const companyName = corporateUser?.companyName || corporateUser?.fullName || 'EuroTech Corporate Client';
-  const destCountry = dossier.country?.name || 'Schengen Member State';
+  const destCountry = dossier.country?.nameEn || dossier.country?.nameAz || dossier.country?.name || 'Schengen Member State';
   const todayStr = new Date().toISOString().split('T')[0];
 
   // Header

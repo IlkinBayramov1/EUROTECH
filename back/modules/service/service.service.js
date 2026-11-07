@@ -1,9 +1,10 @@
 const prisma = require('../../config/db');
-const { SERVICE_PRICES } = require('../../config/constants');
+const { SERVICE_PRICES, DEFAULT_EUR_TO_AZN_RATE, convertEurToAzn } = require('../../config/constants');
 
 const CANONICAL_ALIASES = {
   LOUNGE: 'PREMIUM_LOUNGE',
   PREMIUM_LOUNGE: 'PREMIUM_LOUNGE',
+  VIP_LOUNGE: 'PREMIUM_LOUNGE',
   FILEPREP: 'FILE_PREPARATION',
   FILE_PREPARATION: 'FILE_PREPARATION',
   INSURANCE: 'TRAVEL_INSURANCE',
@@ -14,14 +15,30 @@ const CANONICAL_ALIASES = {
   FLIGHT_BOOKING: 'FLIGHT_BOOKING',
   FORMASSIST: 'FORM_ASSIST',
   FORM_ASSIST: 'FORM_ASSIST',
+  FORM_FILLING: 'FORM_ASSIST',
   COURIER: 'COURIER',
   PHOTO: 'BIOMETRIC_PHOTO',
+  PHOTO_PRINT: 'BIOMETRIC_PHOTO',
   BIOMETRIC_PHOTO: 'BIOMETRIC_PHOTO',
   EXPRESS: 'EXPRESS_PROCESSING',
   EXPRESS_PROCESSING: 'EXPRESS_PROCESSING',
   TRANSLATION: 'TRANSLATION_APOSTILLE',
   TRANSLATION_APOSTILLE: 'TRANSLATION_APOSTILLE',
+  SMS: 'SMS_TRACKING',
+  SMS_TRACKING: 'SMS_TRACKING',
 };
+
+const STAFF_ROLES = ['ADMIN', 'OPERATOR', 'MANAGER'];
+
+function assertDossierAccess(dossier, user) {
+  if (!user) return;
+  if (STAFF_ROLES.includes(user.role)) return;
+  if (dossier.userId !== user.id) {
+    const err = new Error('Bu dosyaya müdaxilə icazəniz yoxdur.');
+    err.statusCode = 403;
+    throw err;
+  }
+}
 
 function resolveServiceType(rawType) {
   if (!rawType) return 'FILE_PREPARATION';
@@ -29,88 +46,137 @@ function resolveServiceType(rawType) {
   return CANONICAL_ALIASES[clean] || clean;
 }
 
-function getServiceCatalog() {
-  return [
+async function getDynamicPricingSettings(tx = prisma) {
+  const settings = await tx.systemSetting.findMany({
+    where: {
+      key: { in: ['EUR_TO_AZN_RATE', 'EXPRESS_PROCESSING_FEE'] },
+    },
+  });
+  const map = {};
+  for (const s of settings) {
+    map[s.key] = s.value;
+  }
+  const eurToAznRate = Number(map.EUR_TO_AZN_RATE || DEFAULT_EUR_TO_AZN_RATE) || 1.85;
+  const expressFee = Number(map.EXPRESS_PROCESSING_FEE || SERVICE_PRICES.EXPRESS_PROCESSING) || 60.0;
+  return {
+    eurToAznRate,
+    prices: {
+      ...SERVICE_PRICES,
+      EXPRESS_PROCESSING: expressFee,
+    },
+  };
+}
+
+async function getServiceCatalog() {
+  const { eurToAznRate, prices } = await getDynamicPricingSettings();
+
+  const items = [
     {
       id: 'PREMIUM_LOUNGE',
-      title: 'Premium Lounge Access',
-      price: SERVICE_PRICES.PREMIUM_LOUNGE,
-      description: 'Dedicated quiet space, prime time slots, and personal support throughout the center.',
+      title: 'VIP Lounge & Priority Access',
+      price: prices.PREMIUM_LOUNGE,
+      description: 'Dedicated quiet space, prime time slots, refreshments, and personal support throughout the center.',
       category: 'COMFORT',
-    },
-    {
-      id: 'FILE_PREPARATION',
-      title: 'File Preparation',
-      price: SERVICE_PRICES.FILE_PREPARATION,
-      description: 'Verification of documents and consistency check to maximize acceptance chances.',
-      category: 'ASSISTANCE',
-    },
-    {
-      id: 'TRAVEL_INSURANCE',
-      title: 'Travel Medical Insurance',
-      price: SERVICE_PRICES.TRAVEL_INSURANCE,
-      description: 'Schengen-compliant health coverage up to €30,000 for your travel dates.',
-      category: 'REQUIRED_COVERAGE',
-    },
-    {
-      id: 'HOTEL_BOOKING',
-      title: 'Hotel Reservation',
-      price: SERVICE_PRICES.HOTEL_BOOKING,
-      description: 'Verifiable dummy hotel booking required for your visa application.',
-      category: 'DOCUMENTATION',
-    },
-    {
-      id: 'FLIGHT_BOOKING',
-      title: 'Flight Itinerary',
-      price: SERVICE_PRICES.FLIGHT_BOOKING,
-      description: 'Verifiable round-trip flight reservation without upfront ticket purchase.',
-      category: 'DOCUMENTATION',
-    },
-    {
-      id: 'FORM_ASSIST',
-      title: 'Form Completion',
-      price: SERVICE_PRICES.FORM_ASSIST,
-      description: 'Assistance with filling out the official application form accurately.',
-      category: 'ASSISTANCE',
-    },
-    {
-      id: 'COURIER',
-      title: 'Courier Delivery',
-      price: SERVICE_PRICES.COURIER,
-      description: 'Secure and tracked delivery of your passport directly to your address.',
-      category: 'DELIVERY',
-    },
-    {
-      id: 'BIOMETRIC_PHOTO',
-      title: 'Compliant ID Photo',
-      price: SERVICE_PRICES.BIOMETRIC_PHOTO,
-      description: '100% Schengen and ICAO compliant biometric photos taken on-site.',
-      category: 'BIOMETRICS',
+      recommended: true,
     },
     {
       id: 'EXPRESS_PROCESSING',
       title: 'Express Processing',
-      price: SERVICE_PRICES.EXPRESS_PROCESSING,
-      description: 'Expedited processing queue and priority document verification.',
+      price: prices.EXPRESS_PROCESSING,
+      description: 'Expedited processing queue and priority document verification before consular submission.',
       category: 'SPEED',
+      recommended: true,
+    },
+    {
+      id: 'FILE_PREPARATION',
+      title: 'Full File Preparation',
+      price: prices.FILE_PREPARATION,
+      description: 'Verification of documents and consistency check to maximize consular acceptance chances.',
+      category: 'ASSISTANCE',
     },
     {
       id: 'TRANSLATION_APOSTILLE',
       title: 'Translation & Apostille',
-      price: SERVICE_PRICES.TRANSLATION_APOSTILLE,
-      description: 'Certified legal translation and official apostille certification for documents.',
+      price: prices.TRANSLATION_APOSTILLE,
+      description: 'Certified legal translation and official notarization/apostille support for civil documents.',
       category: 'LEGAL',
     },
+    {
+      id: 'TRAVEL_INSURANCE',
+      title: 'Travel Medical Insurance (€30,000)',
+      price: prices.TRAVEL_INSURANCE,
+      description: 'Schengen-compliant health coverage up to €30,000 valid across all Member States.',
+      category: 'REQUIRED_COVERAGE',
+      recommended: true,
+    },
+    {
+      id: 'FORM_ASSIST',
+      title: '37-Point Form Completion',
+      price: prices.FORM_ASSIST,
+      description: 'Specialist assistance with filling out and reviewing the official Schengen application form.',
+      category: 'ASSISTANCE',
+    },
+    {
+      id: 'COURIER',
+      title: 'Secure Passport Courier',
+      price: prices.COURIER,
+      description: 'Tracked door-to-door delivery of your processed passport directly to your home or office.',
+      category: 'DELIVERY',
+    },
+    {
+      id: 'HOTEL_BOOKING',
+      title: 'Verifiable Hotel Reservation',
+      price: prices.HOTEL_BOOKING,
+      description: 'Consulate-verifiable accommodation confirmation matching your intended itinerary.',
+      category: 'DOCUMENTATION',
+    },
+    {
+      id: 'FLIGHT_BOOKING',
+      title: 'Flight Itinerary Reservation',
+      price: prices.FLIGHT_BOOKING,
+      description: 'Verifiable round-trip flight reservation without upfront full-fare ticket purchase.',
+      category: 'DOCUMENTATION',
+    },
+    {
+      id: 'BIOMETRIC_PHOTO',
+      title: 'ICAO Biometric Photo',
+      price: prices.BIOMETRIC_PHOTO,
+      description: '100% Schengen and ICAO compliant biometric photos captured on-site.',
+      category: 'BIOMETRICS',
+    },
+    {
+      id: 'SMS_TRACKING',
+      title: 'SMS & WhatsApp Live Alerts',
+      price: prices.SMS_TRACKING,
+      description: 'Instant automated SMS & WhatsApp alerts at every consular milestone.',
+      category: 'DELIVERY',
+    },
   ];
+
+  return items.map((item) => ({
+    ...item,
+    currency: 'EUR',
+    priceAzn: convertEurToAzn(item.price, eurToAznRate),
+    exchangeRate: eurToAznRate,
+  }));
+}
+
+function computeDossierTotals(dossier, allServices) {
+  const totalExtraFee = Number(allServices.reduce((sum, s) => sum + Number(s.price || 0), 0).toFixed(2));
+  const passengerMultiplier = Math.max(1, (dossier.applicants || []).length);
+  const baseTotal = Number(((Number(dossier.governmentFee || 0) + Number(dossier.serviceFee || 0)) * passengerMultiplier).toFixed(2));
+  const updatedTotal = Number((baseTotal + totalExtraFee).toFixed(2));
+  return { totalExtraFee, passengerMultiplier, baseTotal, updatedTotal };
 }
 
 async function addServiceToDossier(arg1, arg2, arg3) {
-  let dossierId, applicantId, rawType, metadataJson;
+  let dossierId, applicantId, rawType, metadataJson, user;
   if (typeof arg1 === 'object') {
     dossierId = arg1.dossierId;
     applicantId = arg1.applicantId;
     rawType = arg1.serviceType;
     metadataJson = arg1.metadataJson || {};
+    user = arg1.user || null;
   } else {
     dossierId = arg1;
     rawType = arg2;
@@ -123,13 +189,16 @@ async function addServiceToDossier(arg1, arg2, arg3) {
   });
 
   if (!dossier) {
-    throw new Error('Dossier not found');
+    const err = new Error('Dossier not found');
+    err.statusCode = 404;
+    throw err;
   }
+  assertDossierAccess(dossier, user);
 
+  const { prices } = await getDynamicPricingSettings();
   const serviceType = resolveServiceType(rawType);
-  const price = SERVICE_PRICES[serviceType] || 30.0;
+  const price = prices[serviceType] ?? 30.0;
 
-  // Check if service already exists and is active for this applicant
   const existing = await prisma.additionalService.findFirst({
     where: {
       dossierId,
@@ -156,11 +225,7 @@ async function addServiceToDossier(arg1, arg2, arg3) {
     where: { dossierId, status: 'ACTIVE' },
   });
 
-  const totalExtraFee = allServices.reduce((sum, s) => sum + s.price, 0.0);
-  const passengerMultiplier = dossier.portalType === 'GROUP_AGENT' ? Math.max(1, dossier.applicants.length) : 1;
-
-  const baseTotal = (dossier.governmentFee + dossier.serviceFee) * passengerMultiplier;
-  const updatedTotal = baseTotal + totalExtraFee;
+  const { totalExtraFee, updatedTotal } = computeDossierTotals(dossier, allServices);
 
   const updateData = {
     extraServicesFee: totalExtraFee,
@@ -168,6 +233,11 @@ async function addServiceToDossier(arg1, arg2, arg3) {
   };
   if (dossier.currentStep < 6) {
     updateData.currentStep = 6;
+  }
+
+  // If dossier was already paid, adding a new unpaid add-on sets paymentStatus back to PENDING until settled
+  if (dossier.paymentStatus === 'PAID' && price > 0) {
+    updateData.paymentStatus = 'PENDING';
   }
 
   await prisma.dossier.update({
@@ -178,7 +248,7 @@ async function addServiceToDossier(arg1, arg2, arg3) {
   return newService;
 }
 
-async function checkoutServices({ dossierId, userId, items }) {
+async function checkoutServices({ dossierId, user, items }) {
   if (!items || !Array.isArray(items) || items.length === 0) {
     throw new Error('At least one service must be selected for checkout');
   }
@@ -190,18 +260,21 @@ async function checkoutServices({ dossierId, userId, items }) {
     });
 
     if (!dossier) {
-      throw new Error('Dossier not found');
+      const err = new Error('Dossier not found');
+      err.statusCode = 404;
+      throw err;
     }
+    assertDossierAccess(dossier, user);
 
+    const { prices, eurToAznRate } = await getDynamicPricingSettings(tx);
     const createdServices = [];
-    let checkoutTotal = 0;
+    let addedSubtotalEur = 0;
 
     for (const item of items) {
       const canonicalType = resolveServiceType(item.serviceType);
-      const price = SERVICE_PRICES[canonicalType] || 30.0;
+      const price = prices[canonicalType] ?? 30.0;
       const applicantId = item.applicantId || null;
 
-      // Prevent duplicate active service for the same applicant
       const alreadyActive = dossier.services.some(
         (s) => s.serviceType === canonicalType && s.applicantId === applicantId && s.status === 'ACTIVE'
       );
@@ -221,22 +294,26 @@ async function checkoutServices({ dossierId, userId, items }) {
       });
 
       createdServices.push(newService);
-      checkoutTotal += price;
+      addedSubtotalEur += price;
     }
 
-    // Recalculate total dossier fees
     const allServices = await tx.additionalService.findMany({
       where: { dossierId, status: 'ACTIVE' },
     });
 
-    const totalExtraFee = allServices.reduce((sum, s) => sum + s.price, 0.0);
-    const passengerMultiplier = dossier.portalType === 'GROUP_AGENT' ? Math.max(1, dossier.applicants.length) : 1;
-    const baseTotal = (dossier.governmentFee + dossier.serviceFee) * passengerMultiplier;
-    const updatedTotal = baseTotal + totalExtraFee;
+    const { totalExtraFee, updatedTotal } = computeDossierTotals(dossier, allServices);
+
+    const paidTransactions = await tx.transaction.aggregate({
+      _sum: { amount: true },
+      where: { dossierId, status: 'PAID', currency: 'EUR' },
+    });
+    const alreadyPaidEur = Number(paidTransactions._sum.amount || 0);
+    const remainingBalanceEur = Math.max(0, Number((updatedTotal - alreadyPaidEur).toFixed(2)));
 
     const updateDossierData = {
       extraServicesFee: totalExtraFee,
       totalAmount: updatedTotal,
+      paymentStatus: remainingBalanceEur > 0 ? 'PENDING' : dossier.paymentStatus,
     };
     if (dossier.currentStep < 6) {
       updateDossierData.currentStep = 6;
@@ -247,58 +324,39 @@ async function checkoutServices({ dossierId, userId, items }) {
       data: updateDossierData,
     });
 
-    // Record Transaction in MySQL
-    let transactionRecord = null;
-    if (checkoutTotal > 0 && userId) {
-      transactionRecord = await tx.transaction.create({
-        data: {
-          dossierId,
-          userId,
-          amount: checkoutTotal,
-          currency: 'AZN',
-          paymentProvider: 'EUROTECH_PORTAL',
-          status: 'PAID',
-          metadataJson: {
-            type: 'VALUE_ADDED_SERVICES',
-            itemsCount: createdServices.length,
-            services: createdServices.map((s) => ({ id: s.id, type: s.serviceType, price: s.price })),
-          },
-        },
-      });
-    }
-
     return {
-      message: `Successfully booked ${createdServices.length} service(s)`,
+      message: `${createdServices.length} xidmət müraciətə əlavə edildi. Yekun ödənişi tamamlayın.`,
       services: createdServices,
-      totalPaid: checkoutTotal,
-      transactionId: transactionRecord?.id || null,
+      addedSubtotalEur: Number(addedSubtotalEur.toFixed(2)),
+      addedSubtotalAzn: convertEurToAzn(addedSubtotalEur, eurToAznRate),
+      remainingBalanceEur,
+      remainingBalanceAzn: convertEurToAzn(remainingBalanceEur, eurToAznRate),
+      currency: 'EUR',
+      exchangeRate: eurToAznRate,
       updatedTotalAmount: updatedTotal,
       extraServicesFee: totalExtraFee,
+      requiresPayment: remainingBalanceEur > 0,
     };
   });
 }
 
-async function removeServiceFromDossier(serviceId) {
-  const service = await prisma.additionalService.findUnique({ where: { id: serviceId } });
+async function removeServiceFromDossier(serviceId, user = null) {
+  const service = await prisma.additionalService.findUnique({
+    where: { id: serviceId },
+    include: { dossier: { include: { applicants: true } } },
+  });
   if (!service) {
-    throw new Error('Service not found');
+    const err = new Error('Service not found');
+    err.statusCode = 404;
+    throw err;
   }
+  assertDossierAccess(service.dossier, user);
 
   await prisma.additionalService.delete({ where: { id: serviceId } });
 
   const dossierId = service.dossierId;
   const allServices = await prisma.additionalService.findMany({ where: { dossierId, status: 'ACTIVE' } });
-
-  const dossier = await prisma.dossier.findUnique({
-    where: { id: dossierId },
-    include: { applicants: true },
-  });
-
-  const totalExtraFee = allServices.reduce((sum, s) => sum + s.price, 0.0);
-  const passengerMultiplier = dossier.portalType === 'GROUP_AGENT' ? Math.max(1, dossier.applicants.length) : 1;
-
-  const baseTotal = (dossier.governmentFee + dossier.serviceFee) * passengerMultiplier;
-  const updatedTotal = baseTotal + totalExtraFee;
+  const { totalExtraFee, updatedTotal } = computeDossierTotals(service.dossier, allServices);
 
   await prisma.dossier.update({
     where: { id: dossierId },
@@ -308,16 +366,41 @@ async function removeServiceFromDossier(serviceId) {
     },
   });
 
+  let refundedToWallet = false;
+  let refundedAmountEur = 0;
+  if (service.dossier.paymentStatus === 'PAID' && Number(service.price) > 0) {
+    try {
+      const { refundToWallet } = require('../payment/wallet.service');
+      await refundToWallet({
+        userId: service.dossier.userId,
+        amountEur: Number(service.price),
+        reason: `Refund for cancelled service: ${service.serviceType}`,
+        dossierId: service.dossierId,
+      });
+      refundedToWallet = true;
+      refundedAmountEur = Number(service.price);
+    } catch (refundErr) {
+      console.error('Failed to issue wallet refund for removed service:', refundErr);
+    }
+  }
+
   return {
-    message: 'Service removed successfully',
+    message: refundedToWallet
+      ? `Service removed. €${refundedAmountEur.toFixed(2)} refunded to your EuroTech Wallet.`
+      : 'Service removed successfully',
     removedServiceId: serviceId,
     serviceType: service.serviceType,
     updatedTotalAmount: updatedTotal,
     extraServicesFee: totalExtraFee,
+    refundedToWallet,
+    refundedAmountEur,
   };
 }
 
 module.exports = {
+  resolveServiceType,
+  getDynamicPricingSettings,
+  computeDossierTotals,
   getServiceCatalog,
   addServiceToDossier,
   checkoutServices,

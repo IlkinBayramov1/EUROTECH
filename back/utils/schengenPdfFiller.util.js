@@ -61,15 +61,15 @@ async function getOrInitTemplateDoc() {
     });
   }
 
-  // Define Text fields Text1 - Text46
-  for (let i = 1; i <= 46; i++) {
+  // Define Text fields Text1 - Text60
+  for (let i = 1; i <= 60; i++) {
     try {
       form.createTextField(`Text${i}`);
     } catch {}
   }
 
-  // Define Radio/Checkbox Buttons Button1 - Button39
-  for (let b = 1; b <= 39; b++) {
+  // Define Radio/Checkbox Buttons Button1 - Button60
+  for (let b = 1; b <= 60; b++) {
     try {
       form.createCheckBox(`Button${b}`);
     } catch {}
@@ -241,7 +241,7 @@ function normalizeApplicantData(applicantData = {}, dossierData = {}) {
     // Inviting Entity / Accommodation (Boxes 30, 31)
     inviting_type: isCompany ? 'company' : 'individual',
     inviting_person: isCompany ? '' : (m.invitingParty || m.inviting_person || m.hotelAccommodation || 'Confirmed Hotel Reservation'),
-    inviting_address: isCompany ? '' : (m.inviting_address || m.address || m.hotelAddress || `${country} Central Area`),
+    inviting_address: isCompany ? '' : (m.hotelAddress || m.stayAddress || m.inviting_address || `${country} Central Area`),
     inviting_email: isCompany ? '' : (m.stayEmail || m.inviting_email || ''),
     inviting_phone: isCompany ? '' : (m.stayPhone || m.inviting_phone || ''),
     inviting_company_name: isCompany ? (m.companyName || m.inviting_company_name || m.invitingParty || '') : '',
@@ -431,7 +431,15 @@ async function fillSchengenPDF(applicantData, dossierData = {}) {
       Text42: applicant.contact_fullname,
       Text43: applicant.contact_address,
       Text44: applicant.contact_email,
-      Text46: applicant.contact_phone,
+      Text45: applicant.contact_phone,
+      Text46: applicant.rep_name ? `${applicant.rep_name} (${applicant.rep_phone || ''})` : '',
+      Text47: applicant.other_nationalities || applicant.nationality_at_birth || '',
+      Text48: applicant.guardian_name ? `${applicant.guardian_surname} ${applicant.guardian_name}`.trim() : (applicant.fam_surname ? `${applicant.fam_surname} ${applicant.fam_firstname}`.trim() : ''),
+      Text49: applicant.guardian_address || applicant.fam_address || '',
+      Text50: applicant.guardian_phone || applicant.fam_phone || '',
+      Text51: applicant.guardian_nationality || applicant.fam_nat || '',
+      Text52: applicant.sponsor_name_details || '',
+      Text53: applicant.doc_other_details || '',
 
       /* H. MEANS OF SUPPORT / COST COVERAGE (Box 32) */
       // Applicant Support:

@@ -11,6 +11,16 @@ param (
     [string]$BackupDir = "./backups"
 )
 
+# Parse from DATABASE_URL if provided
+if ($env:DATABASE_URL -and (-not $PSBoundParameters.ContainsKey('DbPass'))) {
+    if ($env:DATABASE_URL -match "mysql://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)") {
+        if (-not $PSBoundParameters.ContainsKey('DbUser')) { $DbUser = $Matches[1] }
+        if (-not $PSBoundParameters.ContainsKey('DbPass')) { $DbPass = $Matches[2] }
+        if (-not $PSBoundParameters.ContainsKey('DbHost')) { $DbHost = $Matches[3] }
+        if (-not $PSBoundParameters.ContainsKey('DbName')) { $DbName = $Matches[5] }
+    }
+}
+
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $BackupPath = Join-Path $BackupDir "eurotech_db_backup_$Timestamp.sql"
 $ZipPath = "$BackupPath.zip"
@@ -26,10 +36,11 @@ Write-Host "Database: $DbName on $DbHost"
 Write-Host "Destination: $ZipPath"
 
 # Execute mysqldump
-$DumpCommand = "mysqldump -u $DbUser --host=$DbHost --single-transaction --quick --routines --triggers $DbName > `"$BackupPath`""
+$PassArg = if ($DbPass) { "-p`"$DbPass`"" } else { "" }
+$DumpCommand = "mysqldump -u $DbUser $PassArg --host=$DbHost --single-transaction --quick --routines --triggers $DbName > `"$BackupPath`""
 cmd /c $DumpCommand
 
-if (Test-Path $BackupPath) {
+if ((Test-Path $BackupPath) -and ((Get-Item $BackupPath).Length -gt 0)) {
     # Compress with PowerShell
     Compress-Archive -Path $BackupPath -DestinationPath $ZipPath -Force
     Remove-Item $BackupPath -Force
@@ -50,6 +61,6 @@ if (Test-Path $BackupPath) {
         Remove-Item $_.FullName -Force
     }
 } else {
-    Write-Host "[ERROR] mysqldump failed to produce backup file." -ForegroundColor Red
+    Write-Host "[ERROR] mysqldump failed to produce non-empty backup file." -ForegroundColor Red
     exit 1
 }

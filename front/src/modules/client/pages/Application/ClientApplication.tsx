@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/shared/context/AuthContext';
 import { dossierService } from '@/shared/api/services/dossier.service';
 import { useToast } from '@/shared/context/ToastContext';
+import { extractMrzFromText } from '@/shared/utils/mrzParser';
 import './ClientApplication.css';
 
 interface ApplicantData {
@@ -147,6 +148,29 @@ export default function ClientApplication() {
     // Download Format Modal States (PDF / Excel)
     const [downloadTargetApp, setDownloadTargetApp] = useState<ApplicantData | null>(null);
     const [isDownloadModalOpen, setIsDownloadModalOpen] = useState(false);
+    const [isMrzModalOpen, setIsMrzModalOpen] = useState(false);
+    const [mrzInputText, setMrzInputText] = useState('');
+
+    const handleApplyMrz = (textToParse: string) => {
+        const parsed = extractMrzFromText(textToParse);
+        if (!parsed || !parsed.isValid) {
+            showError('Invalid MRZ format. Please make sure you paste the two standard 44-character passport lines.');
+            return;
+        }
+        setFormData(prev => ({
+            ...prev,
+            passportNumber: parsed.passportNumber,
+            lastName: parsed.lastName || prev.lastName,
+            firstName: parsed.firstName || prev.firstName,
+            nationality: parsed.nationality || prev.nationality,
+            birthDate: parsed.birthDate || prev.birthDate,
+            passportExpiry: parsed.expiryDate || prev.passportExpiry,
+            gender: parsed.gender === 'F' ? 'Female' : 'Male',
+        }));
+        showSuccess(`Passport ${parsed.passportNumber} (${parsed.firstName} ${parsed.lastName}) loaded via MRZ!`);
+        setIsMrzModalOpen(false);
+        setMrzInputText('');
+    };
 
     // Applicants strictly loaded from Database (MySQL/Prisma)
     const [applicants, setApplicants] = useState<ApplicantData[]>([]);
@@ -1337,7 +1361,56 @@ export default function ClientApplication() {
                     {/* STEP 3: Travel Document */}
                     {currentFormStep === 3 && (
                         <div className="step-content-block">
-                            <h2>3. Type & Details of Travel Document</h2>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                                <h2 style={{ margin: 0 }}>3. Type & Details of Travel Document</h2>
+                                <button 
+                                    type="button" 
+                                    onClick={() => setIsMrzModalOpen(!isMrzModalOpen)}
+                                    style={{
+                                        background: '#0F1E36',
+                                        color: '#FFFFFF',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        padding: '6px 12px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <span>⚡</span> Quick Fill via Passport MRZ
+                                </button>
+                            </div>
+
+                            {isMrzModalOpen && (
+                                <div style={{ background: '#F8FAFC', border: '1.5px solid #2563EB', borderRadius: '10px', padding: '14px', marginBottom: '18px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>Machine Readable Zone (MRZ) Parser</strong>
+                                        <button type="button" onClick={() => setIsMrzModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontWeight: 'bold' }}>✕ Close</button>
+                                    </div>
+                                    <p style={{ margin: '0 0 8px 0', fontSize: '0.8rem', color: '#64748B' }}>
+                                        Paste the 2 ICAO lines from the bottom of your passport photo page:
+                                    </p>
+                                    <textarea
+                                        rows={3}
+                                        value={mrzInputText}
+                                        onChange={(e) => setMrzInputText(e.target.value)}
+                                        placeholder={"P<AZEALIYEV<<ILKIN<<<<<<<<<<<<<<<<<<<<<<<<<<<\nC123456784AZE9001011M3001018<<<<<<<<<<<<<<02"}
+                                        style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.82rem', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', marginBottom: '8px' }}
+                                    />
+                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => handleApplyMrz(mrzInputText)}
+                                            style={{ background: '#2563EB', color: '#FFFFFF', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
+                                        >
+                                            Parse & Auto-Fill
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             <p className="app-step-desc">Provide passport specifications required for border control validation.</p>
                             
                             <div className="client-form-grid">

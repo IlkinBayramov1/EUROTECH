@@ -125,9 +125,39 @@ async function sendCorporateExpiryRadarNotification({ hrEmail, hrFullName, expir
   });
 }
 
+async function sendPasswordResetNotification(email, fullName, rawToken) {
+  const customerAppUrl = process.env.CUSTOMER_APP_URL || 'https://customer.eurotech.az';
+  const resetPasswordLink = `${customerAppUrl}/reset-password?token=${rawToken}`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+      <h2 style="color: #0f172a; margin-bottom: 8px;">EuroTech Services — Şifrə Sıfırlama Sorğusu</h2>
+      <p style="font-size: 15px;">Hörmətli <strong>${fullName || 'İstifadəçi'}</strong>,</p>
+      <p style="font-size: 14px; line-height: 1.6; color: #475569;">
+        EuroTech portal hesabınız üçün şifrə sıfırlama sorğusu qəbul edildi. Şifrənizi yeniləmək üçün aşağıdakı təhlükəsiz düyməyə keçid edin:
+      </p>
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${resetPasswordLink}" style="background-color: #2563eb; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+          Şifrəni Yenilə
+        </a>
+      </div>
+      <p style="font-size: 13px; color: #64748b; line-height: 1.5;">
+        Bu keçid 1 saat ərzində etibarlıdır. Əgər bu sorğunu siz göndərməmisinizsə, bu məktubu nəzərə almayın.
+      </p>
+    </div>
+  `;
+
+  return sendEmail({
+    to: email,
+    subject: 'EuroTech Services — Şifrə Sıfırlama',
+    html,
+  });
+}
+
 module.exports = {
   sendOtpNotification,
   sendSetPasswordNotification,
+  sendPasswordResetNotification,
   sendDossierSubmittedNotification,
   sendDocumentCorrectionNotification,
   sendDecisionNotification,

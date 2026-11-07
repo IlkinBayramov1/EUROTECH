@@ -20,11 +20,10 @@ function createHybridRateLimiter(options = {}) {
   return (req, res, next) => {
     const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
     const account = req.body?.loginIdentifier || req.body?.email || req.body?.username || req.body?.passportNumber || req.body?.phone || 'anonymous';
-    const endpoint = req.originalUrl || req.path;
-    const userAgent = req.headers['user-agent'] || 'unknown-device';
+    const endpoint = req.baseUrl ? `${req.baseUrl}${req.path}` : req.path;
 
-    // Composite key: IP + Account + Endpoint + Device
-    const compositeKey = `${ip}:${account}:${endpoint}:${userAgent}`;
+    // Secure composite key: IP + Account + Normalized Endpoint (prevents bypass by changing User-Agent or queries)
+    const compositeKey = `${ip}:${String(account).toLowerCase().trim()}:${endpoint}`;
     const now = Date.now();
 
     let record = rateLimitStore.get(compositeKey);

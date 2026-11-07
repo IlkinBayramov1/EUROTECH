@@ -6,3 +6,5 @@ export * from './corporate.service';
 export * from './privacy.service';
 export * from './service.service';
 export * from './admin.service';
+export * from './payment.service';
+export * from './notification.service';

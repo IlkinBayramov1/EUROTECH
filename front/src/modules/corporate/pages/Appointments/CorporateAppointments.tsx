@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { corporateService } from '@/shared/api/services/corporate.service';
+import { appointmentService } from '@/shared/api/services/appointment.service';
+import { useToast } from '@/shared/context/ToastContext';
 import './CorporateAppointments.css';
 
 interface AppointmentRecord {
@@ -16,6 +18,7 @@ interface AppointmentRecord {
 
 export default function CorporateAppointments() {
     const navigate = useNavigate();
+    const { showSuccess, showError } = useToast();
 
     // Calendar States
     const [currentViewDate, setCurrentViewDate] = useState(new Date());
@@ -86,6 +89,29 @@ export default function CorporateAppointments() {
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
+    const handleDownloadManifest = async (batchId: string, batchName: string) => {
+        try {
+            showSuccess(`Generating official Appointment Manifest (PDF) for ${batchName}...`);
+            const res: any = await appointmentService.generateManifestPdf({ groupBatchId: batchId });
+            const downloadUrl = res?.downloadUrl || res?.data?.downloadUrl || res?.pdfUrl;
+            if (downloadUrl) {
+                const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `http://localhost:5000${downloadUrl}`;
+                const link = document.createElement('a');
+                link.href = fullUrl;
+                link.target = '_blank';
+                link.download = res?.fileName || `manifest_${batchId}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showSuccess('Biometric Appointment Manifest (PDF) downloaded successfully.');
+            } else {
+                showError('Could not obtain Manifest PDF URL.');
+            }
+        } catch (err: any) {
+            showError(err.message || 'Failed to generate appointment manifest');
+        }
+    };
 
     const currentAppointments = appointmentsByDate[selectedDate] || [];
 
@@ -215,9 +241,18 @@ export default function CorporateAppointments() {
                                                     Pay Invoice
                                                 </button>
                                             ) : (
-                                                <button className="btn-outline-primary" onClick={() => navigate('/corporate/batches')}>
-                                                    View Batch
-                                                </button>
+                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                    <button 
+                                                        className="btn-outline-secondary" 
+                                                        style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                                                        onClick={() => handleDownloadManifest(appt.batchId, appt.batchName)}
+                                                    >
+                                                        Manifest (PDF)
+                                                    </button>
+                                                    <button className="btn-outline-primary" onClick={() => navigate('/corporate/batches')}>
+                                                        View Batch
+                                                    </button>
+                                                </div>
                                             )}
                                         </div>
                                     </div>

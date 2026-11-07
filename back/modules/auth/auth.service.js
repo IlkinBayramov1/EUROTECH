@@ -292,22 +292,35 @@ async function login({ email, username, passportNumber, loginIdentifier, passwor
   const targetRole = expectedRole || (
     portalRole === 'agent' ? 'AGENT_TUR_OPERATOR' :
     portalRole === 'corporate' ? 'CORPORATE_HR' :
-    portalRole === 'individual' ? 'INDIVIDUAL' : null
+    portalRole === 'individual' ? 'INDIVIDUAL' :
+    portalRole === 'admin' ? 'ADMIN' : null
   );
 
-  if (targetRole && user.role !== 'ADMIN') {
-    const isMatching =
-      (targetRole === 'AGENT_TUR_OPERATOR' && (user.role === 'AGENT_TUR_OPERATOR' || user.role === 'AGENT')) ||
-      (targetRole === 'CORPORATE_HR' && (user.role === 'CORPORATE_HR' || user.role === 'CORPORATE')) ||
-      (targetRole === 'INDIVIDUAL' && user.role === 'INDIVIDUAL');
+  const isStaffUser = ['ADMIN', 'OPERATOR', 'MANAGER'].includes(user.role);
 
-    if (!isMatching) {
-      throw new Error('Invalid email, passport number or password.');
+  if (targetRole) {
+    if (targetRole === 'ADMIN') {
+      if (!isStaffUser) {
+        throw new Error('İcazə xətası: Bu portala yalnız admin və konsulluq əməkdaşları daxil ola bilər.');
+      }
+    } else if (!isStaffUser) {
+      const isMatching =
+        (targetRole === 'AGENT_TUR_OPERATOR' && (user.role === 'AGENT_TUR_OPERATOR' || user.role === 'AGENT')) ||
+        (targetRole === 'CORPORATE_HR' && (user.role === 'CORPORATE_HR' || user.role === 'CORPORATE')) ||
+        (targetRole === 'INDIVIDUAL' && user.role === 'INDIVIDUAL');
+
+      if (!isMatching) {
+        throw new Error('İstifadəçi rolu seçilmiş portala uyğun gəlmir.');
+      }
     }
   }
 
   if (user.accountStatus === 'PENDING_PASSWORD') {
     throw new Error('Security Error: Please set your password first using the link sent to your email.');
+  }
+
+  if (user.accountStatus === 'SUSPENDED') {
+    throw new Error('Hesabınız dayandırılıb. Dəstək xidməti ilə əlaqə saxlayın.');
   }
 
   if (!user.passwordHash) {
@@ -442,6 +455,188 @@ async function verifyOtp({ email, code, ip, userAgent }) {
   return { verified: true };
 }
 
+async function forgotPassword({ email }) {
+  const neutralResponse = {
+    success: true,
+    message: 'Əgər daxil etdiyiniz e-poçt üzrə hesab mövcuddursa, şifrə sıfırlama təlimatı göndərildi.',
+  };
+
+  if (!email || typeof email !== 'string') return neutralResponse;
+  const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+  if (!user || user.accountStatus !== 'ACTIVE') return neutralResponse;
+
+  const rawToken = generateSecureToken();
+  const tokenHash = sha256HashToken(rawToken);
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  try {
+    await notificationService.sendPasswordResetNotification(user.email, user.fullName, rawToken);
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'PASSWORD_RESET_REQUESTED',
+        details: { email: user.email },
+      },
+    });
+  } catch (err) {
+    console.warn('Password reset email dispatch warning:', err.message);
+  }
+
+  return neutralResponse;
+}
+
+async function resetPassword({ token, newPassword }) {
+  if (!token || typeof token !== 'string') {
+    throw new Error('Etibarsız və ya vaxtı bitmiş şifrə sıfırlama keçidi.');
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw new Error('Şifrə ən azı 8 simvol olmalı, böyük hərf, kiçik hərf, rəqəm və xüsusi simvol (@$!%*?&) ehtiva etməlidir.');
+  }
+
+  const tokenHash = sha256HashToken(token);
+  const resetTokenRecord = await prisma.passwordResetToken.findFirst({
+    where: {
+      tokenHash,
+      expiresAt: { gt: new Date() },
+      usedAt: null,
+    },
+    include: { user: true },
+  });
+
+  if (!resetTokenRecord || !resetTokenRecord.user) {
+    throw new Error('Etibarsız və ya vaxtı bitmiş şifrə sıfırlama keçidi.');
+  }
+
+  const newPasswordHash = await hashPassword(newPassword);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.passwordResetToken.update({
+      where: { id: resetTokenRecord.id },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.user.update({
+      where: { id: resetTokenRecord.userId },
+      data: {
+        passwordHash: newPasswordHash,
+        accountStatus: 'ACTIVE',
+        isVerified: true,
+      },
+    });
+
+    // Invalidate existing sessions on password reset
+    await tx.refreshTokenSession.updateMany({
+      where: { userId: resetTokenRecord.userId, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date(), revokedReason: 'PASSWORD_RESET' },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: resetTokenRecord.userId,
+        action: 'PASSWORD_RESET_COMPLETED',
+        details: { email: resetTokenRecord.user.email },
+      },
+    });
+  });
+
+  return {
+    success: true,
+    message: 'Şifrəniz uğurla yeniləndi. Yeni şifrənizlə daxil ola bilərsiniz.',
+  };
+}
+
+async function logout(userId, rawRefreshToken = null) {
+  if (rawRefreshToken) {
+    const tokenHash = hashToken(rawRefreshToken);
+    await prisma.refreshTokenSession.updateMany({
+      where: { tokenHash },
+      data: { isRevoked: true, revokedAt: new Date(), revokedReason: 'USER_LOGOUT' },
+    });
+  } else if (userId) {
+    await prisma.refreshTokenSession.updateMany({
+      where: { userId, isRevoked: false },
+      data: { isRevoked: true, revokedAt: new Date(), revokedReason: 'USER_LOGOUT' },
+    });
+  }
+  return { success: true, message: 'Uğurla çıxış edildi' };
+}
+
+async function updateProfile(userId, data) {
+  const allowed = {};
+  if (data.fullName !== undefined) allowed.fullName = String(data.fullName).trim();
+  if (data.phone !== undefined) allowed.phone = String(data.phone).trim();
+  if (data.companyName !== undefined) allowed.companyName = String(data.companyName).trim();
+  if (data.preferredLanguage !== undefined) allowed.preferredLanguage = String(data.preferredLanguage).trim();
+  if (data.taxId !== undefined) allowed.taxId = String(data.taxId).trim();
+  if (data.address !== undefined) allowed.address = String(data.address).trim();
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: allowed,
+    select: {
+      id: true,
+      email: true,
+      username: true,
+      role: true,
+      fullName: true,
+      phone: true,
+      companyName: true,
+      taxId: true,
+      address: true,
+      preferredLanguage: true,
+      agentTier: true,
+      accountStatus: true,
+      isVerified: true,
+      createdAt: true,
+    },
+  });
+
+  return user;
+}
+
+async function changePassword(userId, { oldPassword, newPassword }) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.passwordHash) {
+    throw new Error('İstifadəçi tapılmadı');
+  }
+
+  const isMatch = await comparePassword(oldPassword, user.passwordHash);
+  if (!isMatch) {
+    throw new Error('Cari şifrə yanlışdır');
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw new Error('Yeni şifrə ən azı 8 simvol olmalı, böyük hərf, kiçik hərf, rəqəm və xüsusi simvol (@$!%*?&) ehtiva etməlidir.');
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: newHash },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: 'PASSWORD_CHANGED',
+      details: { timestamp: new Date() },
+    },
+  });
+
+  return { success: true, message: 'Şifrəniz uğurla dəyişdirildi' };
+}
+
 module.exports = {
   preRegister,
   setPassword,
@@ -452,4 +647,9 @@ module.exports = {
   sendOtp,
   verifyOtp,
   createSession,
+  forgotPassword,
+  resetPassword,
+  logout,
+  updateProfile,
+  changePassword,
 };

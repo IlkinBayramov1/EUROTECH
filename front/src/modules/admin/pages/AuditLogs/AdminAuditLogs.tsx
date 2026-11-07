@@ -1,64 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import type { AuditLogItem } from '@/shared/types/admin.types';
+import { adminService } from '@/shared/api/services/admin.service';
 import './AdminAuditLogs.css';
 
 export default function AdminAuditLogs() {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [actionFilter, setActionFilter] = useState('ALL');
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const res: any = await adminService.getAuditLogs({
+        search: search || undefined,
+        action: actionFilter !== 'ALL' ? actionFilter : undefined,
+      });
+      const items = res?.logs || res?.data?.logs || [];
+      setLogs(items);
+    } catch (err) {
+      console.warn('Failed to fetch live audit logs from backend:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Generate recent session audit activities for security compliance
-    const initialLogs: AuditLogItem[] = [
-      {
-        id: 'log-101',
-        action: 'CONSULAR_DECISION_ISSUED',
-        user: { fullName: 'E. Abdullayev', email: 'admin@eurotech.services', role: 'ADMIN' },
-        ipAddress: '127.0.0.1 (Baku Consular Review Office)',
-        userAgent: 'EuroTech Consular Desk / Mozilla/5.0 Chrome 134',
-        details: { dossierNumber: 'HU-AZ-2026-70447', decision: 'APPROVED', duration: '90 days' },
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 'log-102',
-        action: 'DOCUMENT_VERIFIED',
-        user: { fullName: 'Rəşad Məmmədov', email: 'operator@eurotech.services', role: 'OPERATOR' },
-        ipAddress: '127.0.0.1',
-        userAgent: 'EuroTech Consular Desk',
-        details: { docType: 'PASSPORT', fileName: 'passport_scan.pdf', status: 'VERIFIED' },
-        createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-      },
-      {
-        id: 'log-103',
-        action: 'APPLICANT_FEEDBACK_DISPATCHED',
-        user: { fullName: 'Rəşad Məmmədov', email: 'operator@eurotech.services', role: 'OPERATOR' },
-        ipAddress: '127.0.0.1',
-        userAgent: 'EuroTech Consular Desk',
-        details: { dossierNumber: 'HU-AZ-2026-95176', reason: 'Bank statement re-upload requested' },
-        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-      },
-      {
-        id: 'log-104',
-        action: 'CHECKLIST_MANIFEST_EXPORTED',
-        user: { fullName: 'E. Abdullayev', email: 'admin@eurotech.services', role: 'ADMIN' },
-        ipAddress: '127.0.0.1',
-        userAgent: 'EuroTech Consular Desk',
-        details: { dossierNumber: 'HU-AZ-2026-70447', format: 'PDF' },
-        createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-      },
-      {
-        id: 'log-105',
-        action: 'CONSULAR_LOGIN_SESSION_ESTABLISHED',
-        user: { fullName: 'E. Abdullayev', email: 'admin@eurotech.services', role: 'ADMIN' },
-        ipAddress: '127.0.0.1',
-        userAgent: 'EuroTech Consular Gateway (Baku Terminal)',
-        details: { authMethod: 'JWT_BEARER', role: 'ADMIN' },
-        createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-      },
-    ];
+    fetchLogs();
+  }, [actionFilter]);
 
-    setLogs(initialLogs);
-    setLoading(false);
-  }, []);
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchLogs();
+  };
 
   return (
     <div className="admin-audit-logs-view">
@@ -73,6 +47,53 @@ export default function AdminAuditLogs() {
           <span className="dot-green"></span>
           <span>Tamper-Resistant Logging Active</span>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
+        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', flex: 1 }}>
+          <input
+            type="text"
+            placeholder="Search by action, officer name, email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid #CBD5E1',
+              fontSize: '0.9rem',
+            }}
+          />
+          <button type="submit" style={{ padding: '10px 18px', borderRadius: '8px', background: '#2563EB', color: '#FFF', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+            Filter
+          </button>
+        </form>
+        <select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          style={{
+            padding: '10px 14px',
+            borderRadius: '8px',
+            border: '1px solid #CBD5E1',
+            fontSize: '0.9rem',
+            background: '#FFF',
+          }}
+        >
+          <option value="ALL">All Event Actions</option>
+          <option value="CONSULAR_DECISION_ISSUED">Consular Decisions</option>
+          <option value="DOCUMENT_REVIEWED">Document Reviews</option>
+          <option value="DOSSIER_SUBMITTED">Dossier Submissions</option>
+          <option value="BATCH_PAID">Batch Payments</option>
+          <option value="BANK_SLIP_REVIEWED">Bank Slip Reviews</option>
+          <option value="WALLET_TOPUP">Wallet Top-Ups</option>
+        </select>
+        <button
+          onClick={fetchLogs}
+          style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFF', cursor: 'pointer' }}
+          title="Reload logs"
+        >
+          🔄 Refresh
+        </button>
       </div>
 
       <div className="audit-table-panel">

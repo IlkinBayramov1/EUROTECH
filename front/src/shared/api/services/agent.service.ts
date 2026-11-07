@@ -105,5 +105,11 @@ export const agentService = {
     const baseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1'}/agent/transactions/export-csv`;
     return token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
   },
+
+  topupWallet: (data: { amount: number; currency?: string; method?: string; paymentMethod?: string; reference?: string; referenceCode?: string }) =>
+    apiClient.post('/agent/wallet/topup', data),
+
+  payGroupWithWallet: (groupId: string) =>
+    apiClient.post(`/agent/groups/${groupId}/pay-wallet`),
 };
 

@@ -1,12 +1,12 @@
 /* ==========================================================================
-   CONSULAR DECISION MODAL STYLES
+   CONSULAR DECISION MODAL: LIGHT THEME (AĞ ƏSASLI)
    ========================================================================== */
 
 .decision-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(3, 7, 18, 0.85);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,19 +15,19 @@
 }
 
 .decision-modal-container {
-  background: #0E1626;
-  border: 1px solid rgba(226, 232, 240, 0.12);
-  border-radius: 14px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 16px;
   width: 100%;
   max-width: 640px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
   overflow: hidden;
 }
 
 .decision-modal-header {
   padding: 20px 24px;
-  background: #111A2E;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.08);
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -35,29 +35,29 @@
 
 .consular-seal-text {
   display: inline-block;
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #DC2626;
+  color: #2563EB;
   margin-bottom: 4px;
 }
 
 .decision-modal-header h3 {
   margin: 0 0 4px;
   font-size: 1.25rem;
-  font-weight: 700;
-  color: #F8FAFC;
+  font-weight: 800;
+  color: #0F172A;
 }
 
 .dossier-ref-tag {
   margin: 0;
   font-size: 0.85rem;
-  color: #94A3B8;
+  color: #64748B;
 }
 
 .dossier-ref-tag strong {
-  color: #F87171;
+  color: #2563EB;
   font-family: 'JetBrains Mono', monospace;
 }
 
@@ -74,8 +74,8 @@
 }
 
 .decision-close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #FFFFFF;
+  background: #F1F5F9;
+  color: #0F172A;
 }
 
 .decision-modal-body {
@@ -83,8 +83,8 @@
 }
 
 .decision-instructions {
-  font-size: 0.85rem;
-  color: #94A3B8;
+  font-size: 0.88rem;
+  color: #64748B;
   margin: 0 0 20px;
   line-height: 1.5;
 }
@@ -98,29 +98,39 @@
 
 .decision-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
-  padding: 14px 16px;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(226, 232, 240, 0.1);
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
   border-radius: 10px;
+  padding: 14px 18px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .decision-card:hover {
-  background: rgba(15, 23, 42, 0.9);
-  border-color: rgba(226, 232, 240, 0.2);
+  background: #F1F5F9;
+  border-color: #CBD5E1;
 }
 
-.decision-card input[type="radio"] {
-  margin-top: 4px;
-  accent-color: #DC2626;
+.decision-card.selected-approve {
+  border-color: #10B981;
+  background: #F0FDF4;
+}
+
+.decision-card.selected-consulate {
+  border-color: #3B82F6;
+  background: #EFF6FF;
+}
+
+.decision-card.selected-reject {
+  border-color: #EF4444;
+  background: #FEF2F2;
 }
 
 .decision-icon {
-  font-size: 1.3rem;
-  line-height: 1;
+  font-size: 1.4rem;
+  flex-shrink: 0;
 }
 
 .decision-text {
@@ -129,40 +139,16 @@
 }
 
 .decision-text strong {
-  font-size: 0.92rem;
-  color: #F1F5F9;
+  font-size: 0.95rem;
+  color: #0F172A;
   margin-bottom: 2px;
 }
 
 .decision-text span {
-  font-size: 0.78rem;
-  color: #94A3B8;
+  font-size: 0.82rem;
+  color: #64748B;
   line-height: 1.4;
 }
-
-.decision-card.selected-approve {
-  border-color: #10B981;
-  background: rgba(16, 185, 129, 0.08);
-}
-.decision-card.selected-approve .decision-text strong { color: #34D399; }
-
-.decision-card.selected-reject {
-  border-color: #EF4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-.decision-card.selected-reject .decision-text strong { color: #F87171; }
-
-.decision-card.selected-consulate {
-  border-color: #A855F7;
-  background: rgba(168, 85, 247, 0.08);
-}
-.decision-card.selected-consulate .decision-text strong { color: #C084FC; }
-
-.decision-card.selected-warning {
-  border-color: #F59E0B;
-  background: rgba(245, 158, 11, 0.08);
-}
-.decision-card.selected-warning .decision-text strong { color: #FBBF24; }
 
 .decision-notes-area {
   margin-bottom: 24px;
@@ -170,71 +156,68 @@
 
 .decision-notes-area label {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: #CBD5E1;
+  color: #334155;
   margin-bottom: 6px;
-}
-
-.star-red {
-  color: #F87171;
-  font-size: 0.72rem;
-  margin-left: 6px;
 }
 
 .decision-notes-area textarea {
   width: 100%;
-  background: rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(226, 232, 240, 0.1);
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
   border-radius: 8px;
   padding: 10px 14px;
-  color: #F8FAFC;
-  font-size: 0.88rem;
+  color: #0F172A;
   font-family: inherit;
+  font-size: 0.88rem;
   outline: none;
   resize: vertical;
-  transition: all 0.2s ease;
+  min-height: 90px;
 }
 
 .decision-notes-area textarea:focus {
-  border-color: #DC2626;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15);
+  border-color: #3B82F6;
+  background: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .decision-modal-footer {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #F1F5F9;
 }
 
-.btn-confirm-decision {
-  border: none;
-  padding: 10px 22px;
-  border-radius: 6px;
+.btn-cancel-decision {
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #475569;
+  padding: 9px 18px;
+  border-radius: 8px;
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.btn-cancel-decision:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+.btn-confirm-decision {
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
   color: #FFFFFF;
-  transition: all 0.2s ease;
+  border: none;
+  padding: 9px 22px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
 }
 
-.btn-emerald {
-  background: linear-gradient(135deg, #059669, #047857);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-.btn-emerald:hover:not(:disabled) {
-  background: linear-gradient(135deg, #10B981, #059669);
-}
-
-.btn-red {
-  background: linear-gradient(135deg, #DC2626, #B91C1C);
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
-}
-.btn-red:hover:not(:disabled) {
-  background: linear-gradient(135deg, #EF4444, #DC2626);
-}
-
-.btn-confirm-decision:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.btn-confirm-decision:hover {
+  background: linear-gradient(135deg, #1D4ED8, #1E40AF);
 }

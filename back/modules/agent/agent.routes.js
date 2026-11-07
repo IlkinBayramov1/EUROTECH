@@ -12,7 +12,7 @@ router.post('/self-fill/:groupId/:applicantId', agentController.submitCustomerSe
 router.post('/self-fill/:groupId/:applicantId/upload', upload.single('file'), agentController.uploadCustomerDoc);
 
 router.use(authMiddleware);
-router.use(requireRoles(['AGENT', 'AGENT_TUR_OPERATOR', 'ADMIN', 'MANAGER']));
+router.use(requireRoles(['AGENT', 'AGENT_TUR_OPERATOR', 'ADMIN', 'MANAGER', 'OPERATOR']));
 
 router.post('/groups', agentController.createGroup);
 router.get('/groups', agentController.getAgentGroups);

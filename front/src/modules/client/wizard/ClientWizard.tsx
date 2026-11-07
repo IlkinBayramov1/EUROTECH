@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
-import { dossierService, appointmentService, additionalService } from '@/shared/api/services';
+import { dossierService, appointmentService, additionalService, paymentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import { storage } from '@/shared/utils/storage';
 import './ClientWizard.css';
@@ -67,7 +67,8 @@ export default function IndividualWizard() {
             appointmentTime: '',
 
             // Step 5
-            gdprConsent: false
+            gdprConsent: false,
+            paymentMethod: 'WALLET' as 'WALLET' | 'CARD' | 'INVOICE'
         };
     });
 
@@ -142,6 +143,9 @@ export default function IndividualWizard() {
                     portalType: 'INDIVIDUAL',
                     countryId,
                     visaCategoryId,
+                    package: formData.services?.activePackage || 'standard',
+                    services: formData.services,
+                    applicantsCount: formData.applicants?.length || 1,
                 });
                 const createdDossier = dossierRes.data?.dossier || dossierRes.data;
                 const dossierId = createdDossier?.id;
@@ -161,6 +165,7 @@ export default function IndividualWizard() {
                             gender: firstFormApplicant.gender || 'MALE',
                             nationality: firstFormApplicant.nationality || 'AZ',
                             birthDate: firstFormApplicant.dob || undefined,
+                            issueDate: firstFormApplicant.issueDate || undefined,
                             passportExpiry: firstFormApplicant.expiryDate || undefined,
                             destination: selectedCountryName,
                             purpose: formData.projectReason === 'tourism' ? 'Tourism' : 'Business',
@@ -198,11 +203,22 @@ export default function IndividualWizard() {
                     if (s.filePrep || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'FILE_PREPARATION' }).catch(() => {});
                     if (s.courier || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'COURIER' }).catch(() => {});
                     if (s.photo || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'PHOTO' }).catch(() => {});
+                    if (s.formAssist || s.activePackage === 'premium' || s.activePackage === 'vip') await additionalService.addService({ dossierId, serviceType: 'FORM_ASSIST' }).catch(() => {});
+                    if (s.hotelFlight) {
+                        await additionalService.addService({ dossierId, serviceType: 'HOTEL_BOOKING' }).catch(() => {});
+                        await additionalService.addService({ dossierId, serviceType: 'FLIGHT_BOOKING' }).catch(() => {});
+                    }
 
                     // Book appointment slot
                     if (formData.appointmentDate) {
                         try {
-                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate);
+                            let centerLocation = 'EuroTech Main Center';
+                            if (formData.visaCenter === 'lounge' || formData.visaCenter?.includes('Lounge')) {
+                                centerLocation = 'EuroTech Premium Lounge';
+                            } else if (formData.visaCenter === 'ganja' || formData.visaCenter?.includes('Ganja')) {
+                                centerLocation = 'Ganja Regional Center';
+                            }
+                            const slotsRes = await appointmentService.getSlots(formData.appointmentDate, centerLocation);
                             const slots = slotsRes.data?.slots || [];
                             const matchedSlot = slots.find((sl: any) => 
                                 sl.startTime === formData.appointmentTime ||
@@ -218,10 +234,25 @@ export default function IndividualWizard() {
                             console.warn('Slot booking fallback:', slotErr);
                         }
                     }
+
+                    // Direct payment settlement if user opted for EuroTech Wallet
+                    if (formData.paymentMethod === 'WALLET') {
+                        try {
+                            await paymentService.payWithWallet({ dossierId });
+                            showSuccess('Dossier submitted and fees successfully settled from your EuroTech Wallet!');
+                        } catch (walletErr: any) {
+                            console.warn('Wallet direct settlement notice:', walletErr);
+                            showSuccess('Application dossier registered! Please settle fees under Wallet & Invoices.');
+                        }
+                    } else {
+                        showSuccess('Application dossier registered! Proforma Invoice generated under Wallet & Invoices.');
+                    }
+                    navigate('/client/wallet', { replace: true });
+                    return;
                 }
             }
-            showSuccess('Application dossier submitted and slot confirmed!');
-            navigate('/client', { replace: true });
+            showSuccess('Application dossier submitted!');
+            navigate('/client/wallet', { replace: true });
         } catch (err: any) {
             console.error('Submission error:', err);
             showError(err.message || 'Application submitted with offline backup.');

@@ -3,14 +3,21 @@ const path = require('path');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-
-const errorMiddleware = require('./middlewares/error.middleware');
-const telemetryMiddleware = require('./monitoring/telemetry');
-const apiRoutes = require('./routes');
-
 const compression = require('compression');
 
+const env = require('./config/env');
+const errorMiddleware = require('./middlewares/error.middleware');
+const telemetryMiddleware = require('./monitoring/telemetry');
+const { metricsMiddleware, metricsService } = require('./monitoring/metrics.service');
+const apiRoutes = require('./routes');
+const { getIntegrationsHealth } = require('./modules/shared/health.controller');
+const authMiddleware = require('./middlewares/auth.middleware');
+const { requireRoles } = require('./middlewares/role.middleware');
+
 const app = express();
+
+// Trust reverse proxy (Nginx, Docker, Cloudflare)
+app.set('trust proxy', 1);
 
 // Gzip / Brotli HTTP Response Compression
 app.use(compression({ threshold: 512 }));
@@ -60,6 +67,9 @@ app.use(
 app.use(morgan('dev'));
 app.use(telemetryMiddleware);
 
+// Metrics middleware mounted BEFORE routes so all requests are tracked
+app.use(metricsMiddleware);
+
 // HTTP Cache Headers for Static Lookup Templates
 app.use('/api/v1/templates', (req, res, next) => {
   res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=3600');
@@ -77,22 +87,18 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 
-
-
 // Language Middleware
 app.use((req, res, next) => {
   req.lang = req.headers['accept-language'] || req.query.lang || 'az';
   next();
 });
 
-// Static Folders
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/archives', express.static(path.join(__dirname, 'archives')));
+// Secure static uploads & archives using unified directories
+app.use('/uploads', express.static(env.UPLOAD_DIR));
+app.use('/archives', authMiddleware, requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), express.static(env.ARCHIVE_DIR));
 
 // API Routes Mounting
 app.use('/api', apiRoutes);
-
-const { getIntegrationsHealth } = require('./modules/shared/health.controller');
 
 // Health Check Endpoints
 app.get('/api/health', (req, res) => {
@@ -103,19 +109,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('/api/health/integrations', getIntegrationsHealth);
+app.get('/api/health/integrations', authMiddleware, requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), getIntegrationsHealth);
 
-const { metricsMiddleware, metricsService } = require('./monitoring/metrics.service');
-app.use(metricsMiddleware);
-
-// Prometheus OpenMetrics APM Endpoint
+// Prometheus OpenMetrics APM Endpoint (Staff only or internal monitoring)
 app.get('/api/metrics', async (req, res) => {
   const metrics = await metricsService.generatePrometheusMetrics();
   res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
   res.send(metrics);
 });
-
-
 
 // Global Central Error Handler
 app.use(errorMiddleware);

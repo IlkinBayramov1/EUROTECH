@@ -5,6 +5,9 @@ export interface DossierCreatePayload {
   countryId: string;
   visaCategoryId: string;
   groupBatchId?: string;
+  package?: string;
+  services?: any;
+  applicantsCount?: number;
 }
 
 export interface ApplicantPayload {
@@ -46,6 +49,9 @@ export const dossierService = {
     apiClient.post(`/dossiers/${dossierId}/applicants/${applicantId}/application-pdf`, customData || {}),
 
   getDossierSummaryPdf: (dossierId: string) =>
+    apiClient.get(`/dossiers/${dossierId}/summary-pdf`),
+
+  downloadSummary: (dossierId: string) =>
     apiClient.get(`/dossiers/${dossierId}/summary-pdf`),
 
   getTracking: (dossierIdOrRef: string) =>

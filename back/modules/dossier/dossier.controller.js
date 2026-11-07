@@ -80,6 +80,8 @@ async function getApplicationFormPdf(req, res, next) {
     return ApiResponse.success(res, {
       fileName: result.fileName,
       downloadUrl: result.downloadUrl,
+      fileUrl: result.downloadUrl,
+      schengenPdfUrl: result.downloadUrl,
       fileSize: result.pdfBytes.length,
     }, 'Application form PDF generated successfully');
   } catch (error) {
@@ -99,6 +101,8 @@ async function getDossierSummaryPdf(req, res, next) {
     return ApiResponse.success(res, {
       fileName: result.fileName,
       downloadUrl: result.downloadUrl,
+      fileUrl: result.downloadUrl,
+      summaryPdfUrl: result.downloadUrl,
       fileSize: result.pdfBytes.length,
     }, 'Dossier summary PDF generated successfully');
   } catch (error) {
@@ -128,6 +132,90 @@ async function getDossierTracking(req, res, next) {
   }
 }
 
+async function getArchiveZip(req, res, next) {
+  try {
+    const { dossierId } = req.params;
+    const prisma = require('../../config/db');
+    const dossier = await prisma.dossier.findUnique({
+      where: { id: dossierId },
+      include: {
+        documents: true,
+        applicants: { include: { documents: true } },
+      },
+    });
+
+    if (!dossier) {
+      return ApiResponse.error(res, 'Dossier not found', 404);
+    }
+
+    const { archiveDossierFiles } = require('../../utils/zip.util');
+    const path = require('path');
+    const env = require('../../config/env');
+    const fs = require('fs');
+
+    const filePaths = [];
+    const allDocs = [...(dossier.documents || [])];
+    (dossier.applicants || []).forEach(a => {
+      if (a.documents) allDocs.push(...a.documents);
+    });
+
+    const uploadDir = path.resolve(env.UPLOAD_DIR);
+    allDocs.forEach(d => {
+      if (d.filePath && fs.existsSync(d.filePath)) {
+        filePaths.push(d.filePath);
+      } else if (d.fileUrl) {
+        const localPath = path.join(uploadDir, path.basename(d.fileUrl));
+        if (fs.existsSync(localPath)) filePaths.push(localPath);
+      }
+    });
+
+    // If no document files uploaded yet, generate summary PDF & manifest so ZIP is never empty
+    if (filePaths.length === 0) {
+      try {
+        const { generateDossierSummaryPdf } = require('./services/dossierSummaryPdf.service');
+        const summaryRes = await generateDossierSummaryPdf(dossier.id);
+        if (summaryRes?.filePath && fs.existsSync(summaryRes.filePath)) {
+          filePaths.push(summaryRes.filePath);
+        }
+      } catch (sumErr) {
+        console.warn('Could not auto-generate summary for zip:', sumErr.message);
+      }
+
+      const manifestPath = path.join(uploadDir, `manifest_${dossier.dossierNumber}.json`);
+      fs.writeFileSync(manifestPath, JSON.stringify({
+        dossierNumber: dossier.dossierNumber,
+        status: dossier.status,
+        portalType: dossier.portalType,
+        totalAmount: dossier.totalAmount,
+        createdAt: dossier.createdAt,
+        note: 'Official Consular Electronic Archive Record'
+      }, null, 2));
+      filePaths.push(manifestPath);
+    }
+
+    const archiveResult = await archiveDossierFiles(dossier.dossierNumber, filePaths);
+
+    await prisma.dossier.update({
+      where: { id: dossier.id },
+      data: { archivedZipUrl: archiveResult.fileUrl },
+    });
+
+    if (req.query.download === 'true' || req.query.download === '1') {
+      return res.download(archiveResult.filePath, archiveResult.fileName);
+    }
+
+    return ApiResponse.success(res, {
+      fileName: archiveResult.fileName,
+      filePath: archiveResult.filePath,
+      downloadUrl: archiveResult.fileUrl,
+      fileUrl: archiveResult.fileUrl,
+      archiveZipUrl: archiveResult.fileUrl,
+    }, 'Dossier archive ZIP generated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
 module.exports = {
   createDossier,
   addApplicants,
@@ -139,5 +227,6 @@ module.exports = {
   getApplicationFormPdf,
   getDossierSummaryPdf,
   getDossierTracking,
+  getArchiveZip,
 };
 

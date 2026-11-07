@@ -499,3 +499,31 @@
     .header-actions { flex-direction: column; width: 100%; align-items: stretch; }
     .btn-primary, .btn-outline-secondary { justify-content: center; }
 }
+
+
+/* --- Upgraded 4-Card KPI Grid & Two-Column Layout --- */
+.finance-stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+.finance-grid-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 24px;
+    align-items: start;
+}
+
+.stat-icon-wrapper.red-tint {
+    background-color: #FEF2F2;
+    color: #EF4444;
+}
+
+@media (max-width: 1200px) {
+    .finance-stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .finance-grid-main { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .finance-stats-grid { grid-template-columns: 1fr; }
+}

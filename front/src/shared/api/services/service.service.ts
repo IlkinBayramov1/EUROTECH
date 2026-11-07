@@ -8,6 +8,7 @@ export interface AddServicePayload {
 
 export interface CheckoutServicesPayload {
   dossierId: string;
+  paymentMethod?: 'WALLET' | 'CARD' | 'STAGE';
   items: Array<{
     serviceType: string;
     applicantId?: string;

@@ -1,10 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
 import { useToast } from '@/shared/context/ToastContext';
 import './CorporateWizard.css';
 
-// Yeni 5 addımlıq flow üçün komponentlər
 import Step1Country from './Steps/Step1Country';
 import Step2GroupServices from './Steps/Step2GroupServices';
 import Step3GroupApplicants from './Steps/Step3GroupApplicants';
@@ -21,9 +20,15 @@ export interface EmployeeData {
     passportNumber: string;
     issueDate: string;
     expiryDate: string;
-    role: string;        // <-- YENİ: Vəzifə
-    department: string;  // <-- YENİ: Şöbə
+    role: string;
+    department: string;
     documents: { passport: boolean; photo: boolean };
+}
+
+function isValidIsoDate(val: string): boolean {
+    if (!val || !/^\d{4}-\d{2}-\d{2}$/.test(val.trim())) return false;
+    const d = new Date(`${val.trim()}T00:00:00Z`);
+    return !isNaN(d.getTime()) && d.getUTCFullYear() >= 1900 && d.getUTCFullYear() <= 2100;
 }
 
 export default function CorporateWizard() {
@@ -32,59 +37,79 @@ export default function CorporateWizard() {
     const [currentStep, setCurrentStep] = useState(1);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [walletBalance, setWalletBalance] = useState<number>(0);
+    const [settlementMode, setSettlementMode] = useState<'WALLET_NOW' | 'PROFORMA_INVOICE'>('PROFORMA_INVOICE');
 
     const [formData, setFormData] = useState({
         // Step 1
         country: '',
         destination: '',
-        duration: '', 
+        duration: '',
         projectReason: '',
         travelDate: '',
-        
+
         // Step 2
-        services: { 
+        services: {
             activePackage: 'standard', // 'standard' | 'premium' | 'vip'
         },
-        
+
         // Step 3
         batchName: '',
         employees: [] as EmployeeData[],
-        
+
         // Step 4
         appointmentDate: '',
-        appointmentTime: ''
+        appointmentTime: '',
     });
 
+    const batchSize = Math.max(formData.employees.length, 1);
+    const consularFeePP = 145.0;
+    const serviceFeePP =
+        formData.services.activePackage === 'premium'
+            ? 126.0
+            : formData.services.activePackage === 'vip'
+              ? 257.0
+              : 0.0;
+    const grandTotal = (consularFeePP + serviceFeePP) * batchSize;
+
+    useEffect(() => {
+        if (currentStep === 5) {
+            corporateService
+                .getWallet()
+                .then((res: any) => {
+                    const bal = Number(res?.data?.wallet?.balance ?? res?.wallet?.balance ?? 0);
+                    setWalletBalance(bal);
+                    if (bal >= grandTotal) {
+                        setSettlementMode('WALLET_NOW');
+                    } else {
+                        setSettlementMode('PROFORMA_INVOICE');
+                    }
+                })
+                .catch(() => {
+                    setWalletBalance(0);
+                    setSettlementMode('PROFORMA_INVOICE');
+                });
+        }
+    }, [currentStep, grandTotal]);
+
     const updateFormData = (field: string, value: any) => {
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
             [field]: value,
-            ...(field === 'country' ? { destination: value } : {})
+            ...(field === 'country' ? { destination: value } : {}),
         }));
     };
 
     const handleNext = async () => {
         if (currentStep < 5) {
-            setCurrentStep(prev => prev + 1);
+            setCurrentStep((prev) => prev + 1);
             return;
         }
 
         setSubmitting(true);
         setError(null);
         try {
-            // Step 5-ə uyğun real yekun qiymətin hesablanması
-            const batchSize = Math.max(formData.employees.length, 1);
-            const consularFeePP = 145.00;
-            let serviceFeePP = 0;
-            if (formData.services.activePackage === 'premium') {
-                serviceFeePP = 126.00;
-            } else if (formData.services.activePackage === 'vip') {
-                serviceFeePP = 257.00;
-            }
-            const grandTotal = (consularFeePP + serviceFeePP) * batchSize;
-
-            // Bütün 5 addımın məlumatlarının vahid tam dövrə ilə backend-ə göndərilməsi
-            await corporateService.createBatch({
+            const createRes: any = await corporateService.createBatch({
                 name: formData.batchName || 'Corporate Delegation Batch',
                 destination: formData.destination || formData.country || 'Europe / Schengen',
                 travelDate: formData.travelDate,
@@ -98,8 +123,20 @@ export default function CorporateWizard() {
                 totalAmount: grandTotal,
             });
 
-            showSuccess('Corporate Batch and Proforma Invoice successfully created!');
-            navigate('/corporate/batches');
+            const createdBatch = createRes?.data?.batch || createRes?.batch || createRes;
+
+            if (settlementMode === 'WALLET_NOW' && createdBatch?.id && walletBalance >= grandTotal) {
+                await corporateService.payWithWallet(createdBatch.id);
+                showSuccess(
+                    `Batch ${createdBatch.code} created & € ${grandTotal.toFixed(2)} settled from Company Wallet! Appointments confirmed.`
+                );
+            } else {
+                showSuccess(
+                    `Corporate Batch & Proforma Invoice (€ ${grandTotal.toFixed(2)}) generated! Ready for payment in Billing.`
+                );
+            }
+
+            navigate('/corporate/finance');
         } catch (err: any) {
             console.error('Failed to create corporate batch:', err);
             const msg = err.response?.data?.message || err.message || 'Batch creation failed. Please check your data.';
@@ -111,23 +148,24 @@ export default function CorporateWizard() {
     };
 
     const handleBack = () => {
-        if (currentStep > 1) setCurrentStep(prev => prev - 1);
-        else navigate('/corporate'); 
+        if (currentStep > 1) setCurrentStep((prev) => prev - 1);
+        else navigate('/corporate');
     };
 
     const isNextDisabled = () => {
-        if (currentStep === 1) return !formData.country || !formData.duration || !formData.projectReason || !formData.travelDate;        
-        if (currentStep === 2) return false; // Package has default 'standard'
+        if (currentStep === 1) return !formData.country || !formData.duration || !formData.projectReason || !formData.travelDate;
+        if (currentStep === 2) return false;
         if (currentStep === 3) {
             if (!formData.batchName.trim()) return true;
             if (formData.employees.length === 0) return true;
-            return formData.employees.some(app => 
-                !app.firstName.trim() || 
-                !app.lastName.trim() || 
-                !app.passportNumber.trim() || 
-                !app.dob.trim() ||
-                !app.issueDate.trim() || // <-- ADDED validation
-                !app.expiryDate.trim()   // <-- ADDED validation
+            return formData.employees.some(
+                (app) =>
+                    !app.firstName.trim() ||
+                    !app.lastName.trim() ||
+                    !app.passportNumber.trim() ||
+                    !isValidIsoDate(app.dob) ||
+                    !isValidIsoDate(app.issueDate) ||
+                    !isValidIsoDate(app.expiryDate)
             );
         }
         if (currentStep === 4) return !formData.appointmentDate || !formData.appointmentTime;
@@ -136,21 +174,34 @@ export default function CorporateWizard() {
 
     const renderStepContent = () => {
         switch (currentStep) {
-            case 1: return <Step1Country data={formData} updateData={updateFormData} />;
-            case 2: return <Step2GroupServices data={formData} updateData={updateFormData} />;
-            case 3: return <Step3GroupApplicants data={formData} updateData={updateFormData} />;
-            case 4: return <Step4Appointments data={formData} updateData={updateFormData} />;
-            case 5: return <Step5Confirmation data={formData} />;
-            default: return null;
+            case 1:
+                return <Step1Country data={formData} updateData={updateFormData} />;
+            case 2:
+                return <Step2GroupServices data={formData} updateData={updateFormData} />;
+            case 3:
+                return <Step3GroupApplicants data={formData} updateData={updateFormData} />;
+            case 4:
+                return <Step4Appointments data={formData} updateData={updateFormData} />;
+            case 5:
+                return (
+                    <Step5Confirmation
+                        data={formData}
+                        walletBalance={walletBalance}
+                        settlementMode={settlementMode}
+                        onChangeSettlementMode={setSettlementMode}
+                    />
+                );
+            default:
+                return null;
         }
     };
 
     const steps = [
-        'Destination & Visa', 
-        'Packages & Services', 
-        'Group Info', 
-        'Group Appointment', 
-        'Confirmation'
+        'Destination & Visa',
+        'Packages & Services',
+        'Group Info',
+        'Group Appointment',
+        'Confirmation',
     ];
 
     return (
@@ -198,7 +249,13 @@ export default function CorporateWizard() {
                             {currentStep === 1 ? 'Cancel' : 'Back'}
                         </button>
                         <button className="btn-primary" onClick={handleNext} disabled={isNextDisabled() || submitting}>
-                            {submitting ? 'Submitting Application...' : currentStep === 5 ? 'Submit Corporate Batch & Generate Invoice' : 'Next Step \u2192'}
+                            {submitting
+                                ? 'Processing Corporate Batch...'
+                                : currentStep === 5
+                                  ? settlementMode === 'WALLET_NOW'
+                                      ? `Submit & Pay € ${grandTotal.toFixed(2)} from Wallet`
+                                      : `Submit Batch & Generate Invoice (€ ${grandTotal.toFixed(2)})`
+                                  : 'Next Step \u2192'}
                         </button>
                     </footer>
                 </section>

@@ -37,6 +37,12 @@ router.post('/run/:jobName', async (req, res) => {
       case 'unpaid-cleanup':
         result = await scheduler.runUnpaidDossierCleanupJob();
         break;
+      case 'dossier-archival':
+        result = await scheduler.runDossierArchivalJob();
+        break;
+      case 'agent-tier-recalculation':
+        result = await scheduler.runAgentTierRecalculationJob();
+        break;
       case 'retry-queue':
         result = await scheduler.runOutboundRetryJob();
         break;

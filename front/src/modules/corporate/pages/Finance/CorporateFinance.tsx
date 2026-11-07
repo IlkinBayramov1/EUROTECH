@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { corporateService, DepartmentItem } from '@/shared/api/services/corporate.service';
+import { paymentService } from '@/shared/api/services/payment.service';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
 import './CorporateFinance.css';
@@ -38,10 +39,15 @@ export default function CorporateFinance() {
     const [currency, setCurrency] = useState<string>('EUR');
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<PendingInvoice | null>(null);
-    const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'invoice'>('wallet');
+    const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'bank_slip' | 'invoice'>('wallet');
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
     const [topupAmount, setTopupAmount] = useState('2500');
+    const [topupMethod, setTopupMethod] = useState<'CARD' | 'BANK_SLIP'>('CARD');
+    const [slipRefCode, setSlipRefCode] = useState('');
+    const [slipBankName, setSlipBankName] = useState('PASHA Bank');
+    const [slipFile, setSlipFile] = useState<File | null>(null);
+    const [pendingSlips, setPendingSlips] = useState<any[]>([]);
     const [topupProcessing, setTopupProcessing] = useState(false);
     const [totalSpendYtd, setTotalSpendYtd] = useState<number>(0.00);
     const [loading, setLoading] = useState(true);
@@ -67,11 +73,12 @@ export default function CorporateFinance() {
 
             // 1. Real Wallet and Transactions
             const walletRes = await corporateService.getWallet();
-            if (walletRes.data?.wallet) {
-                const w = walletRes.data.wallet;
+            const w = (walletRes as any)?.data?.wallet || (walletRes as any)?.wallet;
+            if (w) {
                 setWalletBalance(Number(w.balance || 0));
                 setCurrency(w.currency || 'EUR');
                 setTotalSpendYtd(Number(w.totalSpendYtd || 0));
+                setPendingSlips(Array.isArray(w.pendingBankSlips) ? w.pendingBankSlips : []);
 
                 if (Array.isArray(w.transactions)) {
                     const mappedTx: Transaction[] = w.transactions.map((t: any) => ({
@@ -89,15 +96,16 @@ export default function CorporateFinance() {
 
             // 2. Real Corporate Invoices (both pending and settled)
             const invRes = await corporateService.getInvoices();
-            if (invRes.data?.invoices && Array.isArray(invRes.data.invoices)) {
-                const mappedInv: PendingInvoice[] = invRes.data.invoices.map((inv: any) => ({
+            const rawInvoices = (invRes as any)?.data?.invoices || (invRes as any)?.invoices;
+            if (Array.isArray(rawInvoices)) {
+                const mappedInv: PendingInvoice[] = rawInvoices.map((inv: any) => ({
                     id: inv.id,
                     batchId: inv.groupBatchId,
-                    batchRef: inv.groupBatch?.code || 'BCH-BATCH',
+                    batchRef: inv.groupBatch?.code || inv.invoiceNumber || 'BCH-BATCH',
                     batchName: inv.groupBatch?.name || 'Corporate Delegation',
                     dueDate: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '7 Days',
                     amount: Number(inv.amount || 0),
-                    applicants: inv.groupBatch?.totalEmployees || 5,
+                    applicants: Number(inv.applicantsCount || inv.groupBatch?.totalEmployees || 1),
                     pdfUrl: inv.pdfUrl,
                     status: inv.status || 'PENDING',
                     paidAt: inv.updatedAt ? new Date(inv.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Settled'
@@ -158,6 +166,9 @@ export default function CorporateFinance() {
     // --- Aksiyalar ---
     const handleOpenPayment = (invoice: PendingInvoice) => {
         setSelectedInvoice(invoice);
+        setPaymentMethod(walletBalance >= invoice.amount ? 'wallet' : 'card');
+        setSlipRefCode('');
+        setSlipFile(null);
         setIsPaymentModalOpen(true);
     };
 
@@ -196,27 +207,46 @@ export default function CorporateFinance() {
         setIsProcessing(true);
         try {
             if (paymentMethod === 'wallet') {
-                if (!selectedInvoice.batchId) {
-                    showError('Associated batch ID not found for this invoice.');
-                    return;
-                }
-
                 if (walletBalance < selectedInvoice.amount) {
                     showError(`Insufficient wallet balance. Available: € ${walletBalance.toFixed(2)}, Required: € ${selectedInvoice.amount.toFixed(2)}.`);
                     return;
                 }
 
-                await corporateService.payWithWallet(selectedInvoice.batchId);
-                showSuccess('Payment successful! Biometric appointments for this batch are now confirmed.');
+                await paymentService.payWithWallet({
+                    invoiceId: selectedInvoice.id,
+                    groupBatchId: selectedInvoice.batchId,
+                });
+                showSuccess('Payment settled from Company Wallet! Biometric appointments confirmed.');
                 await loadFinanceData();
             } else if (paymentMethod === 'invoice') {
                 await handleDownloadInvoice(selectedInvoice);
-            } else {
-                // Card payment
-                if (selectedInvoice.batchId) {
-                    await corporateService.payWithWallet(selectedInvoice.batchId);
+            } else if (paymentMethod === 'bank_slip') {
+                const fd = new FormData();
+                if (selectedInvoice.batchId) fd.append('groupBatchId', selectedInvoice.batchId);
+                fd.append('invoiceId', selectedInvoice.id);
+                fd.append('amount', String(selectedInvoice.amount));
+                fd.append('currency', 'EUR');
+                fd.append('purpose', 'GROUP_BATCH_PAYMENT');
+                fd.append('bankName', slipBankName || 'PASHA Bank');
+                fd.append('referenceCode', slipRefCode.trim() || `CORP-WIRE-${Date.now().toString().slice(-6)}`);
+                fd.append('senderName', user?.companyName || user?.fullName || 'Corporate Partner');
+                if (slipFile) {
+                    fd.append('slip', slipFile);
                 }
-                showSuccess('Card processed successfully! Batch appointments confirmed and invoice marked as PAID.');
+                await paymentService.submitBankSlip(fd);
+                showSuccess('Bank wire receipt submitted! Finance Desk will verify and confirm the invoice shortly.');
+                await loadFinanceData();
+            } else {
+                // Direct Corporate Card Settlement via PaymentIntent
+                const intent = await paymentService.createPaymentIntent({
+                    invoiceId: selectedInvoice.id,
+                    groupBatchId: selectedInvoice.batchId,
+                    amount: selectedInvoice.amount,
+                    currency: 'EUR',
+                    purpose: 'GROUP_BATCH_PAYMENT',
+                });
+                await paymentService.confirmPaymentMock({ paymentIntentId: intent.paymentIntentId });
+                showSuccess('Corporate card payment confirmed! Batch appointments confirmed and invoice marked PAID.');
                 await loadFinanceData();
             }
 
@@ -239,9 +269,31 @@ export default function CorporateFinance() {
         }
         setTopupProcessing(true);
         try {
-            await corporateService.topupWallet(num);
-            showSuccess(`€ ${num.toFixed(2)} successfully added to corporate wallet!`);
+            if (topupMethod === 'BANK_SLIP') {
+                const fd = new FormData();
+                fd.append('amount', String(num));
+                fd.append('currency', 'EUR');
+                fd.append('purpose', 'WALLET_TOPUP');
+                fd.append('bankName', slipBankName || 'PASHA Bank');
+                fd.append('referenceCode', slipRefCode.trim() || `TOPUP-WIRE-${Date.now().toString().slice(-6)}`);
+                fd.append('senderName', user?.companyName || user?.fullName || 'Corporate Partner');
+                if (slipFile) {
+                    fd.append('slip', slipFile);
+                }
+                await paymentService.submitBankSlip(fd);
+                showSuccess(`Bank wire slip (€ ${num.toFixed(2)}) submitted! Funds will credit upon Finance reconciliation.`);
+            } else {
+                const intent = await paymentService.createPaymentIntent({
+                    amount: num,
+                    currency: 'EUR',
+                    purpose: 'WALLET_TOPUP',
+                });
+                await paymentService.confirmPaymentMock({ paymentIntentId: intent.paymentIntentId });
+                showSuccess(`€ ${num.toFixed(2)} successfully credited to your Company Wallet!`);
+            }
             setIsTopupModalOpen(false);
+            setSlipRefCode('');
+            setSlipFile(null);
             await loadFinanceData();
         } catch (err: any) {
             showError(err.message || 'Failed to complete wallet deposit.');
@@ -512,7 +564,7 @@ export default function CorporateFinance() {
                         </div>
                         <div className="billing-info-box">
                             <h4 style={{ textTransform: 'capitalize' }}>{user?.companyName || user?.fullName || 'EuroTech Corporate Partner'}</h4>
-                            <p>Tax / Reg ID: {user?.id?.substring(0, 10).toUpperCase() || 'EU-CORP-REGISTERED'}</p>
+                            <p>Tax / Reg ID: {user?.taxId || user?.id?.substring(0, 10).toUpperCase() || 'EU-CORP-REGISTERED'}</p>
                             <p>{user?.email || 'corporate-billing@eurotech.com'}</p>
                             <p>{user?.phone || 'No phone recorded'}</p>
                         </div>
@@ -540,6 +592,22 @@ export default function CorporateFinance() {
                                 + Deposit Funds to Wallet
                             </button>
                         </div>
+                        {pendingSlips.filter((s) => s.status === 'PENDING').length > 0 && (
+                            <div style={{ marginTop: '14px', padding: '12px', borderRadius: '8px', background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+                                <strong style={{ fontSize: '0.8rem', color: '#92400E', display: 'block', marginBottom: '6px' }}>
+                                    Pending Bank Wire Transfers ({pendingSlips.filter((s) => s.status === 'PENDING').length})
+                                </strong>
+                                {pendingSlips
+                                    .filter((s) => s.status === 'PENDING')
+                                    .slice(0, 3)
+                                    .map((s) => (
+                                        <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#78350F', padding: '3px 0' }}>
+                                            <span>{s.referenceCode} ({s.purpose === 'WALLET_TOPUP' ? 'Top-Up' : 'Invoice'})</span>
+                                            <strong>{s.currency === 'AZN' ? `${s.amount} AZN` : `€ ${Number(s.amount || 0).toFixed(2)}`}</strong>
+                                        </div>
+                                    ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Department Budget Allocation & Controls */}
@@ -685,18 +753,60 @@ export default function CorporateFinance() {
                                         <div className="radio-circle"></div>
                                     </label>
 
-                                    {/* Option 3: Generate Invoice */}
+                                    {/* Option 3: Upload Bank Wire Slip */}
+                                    <label className={`payment-option-label ${paymentMethod === 'bank_slip' ? 'selected' : ''}`}>
+                                        <input type="radio" name="payMethod" value="bank_slip" checked={paymentMethod === 'bank_slip'} onChange={() => setPaymentMethod('bank_slip')} hidden />
+                                        <div className="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+                                        <div className="option-details">
+                                            <h4>Bank Wire Receipt</h4>
+                                            <span>Upload Transfer Slip</span>
+                                        </div>
+                                        <div className="radio-circle"></div>
+                                    </label>
+
+                                    {/* Option 4: Download Proforma PDF */}
                                     <label className={`payment-option-label ${paymentMethod === 'invoice' ? 'selected' : ''}`}>
                                         <input type="radio" name="payMethod" value="invoice" checked={paymentMethod === 'invoice'} onChange={() => setPaymentMethod('invoice')} hidden />
                                         <div className="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
                                         <div className="option-details">
-                                            <h4>Generate Proforma</h4>
-                                            <span>Pay via Wire Transfer</span>
+                                            <h4>Proforma PDF</h4>
+                                            <span>Download Wire Details</span>
                                         </div>
                                         <div className="radio-circle"></div>
                                     </label>
 
                                 </div>
+
+                                {paymentMethod === 'bank_slip' && (
+                                    <div style={{ marginTop: '16px', padding: '14px', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ fontSize: '0.8rem', color: '#334155' }}>
+                                            <strong>Beneficiary IBAN:</strong> HU42117730161111222233334444 (EuroTech Services Kft.)
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                            <input
+                                                type="text"
+                                                className="premium-input"
+                                                placeholder="Sending Bank (e.g. PASHA Bank)"
+                                                value={slipBankName}
+                                                onChange={(e) => setSlipBankName(e.target.value)}
+                                            />
+                                            <input
+                                                type="text"
+                                                className="premium-input"
+                                                placeholder="Wire Reference / Receipt #"
+                                                value={slipRefCode}
+                                                onChange={(e) => setSlipRefCode(e.target.value)}
+                                                required
+                                            />
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg"
+                                            onChange={(e) => setSlipFile(e.target.files?.[0] || null)}
+                                            style={{ fontSize: '0.82rem' }}
+                                        />
+                                    </div>
+                                )}
                                 
                                 {walletBalance < selectedInvoice.amount && paymentMethod === 'wallet' && (
                                     <div className="info-alert warning-alert mt-16">
@@ -715,7 +825,13 @@ export default function CorporateFinance() {
                                 className="btn-modal-primary" 
                                 disabled={isProcessing || (walletBalance < selectedInvoice.amount && paymentMethod === 'wallet')}
                             >
-                                {isProcessing ? 'Processing...' : paymentMethod === 'invoice' ? 'Download Invoice' : `Pay € ${selectedInvoice.amount.toFixed(2)}`}
+                                {isProcessing
+                                    ? 'Processing...'
+                                    : paymentMethod === 'invoice'
+                                      ? 'Download Invoice'
+                                      : paymentMethod === 'bank_slip'
+                                        ? 'Submit Wire Receipt'
+                                        : `Pay € ${selectedInvoice.amount.toFixed(2)}`}
                             </button>
                         </div>
                     </div>
@@ -725,7 +841,7 @@ export default function CorporateFinance() {
             {/* --- TOP-UP MODAL --- */}
             {isTopupModalOpen && (
                 <div className="premium-modal-overlay fade-in" onClick={() => setIsTopupModalOpen(false)}>
-                    <div className="premium-modal-container slide-up" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
+                    <div className="premium-modal-container slide-up" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
                             <div className="modal-header-info">
                                 <span className="modal-badge">Company Wallet</span>
@@ -739,15 +855,50 @@ export default function CorporateFinance() {
                         <form onSubmit={handleTopupSubmit}>
                             <div className="modal-body">
                                 <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-                                    Current balance: <strong>€ {walletBalance.toFixed(2)}</strong>. Funds are immediately credited for corporate batch reservations.
+                                    Current balance: <strong>€ {walletBalance.toFixed(2)}</strong>. Fund your corporate wallet instantly by card or upload a bank wire transfer slip.
                                 </p>
 
-                                <div className="wizard-input-group" style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '16px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTopupMethod('CARD')}
+                                        style={{
+                                            padding: '10px 12px',
+                                            borderRadius: '8px',
+                                            border: `1.5px solid ${topupMethod === 'CARD' ? '#2563EB' : '#CBD5E1'}`,
+                                            background: topupMethod === 'CARD' ? '#EFF6FF' : '#FFF',
+                                            color: '#0F172A',
+                                            fontWeight: 600,
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Corporate Card (Instant)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTopupMethod('BANK_SLIP')}
+                                        style={{
+                                            padding: '10px 12px',
+                                            borderRadius: '8px',
+                                            border: `1.5px solid ${topupMethod === 'BANK_SLIP' ? '#2563EB' : '#CBD5E1'}`,
+                                            background: topupMethod === 'BANK_SLIP' ? '#EFF6FF' : '#FFF',
+                                            color: '#0F172A',
+                                            fontWeight: 600,
+                                            fontSize: '0.85rem',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        Bank Wire Transfer Slip
+                                    </button>
+                                </div>
+
+                                <div className="wizard-input-group" style={{ marginBottom: '14px' }}>
                                     <label>Deposit Amount (€)</label>
                                     <input 
                                         type="number" 
-                                        step="50" 
-                                        min="100" 
+                                        step="10" 
+                                        min="50" 
                                         value={topupAmount} 
                                         onChange={(e) => setTopupAmount(e.target.value)} 
                                         className="premium-input" 
@@ -756,8 +907,8 @@ export default function CorporateFinance() {
                                     />
                                 </div>
 
-                                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-                                    {['1000', '2500', '5000', '10000'].map(val => (
+                                <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                                    {['500', '1000', '2500', '5000'].map(val => (
                                         <button 
                                             key={val} 
                                             type="button" 
@@ -769,12 +920,45 @@ export default function CorporateFinance() {
                                         </button>
                                     ))}
                                 </div>
+
+                                {topupMethod === 'BANK_SLIP' && (
+                                    <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                                            <strong>IBAN:</strong> HU42117730161111222233334444 (EuroTech Services Kft.)
+                                        </div>
+                                        <input
+                                            type="text"
+                                            className="premium-input"
+                                            placeholder="Sending Bank (e.g. PASHA Bank)"
+                                            value={slipBankName}
+                                            onChange={(e) => setSlipBankName(e.target.value)}
+                                        />
+                                        <input
+                                            type="text"
+                                            className="premium-input"
+                                            placeholder="Wire Reference Number"
+                                            value={slipRefCode}
+                                            onChange={(e) => setSlipRefCode(e.target.value)}
+                                            required
+                                        />
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg"
+                                            onChange={(e) => setSlipFile(e.target.files?.[0] || null)}
+                                            style={{ fontSize: '0.82rem' }}
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             <div className="modal-footer">
                                 <button type="button" className="btn-modal-secondary" onClick={() => setIsTopupModalOpen(false)} disabled={topupProcessing}>Cancel</button>
                                 <button type="submit" className="btn-modal-primary" disabled={topupProcessing}>
-                                    {topupProcessing ? 'Depositing...' : `Deposit € ${parseFloat(topupAmount || '0').toFixed(2)}`}
+                                    {topupProcessing
+                                        ? 'Submitting...'
+                                        : topupMethod === 'BANK_SLIP'
+                                          ? `Submit Wire Slip (€ ${parseFloat(topupAmount || '0').toFixed(2)})`
+                                          : `Deposit € ${parseFloat(topupAmount || '0').toFixed(2)}`}
                                 </button>
                             </div>
                         </form>
@@ -857,7 +1041,7 @@ export default function CorporateFinance() {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                     <div>
                                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Tax / Reg ID</span>
-                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>{user?.id?.substring(0, 10).toUpperCase() || 'EU-CORP-REGISTERED'}</div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>{user?.taxId || user?.id?.substring(0, 10).toUpperCase() || 'EU-CORP-REGISTERED'}</div>
                                     </div>
                                     <div>
                                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600, textTransform: 'uppercase' }}>Account Role</span>

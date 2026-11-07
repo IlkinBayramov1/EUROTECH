@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { adminService } from '@/shared/api/services/admin.service';
+import { dossierService } from '@/shared/api/services/dossier.service';
 import { useToast } from '@/shared/context/ToastContext';
+import { downloadFileFromApi } from '@/shared/utils/download.util';
 import DocumentReviewModal from '@/modules/admin/components/DocumentReviewModal';
 import ConsularDecisionModal from '@/modules/admin/components/ConsularDecisionModal';
 import type { AdminDossier, AdminApplicantDocument, DossierStatusType } from '@/shared/types/admin.types';
@@ -15,6 +17,7 @@ export default function AdminDossierDetail() {
   const [dossier, setDossier] = useState<AdminDossier | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'documents' | 'applicant' | 'history'>('documents');
+  const [selectedApplicantIndex, setSelectedApplicantIndex] = useState(0);
 
   // Modals state
   const [selectedDocForReview, setSelectedDocForReview] = useState<AdminApplicantDocument | null>(null);
@@ -45,14 +48,13 @@ export default function AdminDossierDetail() {
     if (!id) return;
     setIsExporting(true);
     try {
-      const res: any = await adminService.exportChecklist(id);
-      if (res.data?.checklistPdfUrl || res.checklistPdfUrl) {
-        window.open(res.data?.checklistPdfUrl || res.checklistPdfUrl, '_blank');
-      } else {
-        showSuccess('Checklist export triggered.');
-      }
-    } catch (err) {
-      showError('Failed to export checklist PDF.');
+      await downloadFileFromApi(
+        `/documents/dossier/${id}/export-checklist`,
+        `Checklist_${dossier?.dossierNumber || id}.pdf`
+      );
+      showSuccess('Consular document checklist downloaded.');
+    } catch (err: any) {
+      showError(err.message || 'Failed to export checklist PDF.');
     } finally {
       setIsExporting(false);
     }
@@ -62,14 +64,50 @@ export default function AdminDossierDetail() {
     if (!id) return;
     setIsExporting(true);
     try {
-      const res: any = await adminService.getSummaryPdf(id);
-      if (res.data?.summaryPdfUrl || res.summaryPdfUrl) {
-        window.open(res.data?.summaryPdfUrl || res.summaryPdfUrl, '_blank');
-      } else {
-        showSuccess('Summary PDF generated.');
-      }
-    } catch (err) {
-      showError('Failed to generate summary PDF.');
+      await downloadFileFromApi(
+        `/dossiers/${id}/summary-pdf`,
+        `Dossier_Summary_${dossier?.dossierNumber || id}.pdf`
+      );
+      showSuccess('Dossier summary PDF downloaded successfully.');
+    } catch (err: any) {
+      showError(err.message || 'Failed to generate summary PDF.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportSchengenPdf = async () => {
+    if (!id) return;
+    const currentApplicant = dossier?.applicants?.[selectedApplicantIndex] || dossier?.applicants?.[0];
+    if (!currentApplicant) {
+      showError('No applicant available for Schengen PDF generation.');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      await downloadFileFromApi(
+        `/dossiers/${id}/applicants/${currentApplicant.id}/application-pdf`,
+        `Harmonized_Schengen_Form_${currentApplicant.firstName}_${currentApplicant.lastName}.pdf`
+      );
+      showSuccess('Harmonized Schengen PDF generated and downloaded.');
+    } catch (err: any) {
+      showError(err.message || 'Failed to generate Schengen form PDF.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportArchiveZip = async () => {
+    if (!id) return;
+    setIsExporting(true);
+    try {
+      await downloadFileFromApi(
+        `/dossiers/${id}/archive-zip`,
+        `Dossier_Archive_${dossier?.dossierNumber || id}.zip`
+      );
+      showSuccess('Dossier Archive ZIP package generated and downloaded.');
+    } catch (err: any) {
+      showError(err.message || 'Failed to generate Archive ZIP.');
     } finally {
       setIsExporting(false);
     }
@@ -97,10 +135,11 @@ export default function AdminDossierDetail() {
   }
 
   const primaryApplicant = dossier.applicants?.[0];
+  const activeApplicant = dossier.applicants?.[selectedApplicantIndex] || dossier.applicants?.[0];
   const allDocuments = dossier.documents || [];
   const verifiedCount = allDocuments.filter(d => d.status === 'VERIFIED').length;
   const correctionCount = allDocuments.filter(d => d.status === 'NEEDS_CORRECTION').length;
-  const formData = primaryApplicant?.formDataJson || {};
+  const formData = activeApplicant?.formDataJson || {};
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
@@ -134,6 +173,12 @@ export default function AdminDossierDetail() {
           ← Back to Dossier Registry
         </button>
         <div className="top-nav-actions">
+          <button className="btn-secondary" onClick={handleExportSchengenPdf} disabled={isExporting} title="Generate Harmonized 37-point Schengen PDF">
+            🇪🇺 Schengen PDF
+          </button>
+          <button className="btn-secondary" onClick={handleExportArchiveZip} disabled={isExporting} title="Package dossier files into a ZIP archive">
+            📦 Archive ZIP
+          </button>
           <button className="btn-secondary" onClick={handleExportSummary} disabled={isExporting}>
             📄 Summary PDF
           </button>
@@ -293,6 +338,22 @@ export default function AdminDossierDetail() {
               <p>Submitted responses to the 5-step official consular application questionnaire.</p>
             </div>
 
+            {dossier.applicants && dossier.applicants.length > 1 && (
+              <div className="applicant-selector-bar">
+                <span className="applicant-selector-label">Reviewing Applicant:</span>
+                {dossier.applicants.map((app, idx) => (
+                  <button
+                    key={app.id || idx}
+                    type="button"
+                    className={`app-pill-btn ${selectedApplicantIndex === idx ? 'active' : ''}`}
+                    onClick={() => setSelectedApplicantIndex(idx)}
+                  >
+                    👤 {app.firstName} {app.lastName} {idx === 0 ? '(Primary)' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="qa-sections-grid">
               {/* Step 1: Travel Plans */}
               <div className="qa-card">
@@ -312,12 +373,12 @@ export default function AdminDossierDetail() {
               <div className="qa-card">
                 <h4>2. Personal Identification</h4>
                 <div className="qa-rows">
-                  <div className="qa-row"><span className="qa-k">Full Name:</span><span className="qa-v">{formData.firstName} {formData.lastName}</span></div>
+                  <div className="qa-row"><span className="qa-k">Full Name:</span><span className="qa-v">{formData.firstName || activeApplicant?.firstName} {formData.lastName || activeApplicant?.lastName}</span></div>
                   <div className="qa-row"><span className="qa-k">Birth Surname:</span><span className="qa-v">{formData.birthSurname || '—'}</span></div>
-                  <div className="qa-row"><span className="qa-k">Date of Birth:</span><span className="qa-v">{formData.birthDate || '—'}</span></div>
+                  <div className="qa-row"><span className="qa-k">Date of Birth:</span><span className="qa-v">{formData.birthDate || activeApplicant?.birthDate || '—'}</span></div>
                   <div className="qa-row"><span className="qa-k">Place of Birth:</span><span className="qa-v">{formData.birthPlace || '—'}</span></div>
-                  <div className="qa-row"><span className="qa-k">Nationality:</span><span className="qa-v">{formData.nationality || 'Azerbaijan'}</span></div>
-                  <div className="qa-row"><span className="qa-k">Gender:</span><span className="qa-v">{formData.gender || '—'}</span></div>
+                  <div className="qa-row"><span className="qa-k">Nationality:</span><span className="qa-v">{formData.nationality || activeApplicant?.nationality || 'Azerbaijan'}</span></div>
+                  <div className="qa-row"><span className="qa-k">Gender:</span><span className="qa-v">{formData.gender || activeApplicant?.gender || '—'}</span></div>
                   <div className="qa-row"><span className="qa-k">Marital Status:</span><span className="qa-v">{formData.maritalStatus || '—'}</span></div>
                 </div>
               </div>
@@ -327,7 +388,7 @@ export default function AdminDossierDetail() {
                 <h4>3. Travel Document (Passport)</h4>
                 <div className="qa-rows">
                   <div className="qa-row"><span className="qa-k">Passport Type:</span><span className="qa-v">{formData.passportType || 'Ordinary Passport'}</span></div>
-                  <div className="qa-row"><span className="qa-k">Passport Number:</span><span className="qa-v font-mono">{formData.passportNumber || primaryApplicant?.passportNumber || '—'}</span></div>
+                  <div className="qa-row"><span className="qa-k">Passport Number:</span><span className="qa-v font-mono">{formData.passportNumber || activeApplicant?.passportNumber || '—'}</span></div>
                   <div className="qa-row"><span className="qa-k">Date of Issue:</span><span className="qa-v">{formData.issueDate || '—'}</span></div>
                   <div className="qa-row"><span className="qa-k">Date of Expiry:</span><span className="qa-v">{formData.passportExpiry || '—'}</span></div>
                   <div className="qa-row"><span className="qa-k">Issued By:</span><span className="qa-v">{formData.issuedBy || 'Republic of Azerbaijan'}</span></div>

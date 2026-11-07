@@ -17,12 +17,18 @@ const {
 router.post('/pre-register', preRegisterValidation, validateRequest, authController.preRegister);
 router.post('/set-password', setPasswordValidation, validateRequest, authController.setPassword);
 router.post('/resend-set-password', otpRateLimiter, authController.resendSetPasswordEmail);
+router.post('/forgot-password', otpRateLimiter, authController.forgotPassword);
+router.post('/reset-password', authController.resetPassword);
 router.post('/register', registerValidation, validateRequest, authController.register);
 router.post('/login', authRateLimiter, checkLockout, loginValidation, validateRequest, authController.login);
 router.post('/refresh-token', authController.refreshToken);
+router.post('/logout', authController.logout);
 
 router.post('/send-otp', otpRateLimiter, sendOtpValidation, validateRequest, authController.sendOtp);
 router.post('/verify-otp', otpRateLimiter, verifyOtpValidation, validateRequest, authController.verifyOtp);
+
 router.get('/profile', authMiddleware, authController.getProfile);
+router.patch('/profile', authMiddleware, authController.updateProfile);
+router.patch('/change-password', authMiddleware, authController.changePassword);
 
 module.exports = router;

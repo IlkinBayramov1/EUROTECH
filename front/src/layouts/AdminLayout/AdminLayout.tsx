@@ -64,6 +64,16 @@ export default function AdminLayout() {
             All Dossiers
           </NavLink>
 
+          <NavLink to="/admin/financials" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>
+            <span className="admin-nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="5" width="20" height="14" rx="2" ry="2"/>
+                <line x1="2" y1="10" x2="22" y2="10"/>
+              </svg>
+            </span>
+            Financials & Crons
+          </NavLink>
+
           <p className="admin-nav-label" style={{ marginTop: '20px' }}>SYSTEM & SECURITY</p>
 
           <NavLink to="/admin/audit-logs" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>

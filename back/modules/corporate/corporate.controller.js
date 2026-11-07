@@ -119,8 +119,13 @@ async function remindEmployee(req, res, next) {
 
 async function topupWallet(req, res, next) {
   try {
-    const { amount } = req.body;
-    const result = await corporateService.topupCorporateWallet(req.user.id, amount);
+    const { amount, method, reference } = req.body;
+    const result = await corporateService.topupCorporateWallet({
+      corporateUserId: req.user.id,
+      amount,
+      method,
+      reference,
+    });
     return ApiResponse.success(res, result, 'Corporate wallet balance topped up successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
@@ -300,11 +305,39 @@ async function getGuaranteeLetterPdf(req, res, next) {
   }
 }
 
+async function addEmployeeToBatch(req, res, next) {
+  try {
+    const result = await corporateService.addEmployeeToBatch(
+      req.user.id,
+      req.params.batchId,
+      req.body
+    );
+    return ApiResponse.success(res, result, 'Employee added to batch successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function removeEmployeeFromBatch(req, res, next) {
+  try {
+    const result = await corporateService.removeEmployeeFromBatch(
+      req.user.id,
+      req.params.batchId,
+      req.params.employeeId
+    );
+    return ApiResponse.success(res, result, 'Employee removed from batch successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 module.exports = {
   createBatch,
   getBatches,
   updateBatch,
   deleteBatch,
+  addEmployeeToBatch,
+  removeEmployeeFromBatch,
   generateDelegationLink,
   getDelegationProfile,
   submitDelegationForm,

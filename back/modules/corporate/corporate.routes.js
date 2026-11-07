@@ -19,6 +19,8 @@ router.post('/batches', corporateController.createBatch);
 router.get('/batches', corporateController.getBatches);
 router.patch('/batches/:batchId', corporateController.updateBatch);
 router.delete('/batches/:batchId', corporateController.deleteBatch);
+router.post('/batches/:batchId/employees', corporateController.addEmployeeToBatch);
+router.delete('/batches/:batchId/employees/:employeeId', corporateController.removeEmployeeFromBatch);
 router.post('/batches/:batchId/submit', corporateController.submitBatch);
 router.patch('/batches/:batchId/employees/:employeeId/form', corporateController.saveEmployeeForm);
 router.post('/employees/:employeeId/delegation-link', corporateController.generateDelegationLink);

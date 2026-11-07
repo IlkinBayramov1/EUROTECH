@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
-import { dossierService } from '@/shared/api/services';
+import { dossierService, paymentService } from '@/shared/api/services';
+import { storage } from '@/shared/utils/storage';
 import { useToast } from '@/shared/context/ToastContext';
 import './ClientDashboard.css';
 
@@ -14,6 +15,7 @@ export default function ClientDashboard() {
     const [loading, setLoading] = useState(true);
     const [copiedId, setCopiedId] = useState(false);
     const [isDownloadingSummary, setIsDownloadingSummary] = useState(false);
+    const [walletBalanceEur, setWalletBalanceEur] = useState<number>(0);
 
     // Format Human-Readable Consular Document Types
     const formatDocType = (rawType: string) => {
@@ -32,18 +34,28 @@ export default function ClientDashboard() {
 
     useEffect(() => {
         let isMounted = true;
-        dossierService.getMyDossiers()
-            .then(res => {
-                if (isMounted && res.data?.dossiers) {
-                    const list = res.data.dossiers;
+        Promise.all([
+            dossierService.getMyDossiers().catch(() => ({ data: { dossiers: [] } })),
+            paymentService.getUserWallet().catch(() => ({ data: null })),
+        ])
+            .then(([dossiersRes, walletRes]) => {
+                if (isMounted) {
+                    const list = dossiersRes.data?.dossiers || [];
                     setDossiers(list);
                     if (list.length > 0) {
-                        setSelectedDossierId(list[0].id);
+                        const savedActiveId = storage.getActiveDossierId();
+                        const active = (savedActiveId && list.some((d: any) => d.id === savedActiveId))
+                            ? savedActiveId
+                            : list[0].id;
+                        setSelectedDossierId(active);
+                        storage.setActiveDossierId(active);
                     }
+                    const bal = Number(walletRes?.data?.wallet?.balanceEur ?? walletRes?.data?.balance ?? 0);
+                    setWalletBalanceEur(bal);
                 }
             })
             .catch(err => {
-                console.warn('Dashboard dossier load error:', err);
+                console.warn('Dashboard load error:', err);
             })
             .finally(() => {
                 if (isMounted) setLoading(false);
@@ -79,6 +91,7 @@ export default function ClientDashboard() {
             case 'SUBMITTED_TO_CONSULATE': return 3;
             case 'CONSULATE_PROCESSING': return 4;
             case 'APPROVED': case 'PASSPORT_READY': return 5;
+            case 'REJECTED': return 0;
             default: return 1;
         }
     })();
@@ -118,12 +131,26 @@ export default function ClientDashboard() {
             id: string;
             title: string;
             desc: string;
-            priority: 'Required' | 'Review' | 'Verified';
-            color: 'orange' | 'blue' | 'green';
+            priority: 'Urgent' | 'Required' | 'Review' | 'Verified';
+            color: 'red' | 'orange' | 'blue' | 'green';
             actionText?: string;
             actionRoute?: string;
             isDone: boolean;
         }> = [];
+
+        // 0. Consular Fees Settlement Task
+        if (dossier && dossier.paymentStatus !== 'PAID' && Number(dossier.totalAmount || 0) > 0) {
+            tasks.push({
+                id: 'task-payment-due',
+                title: 'Consular Dossier Fees Settlement Required',
+                desc: `Outstanding fee of €${Number(dossier.totalAmount || 0).toFixed(2)} is pending. Settle via EuroTech Wallet, Card, or Bank Wire.`,
+                priority: 'Urgent',
+                color: 'red',
+                actionText: 'Pay Fees',
+                actionRoute: '/client/wallet',
+                isDone: false
+            });
+        }
 
         // 1. Check for any rejected documents
         const rejectedDocs = documentsList.filter((d: any) => d.status === 'REJECTED');
@@ -494,8 +521,12 @@ export default function ClientDashboard() {
                             <div className="dossier-selector-dropdown">
                                 <label>Active Dossier:</label>
                                 <select 
-                                    value={dossier.id} 
-                                    onChange={(e) => setSelectedDossierId(e.target.value)}
+                                    value={dossier?.id || ''} 
+                                    onChange={(e) => {
+                                        const newId = e.target.value;
+                                        setSelectedDossierId(newId);
+                                        storage.setActiveDossierId(newId);
+                                    }}
                                     className="dossier-select-control"
                                 >
                                     {dossiers.map(d => (
@@ -735,12 +766,83 @@ export default function ClientDashboard() {
                 {/* RIGHT COLUMN: Quick Actions, Timeline & VIP Concierge */}
                 <div className="dash-col-secondary">
                     
+                    {/* EuroTech Pre-Funded Wallet Quick Widget */}
+                    <div className="dash-card-premium wallet-quick-widget" style={{
+                        background: 'linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%)',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        boxShadow: '0 8px 24px rgba(30, 58, 138, 0.25)',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '0.82rem', color: '#93C5FD', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                                EuroTech Pre-Funded Wallet
+                            </span>
+                            <span style={{ fontSize: '0.74rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '12px', color: '#BFDBFE' }}>
+                                Instant Settlement
+                            </span>
+                        </div>
+                        <div style={{ marginBottom: '16px' }}>
+                            <h2 style={{ fontSize: '2rem', fontWeight: 800, margin: 0, color: '#FFFFFF', lineHeight: 1.1 }}>
+                                €{walletBalanceEur.toFixed(2)}
+                            </h2>
+                            <span style={{ fontSize: '0.85rem', color: '#CBD5E1', display: 'block', marginTop: '4px' }}>
+                                ≈ {(walletBalanceEur * 1.80).toFixed(2)} AZN available
+                            </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                onClick={() => navigate('/client/wallet')}
+                                style={{
+                                    flex: 1,
+                                    background: '#2563EB',
+                                    border: 'none',
+                                    color: '#FFFFFF',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                + Top Up Balance
+                            </button>
+                            <button 
+                                onClick={() => navigate('/client/wallet')}
+                                style={{
+                                    flex: 1,
+                                    background: 'rgba(255,255,255,0.12)',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    color: '#FFFFFF',
+                                    padding: '8px 12px',
+                                    borderRadius: '8px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                View Invoices
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Quick Actions Panel */}
                     <div className="dash-card-premium quick-actions-panel">
                         <div className="card-header-styled">
                             <h3>Quick Actions</h3>
                         </div>
                         <div className="quick-actions-btns">
+                            <button className="quick-action-link-btn" onClick={() => navigate('/client/wallet')}>
+                                <div className="qa-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                                </div>
+                                <div className="qa-text">
+                                    <strong>Wallet &amp; Invoices</strong>
+                                    <span>Top up balance &amp; settle dossier fees</span>
+                                </div>
+                                <svg className="qa-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+
                             <button className="quick-action-link-btn" onClick={() => navigate('/client/application')}>
                                 <div className="qa-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>

@@ -20,6 +20,8 @@ export interface User {
   passportNumber?: string;
   companyName?: string;
   agencyName?: string;
+  taxId?: string;
+  address?: string;
   createdAt?: string;
 }
 

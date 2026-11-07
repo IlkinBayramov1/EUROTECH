@@ -29,8 +29,12 @@ module.exports = async function authMiddleware(req, res, next) {
         email: true,
         role: true,
         fullName: true,
+        phone: true,
         companyName: true,
+        taxId: true,
+        agentTier: true,
         preferredLanguage: true,
+        accountStatus: true,
         isVerified: true,
       },
     });
@@ -39,6 +43,15 @@ module.exports = async function authMiddleware(req, res, next) {
       return res.status(401).json({
         success: false,
         message: getText('UNAUTHORIZED', req.lang),
+      });
+    }
+
+    if (user.accountStatus !== 'ACTIVE') {
+      return res.status(403).json({
+        success: false,
+        message: user.accountStatus === 'SUSPENDED'
+          ? 'Hesabınız dayandırılıb. Dəstək xidməti ilə əlaqə saxlayın.'
+          : 'Zəhmət olmasa əvvəlcə şifrənizi təyin edib hesabınızı aktivləşdirin.',
       });
     }
 

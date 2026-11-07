@@ -1,6 +1,6 @@
 import { storage } from '../utils/storage';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 export class ApiError extends Error {
   status: number;
@@ -14,9 +14,64 @@ export class ApiError extends Error {
   }
 }
 
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
+async function attemptTokenRefresh(): Promise<string | null> {
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+
+  const refreshToken = storage.getRefreshToken();
+  if (!refreshToken) {
+    storage.clearAll();
+    return null;
+  }
+
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const url = `${API_BASE_URL}/auth/refresh-token`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!response.ok) {
+        storage.clearAll();
+        return null;
+      }
+
+      const resData = await response.json();
+      const newAccessToken = resData.data?.accessToken;
+      const newRefreshToken = resData.data?.refreshToken;
+
+      if (newAccessToken) {
+        const isPersisted = storage.isRememberEnabled();
+        storage.setToken(newAccessToken, isPersisted);
+        if (newRefreshToken) {
+          storage.setRefreshToken(newRefreshToken, isPersisted);
+        }
+        return newAccessToken;
+      }
+      return null;
+    } catch {
+      storage.clearAll();
+      return null;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
 async function request<T = any>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  isRetry = false
 ): Promise<T> {
   const token = storage.getToken();
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
@@ -30,7 +85,6 @@ async function request<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // If body is FormData, delete Content-Type so browser sets boundary automatically
   if (options.body instanceof FormData) {
     delete headers['Content-Type'];
   }
@@ -40,6 +94,14 @@ async function request<T = any>(
       ...options,
       headers,
     });
+
+    // Handle 401 Unauthorized with automatic refresh token rotation
+    if (response.status === 401 && !isRetry && !endpoint.includes('/auth/login') && !endpoint.includes('/auth/refresh-token')) {
+      const newToken = await attemptTokenRefresh();
+      if (newToken) {
+        return request<T>(endpoint, options, true);
+      }
+    }
 
     const isJson = response.headers.get('content-type')?.includes('application/json');
     const data = isJson ? await response.json() : await response.text();

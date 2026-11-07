@@ -2,13 +2,13 @@ const crypto = require('crypto');
 const env = require('../config/env');
 
 const MASTER_ENCRYPTION_KEYS = {
-  v1: env.ENCRYPTION_KEY_V1 || 'default_32_byte_secret_key_v1_99',
-  v2: env.ENCRYPTION_KEY_V2 || 'default_32_byte_secret_key_v2_99',
+  v1: env.ENCRYPTION_KEY_V1,
+  v2: env.ENCRYPTION_KEY_V2,
 };
 
 const HMAC_KEYS = {
-  v1: env.HMAC_KEY_V1 || 'default_hmac_secret_key_v1_99999',
-  v2: env.HMAC_KEY_V2 || 'default_hmac_secret_key_v2_99999',
+  v1: env.HMAC_KEY_V1,
+  v2: env.HMAC_KEY_V2,
 };
 
 const CURRENT_KEY_VERSION = 'v1';
@@ -37,6 +37,7 @@ function decryptAES256GCM(encryptedPayload) {
   if (!encryptedPayload) return null;
   try {
     const payload = typeof encryptedPayload === 'string' ? JSON.parse(encryptedPayload) : encryptedPayload;
+    if (!payload || !payload.ciphertext || !payload.iv || !payload.authTag) return null;
     const { ciphertext, iv, authTag, keyVersion } = payload;
 
     const secretKey = MASTER_ENCRYPTION_KEYS[keyVersion] || MASTER_ENCRYPTION_KEYS.v1;
@@ -50,7 +51,6 @@ function decryptAES256GCM(encryptedPayload) {
 
     return decrypted;
   } catch (err) {
-    console.error('Decryption error:', err.message);
     return null;
   }
 }
@@ -62,9 +62,33 @@ function hashHMACSHA256(plainText, hmacVersion = CURRENT_KEY_VERSION) {
   return crypto.createHmac('sha256', secretKey).update(normalized).digest('hex');
 }
 
+function resolvePlainPassport(recordOrString) {
+  if (!recordOrString) return '';
+  if (typeof recordOrString === 'string') {
+    const trimmed = recordOrString.trim();
+    if (trimmed.startsWith('{') && trimmed.includes('ciphertext')) {
+      return decryptAES256GCM(trimmed) || '';
+    }
+    return trimmed;
+  }
+  if (recordOrString.passportNumberEncrypted) {
+    const dec = decryptAES256GCM(recordOrString.passportNumberEncrypted);
+    if (dec) return dec;
+  }
+  if (typeof recordOrString.passportNumber === 'string') {
+    const raw = recordOrString.passportNumber.trim();
+    if (raw.startsWith('{') && raw.includes('ciphertext')) {
+      return decryptAES256GCM(raw) || '';
+    }
+    return raw;
+  }
+  return '';
+}
+
 module.exports = {
   encryptAES256GCM,
   decryptAES256GCM,
   hashHMACSHA256,
+  resolvePlainPassport,
   CURRENT_KEY_VERSION,
 };

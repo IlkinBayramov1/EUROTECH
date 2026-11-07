@@ -63,4 +63,56 @@ export const adminService = {
   // 11. Get Visa Categories for Settings
   getVisaCategories: (countryId?: string) =>
     apiClient.get(`/templates/visa-categories${countryId ? `?countryId=${countryId}` : ''}`),
+
+  // 12. Security & Compliance Audit Logs
+  getAuditLogs: (params?: { page?: number; limit?: number; action?: string; search?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', String(params.page));
+    if (params?.limit) query.append('limit', String(params.limit));
+    if (params?.action && params.action !== 'ALL') query.append('action', params.action);
+    if (params?.search) query.append('search', params.search);
+    const qs = query.toString();
+    return apiClient.get(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
+  },
+
+  // 13. System Settings Configuration
+  getSettings: () => apiClient.get('/admin/settings'),
+  updateSettings: (payload: Record<string, any>) => apiClient.patch('/admin/settings', payload),
+
+  // 14. Master Data CRUD
+  saveCountry: (payload: any) => apiClient.post('/admin/countries', payload),
+  saveVisaCategory: (payload: any) => apiClient.post('/admin/categories', payload),
+  saveTimeSlot: (payload: any) => apiClient.post('/admin/slots', payload),
+
+  // 15. Integrations & Live Health Diagnostics
+  getIntegrationsHealth: () => apiClient.get('/admin/integrations/health'),
+
+  // 16. Financial Approvals: Bank Payment Receipts
+  getBankSlips: () => apiClient.get('/admin/bank-slips'),
+  reviewBankSlip: (receiptId: string, payload: { status: 'APPROVED' | 'REJECTED'; notes?: string }) =>
+    apiClient.patch(`/admin/bank-slips/${receiptId}/review`, payload),
+
+  // 17. Financial Approvals: Agent Payout Requests
+  getAgentPayouts: () => apiClient.get('/admin/agent-payouts'),
+  updateAgentPayoutStatus: (payoutId: string, status: 'PROCESSED' | 'REJECTED') =>
+    apiClient.patch(`/admin/agent-payouts/${payoutId}`, { status }),
+
+  // 18. Cron Monitor Diagnostics
+  getCronMonitorStatus: () => apiClient.get('/admin/cron-monitor'),
+
+  // 19. Dossier Archive ZIP
+  getArchiveZip: (dossierId: string) => apiClient.get(`/dossiers/${dossierId}/archive-zip`),
+
+  // 20. User Wallets & Balances Oversight
+  getUserWallets: (params?: { role?: string; search?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.role && params.role !== 'ALL') query.append('role', params.role);
+    if (params?.search) query.append('search', params.search);
+    const qs = query.toString();
+    return apiClient.get(`/admin/wallets${qs ? `?${qs}` : ''}`);
+  },
+  adjustUserWallet: (
+    userId: string,
+    payload: { amount: number; type: 'CREDIT' | 'DEBIT'; reason: string }
+  ) => apiClient.post(`/admin/wallets/${userId}/adjust`, payload),
 };

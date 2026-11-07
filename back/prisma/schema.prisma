@@ -119,6 +119,8 @@ model User {
   phone                   String?
   companyName             String?
   preferredLanguage       String                  @default("az")
+  taxId                   String?
+  address                 String?
   passportNumber          String?
   passportNumberEncrypted String?                 @db.Text
   passportNumberHash      String?                 @db.VarChar(64)
@@ -134,6 +136,9 @@ model User {
   transactions            Transaction[]
   auditLogs               AuditLog[]
   refreshTokenSessions    RefreshTokenSession[]
+  passwordResetTokens     PasswordResetToken[]
+  notifications           Notification[]
+  statusChanges           DossierStatusHistory[]
   groupBatches            GroupBatch[]
   appointments            Appointment[]
   corporateEmployees      CorporateEmployee[]
@@ -142,6 +147,44 @@ model User {
   departments             CorporateDepartment[]
   bankPaymentReceipts     BankPaymentReceipt[]
   agentTier               AgentTier               @default(BRONZE)
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @db.VarChar(64)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossierId String?
+  title     String
+  message   String   @db.Text
+  type      String   @default("INFO")
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  valueType   String   @default("STRING")
+  description String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model RefreshTokenSession {
@@ -248,6 +291,9 @@ model Dossier {
   extraServicesFee    Float                  @default(0.0)
   totalAmount         Float                  @default(200.0)
   paymentStatus       PaymentStatus          @default(PENDING)
+  gdprConsent         Boolean                @default(false)
+  gdprConsentAt       DateTime?
+  unpaidCancelledAt   DateTime?
   archivedZipUrl      String?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -279,6 +325,9 @@ model Applicant {
   gender                  String?
   familyRole              FamilyRole          @default(PRIMARY)
   formDataJson            Json?
+  selfFillTokenHash       String?             @unique @db.VarChar(64)
+  selfFillExpiresAt       DateTime?
+  selfFillCompletedAt     DateTime?
   documents               ApplicantDocument[]
   services                AdditionalService[]
 
@@ -287,23 +336,28 @@ model Applicant {
 
 
 model ApplicantDocument {
-  id                   String         @id @default(uuid())
-  dossierId            String
-  dossier              Dossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  applicantId          String
-  applicant            Applicant      @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  id                   String             @id @default(uuid())
+  dossierId            String?
+  dossier              Dossier?           @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  applicantId          String?
+  applicant            Applicant?         @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  corporateEmployeeId  String?
+  corporateEmployee    CorporateEmployee? @relation(fields: [corporateEmployeeId], references: [id], onDelete: Cascade)
   requiredDocumentType String
   fileUrl              String
   fileName             String
+  originalFileName     String?
   fileSize             Int
-  isMandatory          Boolean        @default(true)
-  isSharedWithFamily   Boolean        @default(false)
-  status               DocumentStatus @default(PENDING)
+  isMandatory          Boolean            @default(true)
+  isSharedWithFamily   Boolean            @default(false)
+  status               DocumentStatus     @default(PENDING)
   operatorNotes        String?
   reviewedByUserId     String?
   reviewedAt           DateTime?
+  createdAt            DateTime           @default(now())
 
   @@index([dossierId, applicantId])
+  @@index([corporateEmployeeId])
   @@index([status])
 }
 
@@ -373,7 +427,8 @@ model DossierStatusHistory {
   dossier         Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
   fromStatus      DossierStatus
   toStatus        DossierStatus
-  changedByUserId String
+  changedByUserId String?
+  changedBy       User?         @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
   notes           String?
   createdAt       DateTime      @default(now())
 }
@@ -390,48 +445,53 @@ model TimeSlot {
 }
 
 model Appointment {
-  id           String            @id @default(uuid())
-  timeSlotId   String
-  timeSlot     TimeSlot          @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dossierId    String?
-  dossier      Dossier?          @relation(fields: [dossierId], references: [id], onDelete: SetNull)
-  groupBatchId String?
-  groupBatch   GroupBatch?       @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
-  status       AppointmentStatus @default(CONFIRMED)
-  location     String?
-  notes        String?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id            String            @id @default(uuid())
+  timeSlotId    String
+  timeSlot      TimeSlot          @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossierId     String?
+  dossier       Dossier?          @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  groupBatchId  String?
+  groupBatch    GroupBatch?       @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
+  status        AppointmentStatus @default(CONFIRMED)
+  groupSize     Int               @default(1)
+  location      String?
+  notes         String?
+  reminded24hAt DateTime?
+  reminded2hAt  DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([timeSlotId, status])
   @@index([userId, createdAt])
 }
 
 model GroupBatch {
-  id            String             @id @default(uuid())
-  code          String             @unique // e.g. GRP-8821, BCH-2026-101
-  portalType    PortalType         @default(GROUP_AGENT) // GROUP_AGENT or CORPORATE
-  userId        String
-  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String             // e.g. "Vienna Summer Tour", "Vienna Summit Delegation"
-  destination   String             // e.g. "Hungary", "Austria", "Germany"
-  travelDate    DateTime?
-  duration      String?            // "short" or "long"
-  projectReason String?            // "Tourism", "Business / Corporate", "Work"
-  status        GroupBatchStatus   @default(DRAFT)
-  dossiers      Dossier[]
-  appointments  Appointment[]
-  invoices      CorporateInvoice[]
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  id                  String               @id @default(uuid())
+  code                String               @unique // e.g. GRP-8821, BCH-2026-101
+  portalType          PortalType           @default(GROUP_AGENT) // GROUP_AGENT or CORPORATE
+  userId              String
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                String               // e.g. "Vienna Summer Tour", "Vienna Summit Delegation"
+  destination         String               // e.g. "Hungary", "Austria", "Germany"
+  travelDate          DateTime?
+  duration            String?              // "short" or "long"
+  projectReason       String?              // "Tourism", "Business / Corporate", "Work"
+  packageTier         String?
+  status              GroupBatchStatus     @default(DRAFT)
+  dossiers            Dossier[]
+  appointments        Appointment[]
+  invoices            CorporateInvoice[]
+  bankPaymentReceipts BankPaymentReceipt[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model CorporateEmployee {
-  id                  String       @id @default(uuid())
+  id                  String              @id @default(uuid())
   corporateUserId     String
-  corporateUser       User         @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
+  corporateUser       User                @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
   firstName           String
   lastName            String
   jobTitle            String
@@ -441,11 +501,13 @@ model CorporateEmployee {
   passportExpiry      DateTime?
   email               String?
   phone               String?
-  delegationTokenHash String?      @unique @db.VarChar(64)
+  delegationTokenHash String?             @unique @db.VarChar(64)
   delegationExpiresAt DateTime?
+  lastRadarAlertAt    DateTime?
   visaHistory         VisaRecord[]
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  documents           ApplicantDocument[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([corporateUserId, department])
   @@index([passportExpiry])
@@ -535,22 +597,26 @@ model CorporateDepartment {
 }
 
 model BankPaymentReceipt {
-  id               String        @id @default(uuid())
-  dossierId        String
-  dossier          Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  id               String      @id @default(uuid())
+  dossierId        String?
+  dossier          Dossier?    @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  groupBatchId     String?
+  groupBatch       GroupBatch? @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
   userId           String
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose          String      @default("DOSSIER_PAYMENT")
   fileUrl          String
   fileName         String
   amount           Float
-  currency         String        @default("EUR")
+  currency         String      @default("EUR")
   referenceCode    String
+  metadataJson     Json?
   status           PaymentStatus @default(PENDING)
   adminNotes       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 }
 
 model CronTaskLog {
@@ -570,7 +636,9 @@ model OutboundMessageLog {
   channel           String
   recipient         String
   subject           String?
+  body              String?  @db.Text
   template          String?
+  payloadJson       Json?
   status            String
   provider          String
   providerMessageId String?

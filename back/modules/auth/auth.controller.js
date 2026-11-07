@@ -94,6 +94,52 @@ async function verifyOtp(req, res, next) {
   }
 }
 
+async function forgotPassword(req, res) {
+  try {
+    const result = await authService.forgotPassword(req.body);
+    return ApiResponse.success(res, result, result.message);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function resetPassword(req, res) {
+  try {
+    const { token, newPassword } = req.body;
+    const result = await authService.resetPassword({ token, newPassword });
+    return ApiResponse.success(res, result, result.message);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function logout(req, res) {
+  try {
+    const result = await authService.logout(req.user?.id, req.body?.refreshToken);
+    return ApiResponse.success(res, result, 'Logged out successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function updateProfile(req, res) {
+  try {
+    const user = await authService.updateProfile(req.user.id, req.body);
+    return ApiResponse.success(res, { user }, 'Profile updated successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function changePassword(req, res) {
+  try {
+    const result = await authService.changePassword(req.user.id, req.body);
+    return ApiResponse.success(res, result, result.message);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
 async function getProfile(req, res, next) {
   return ApiResponse.success(res, { user: req.user });
 }
@@ -108,4 +154,9 @@ module.exports = {
   sendOtp,
   verifyOtp,
   getProfile,
+  forgotPassword,
+  resetPassword,
+  logout,
+  updateProfile,
+  changePassword,
 };

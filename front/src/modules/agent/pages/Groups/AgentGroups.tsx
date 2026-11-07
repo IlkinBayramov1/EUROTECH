@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { agentService, appointmentService, documentService, dossierService } from '@/shared/api/services';
+import { agentService, appointmentService, documentService, dossierService, paymentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import { downloadRosterTemplate } from '@/shared/utils/excelParser';
 import './AgentGroups.css';
@@ -46,6 +46,8 @@ export interface Group {
     dossierId?: string;
     paymentStatus?: 'PENDING' | 'PAID' | 'REFUNDED';
     totalFee?: number;
+    ratePerPax?: number;
+    estimatedCommissionEur?: number;
     appointment?: {
         id: string;
         date?: string;
@@ -128,6 +130,12 @@ export default function AgentGroups() {
     const [newAppointmentTime, setNewAppointmentTime] = useState('10:00');
     const [newAppointmentLocation, setNewAppointmentLocation] = useState('EuroTech Main Center, Port Baku Towers');
     const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'PENDING' | 'PAID' | 'REFUNDED'>('PENDING');
+    const [b2bPaymentMethod, setB2bPaymentMethod] = useState<'WALLET' | 'CARD' | 'BANK_SLIP'>('WALLET');
+    const [walletBalance, setWalletBalance] = useState<number>(0);
+    const [slipBankName, setSlipBankName] = useState('ABB (International Bank of Azerbaijan)');
+    const [slipSenderName, setSlipSenderName] = useState('');
+    const [slipReceiptNumber, setSlipReceiptNumber] = useState('');
+    const [slipFile, setSlipFile] = useState<File | null>(null);
 
     // Hidden file input ref
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -198,12 +206,14 @@ export default function AgentGroups() {
                         travelDate: g.travelDate ? String(g.travelDate).split('T')[0] : 'N/A',
                         duration: (g.duration as 'short' | 'long') || 'short',
                         projectReason: g.projectReason || 'Tourism',
-                        createdDate: new Date(g.createdAt || Date.now()).toLocaleDateString('az-AZ', { month: 'short', day: 'numeric', year: 'numeric' }),
+                        createdDate: new Date(g.createdAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
                         status: (g.status === 'COMPLETED' || g.status === 'PROCESSING') ? 'processing' : 'draft',
                         applicants: mappedApplicants,
                         dossierId: primaryDossierId,
                         paymentStatus: primaryDossier.paymentStatus || 'PENDING',
-                        totalFee: primaryDossier.totalFee || 0,
+                        totalFee: Number(g.totalAmount || primaryDossier.totalAmount || primaryDossier.totalFee || (mappedApplicants.length * 145) || 145),
+                        ratePerPax: Number(g.ratePerPax || 20),
+                        estimatedCommissionEur: Number(g.estimatedCommissionEur ?? (mappedApplicants.length * Number(g.ratePerPax || 20))),
                         appointment: appointmentData,
                     };
                 });
@@ -232,13 +242,18 @@ export default function AgentGroups() {
         const actionReqCount = groups.reduce((acc, g) => 
             acc + g.applicants.filter(a => a.status === 'action_req').length, 0
         );
-        const estimatedCommission = totalApplicants * 40; // 40 AZN per passenger commission
+        const ratePerPax = groups[0]?.ratePerPax || 20;
+        const estimatedCommission = groups.reduce(
+            (acc, g) => acc + (g.estimatedCommissionEur ?? g.applicants.length * ratePerPax),
+            0
+        );
 
         return {
             totalGroups,
             totalApplicants,
             verifiedApplicants,
             actionReqCount,
+            ratePerPax,
             estimatedCommission,
             readinessRate: totalApplicants > 0 ? Math.round((verifiedApplicants / totalApplicants) * 100) : 0
         };
@@ -302,8 +317,14 @@ export default function AgentGroups() {
     // Qrupun Emala Göndərilməsi (Real DB Submit)
     const handleSubmitGroup = async (groupId: string) => {
         try {
-            const res = await agentService.submitGroup(groupId);
-            showSuccess(`Qrup rəsmi emala göndərildi! Qazanılan komissiya: ${res.data?.commissionCredited || 40} AZN.`);
+            const res: any = await agentService.submitGroup(groupId);
+            const credited = Number(res.data?.commissionCredited || 0);
+            const pending = Number(res.data?.commissionPending || 0);
+            if (credited > 0) {
+                showSuccess(`Qrup rəsmi emala göndərildi! Qazanılan komissiya: €${credited.toFixed(2)} balansınıza əlavə edildi.`);
+            } else {
+                showSuccess(`Qrup rəsmi emala göndərildi! €${pending.toFixed(2)} gözləmədədir (komissiyanın açılması üçün qrup rüsumunu ödəyin).`);
+            }
             await fetchGroups();
         } catch (e: any) {
             console.error('Group submit error:', e);
@@ -627,28 +648,85 @@ export default function AgentGroups() {
         }
     };
 
-    // Qrup Ödəniş Statusunun Dəyişdirilməsi
-    const openPaymentModal = (group: Group) => {
+    // Qrup Ödəniş və Bank Qəbzi Modalı
+    const openPaymentModal = async (group: Group) => {
         setSelectedGroupForAction(group);
         setSelectedPaymentStatus(group.paymentStatus || 'PENDING');
+        setSlipFile(null);
+        setSlipReceiptNumber(`GRP-${group.code}`);
+        const amountEur = group.totalFee || (group.applicants.length * 145) || 145;
         setIsPaymentModalOpen(true);
+
+        try {
+            const res: any = await agentService.getWallet();
+            const w = res?.data?.wallet || res?.wallet || res?.data;
+            const bal = Number(w?.balance || 0);
+            setWalletBalance(bal);
+            setB2bPaymentMethod(bal >= amountEur ? 'WALLET' : 'CARD');
+        } catch {
+            setB2bPaymentMethod('CARD');
+        }
     };
 
-    const handleSaveGroupPayment = async (e: React.FormEvent) => {
+    const handleExecuteB2BPayment = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedGroupForAction) return;
 
         setIsSaving(true);
         try {
-            await agentService.updateGroup(selectedGroupForAction.id, {
-                paymentStatus: selectedPaymentStatus,
-            });
-            showSuccess(`Qrupun ödəniş statusu "${selectedPaymentStatus}" olaraq yeniləndi!`);
-            setIsPaymentModalOpen(false);
-            await fetchGroups();
+            const amountEur = selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145;
+
+            if (b2bPaymentMethod === 'WALLET') {
+                await agentService.payGroupWithWallet(selectedGroupForAction.id);
+                showSuccess(`Qrup rüsumu (€${amountEur.toFixed(2)}) Agency Wallet balansından ödənildi və komissiya aktivləşdirildi!`);
+                setIsPaymentModalOpen(false);
+                await fetchGroups();
+            } else if (b2bPaymentMethod === 'BANK_SLIP') {
+                if (!slipFile && !slipReceiptNumber.trim()) {
+                    showError('Zəhmət olmasa qəbz nömrəsini daxil edin və ya bank köçürmə qəbzini yükləyin.');
+                    setIsSaving(false);
+                    return;
+                }
+
+                const fd = new FormData();
+                fd.append('groupBatchId', selectedGroupForAction.id);
+                if (selectedGroupForAction.dossierId) {
+                    fd.append('dossierId', selectedGroupForAction.dossierId);
+                }
+                fd.append('amount', String(amountEur));
+                fd.append('currency', 'EUR');
+                fd.append('bankName', slipBankName);
+                fd.append('senderName', slipSenderName || 'Turizm Agentliyi');
+                fd.append('receiptNumber', slipReceiptNumber || `GRP-SLIP-${Date.now()}`);
+                fd.append('purpose', `GROUP_BATCH_PAYMENT (${selectedGroupForAction.code})`);
+                if (slipFile) {
+                    fd.append('slip', slipFile);
+                }
+
+                await paymentService.submitBankSlip(fd);
+                showSuccess('Qrup üzrə bank köçürmə qəbzi uğurla təqdim olundu! Mühasibatlıq təsdiqindən sonra konsulluq emalına icazə veriləcək.');
+                setIsPaymentModalOpen(false);
+                setSlipFile(null);
+                await fetchGroups();
+            } else {
+                // Online B2B Card Payment
+                const intent = await paymentService.createPaymentIntent({
+                    groupBatchId: selectedGroupForAction.id,
+                    amount: amountEur,
+                    currency: 'EUR',
+                    purpose: 'GROUP_BATCH_PAYMENT',
+                });
+                await paymentService.confirmPaymentMock({
+                    paymentIntentId: intent.paymentIntentId,
+                    bankReference: `B2B-CARD-${Date.now()}`,
+                });
+                showSuccess(`Qrup üzrə €${amountEur.toFixed(2)} məbləğində B2B kart ödənişi təsdiqləndi və komissiya aktivləşdirildi!`);
+                setIsPaymentModalOpen(false);
+                await fetchGroups();
+            }
         } catch (err: any) {
-            console.error('Update payment status error:', err);
-            showError(err.message || 'Ödəniş statusunu yeniləmək mümkün olmadı.');
+            console.error('B2B payment processing error:', err);
+            showError(err.message || 'Ödəniş qeydə alınarkən xəta baş verdi.');
         } finally {
             setIsSaving(false);
         }
@@ -853,8 +931,8 @@ export default function AgentGroups() {
                         </div>
                         <div className="kpi-content">
                             <span className="kpi-label">Est. Commission</span>
-                            <span className="kpi-value">{loading ? '...' : `${stats.estimatedCommission} AZN`}</span>
-                            <span className="kpi-subtext">40.00 AZN / Passenger</span>
+                            <span className="kpi-value">{loading ? '...' : `€ ${stats.estimatedCommission.toFixed(2)}`}</span>
+                            <span className="kpi-subtext">€ {stats.ratePerPax.toFixed(2)} / Passenger</span>
                         </div>
                     </div>
                 </div>
@@ -1394,35 +1472,165 @@ export default function AgentGroups() {
                             </div>
 
                             <div className="modal-body">
-                                <form id="paymentStatusForm" onSubmit={handleSaveGroupPayment}>
-                                    <div className="settings-section">
-                                        <h3>Invoice & Payment State</h3>
-                                        <div className="client-form-grid">
-                                            <div className="client-input-group full-width">
-                                                <label>Payment Status</label>
-                                                <select 
-                                                    className="client-input" 
-                                                    value={selectedPaymentStatus} 
-                                                    onChange={(e) => setSelectedPaymentStatus(e.target.value as any)}
-                                                >
-                                                    <option value="PENDING">PENDING (Ödəniş Gözləyir)</option>
-                                                    <option value="PAID">PAID (Ödənilib / Təsdiqlənib)</option>
-                                                    <option value="REFUNDED">REFUNDED (Geri qaytarılıb)</option>
-                                                </select>
-                                            </div>
+                                <form id="paymentStatusForm" onSubmit={handleExecuteB2BPayment}>
+                                    <div style={{ background: '#F8FAFC', padding: '14px 18px', borderRadius: '10px', border: '1.5px solid #E2E8F0', marginBottom: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: 600 }}>Total Group Fee:</span>
+                                            <strong style={{ fontSize: '1.2rem', color: '#0F1E36' }}>
+                                                € {(selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145).toFixed(2)} EUR
+                                            </strong>
+                                        </div>
+                                        <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '4px' }}>
+                                            Includes {selectedGroupForAction.applicants.length} applicant(s) consular & package fees. Current Status: <strong style={{ color: selectedGroupForAction.paymentStatus === 'PAID' ? '#16A34A' : '#D97706' }}>{selectedGroupForAction.paymentStatus || 'PENDING'}</strong>
                                         </div>
                                     </div>
+
+                                    {/* Payment Method Switcher */}
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#0F1E36', marginBottom: '8px' }}>
+                                            Select Settlement Method:
+                                        </label>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setB2bPaymentMethod('WALLET')}
+                                                style={{
+                                                    padding: '10px',
+                                                    borderRadius: '8px',
+                                                    border: b2bPaymentMethod === 'WALLET' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                    background: b2bPaymentMethod === 'WALLET' ? '#EFF6FF' : '#FFFFFF',
+                                                    fontWeight: 700,
+                                                    fontSize: '0.82rem',
+                                                    color: b2bPaymentMethod === 'WALLET' ? '#1E3A8A' : '#475569',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                👛 Agency Wallet
+                                                <div style={{ fontSize: '0.72rem', marginTop: '2px', color: walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#059669' : '#DC2626' }}>
+                                                    € {walletBalance.toFixed(2)} avail.
+                                                </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setB2bPaymentMethod('CARD')}
+                                                style={{
+                                                    padding: '10px',
+                                                    borderRadius: '8px',
+                                                    border: b2bPaymentMethod === 'CARD' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                    background: b2bPaymentMethod === 'CARD' ? '#EFF6FF' : '#FFFFFF',
+                                                    fontWeight: 700,
+                                                    fontSize: '0.82rem',
+                                                    color: b2bPaymentMethod === 'CARD' ? '#1E3A8A' : '#475569',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                💳 B2B Card
+                                                <div style={{ fontSize: '0.72rem', marginTop: '2px', color: '#64748B' }}>Instant</div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setB2bPaymentMethod('BANK_SLIP')}
+                                                style={{
+                                                    padding: '10px',
+                                                    borderRadius: '8px',
+                                                    border: b2bPaymentMethod === 'BANK_SLIP' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                    background: b2bPaymentMethod === 'BANK_SLIP' ? '#EFF6FF' : '#FFFFFF',
+                                                    fontWeight: 700,
+                                                    fontSize: '0.82rem',
+                                                    color: b2bPaymentMethod === 'BANK_SLIP' ? '#1E3A8A' : '#475569',
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                🏦 Bank Slip
+                                                <div style={{ fontSize: '0.72rem', marginTop: '2px', color: '#64748B' }}>Wire Transfer</div>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {b2bPaymentMethod === 'WALLET' ? (
+                                        <div style={{ background: walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#A7F3D0' : '#FECACA'}`, borderRadius: '8px', padding: '14px' }}>
+                                            <p style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: '#0F1E36', fontWeight: 700 }}>
+                                                Pay Directly from Prepaid Agency Wallet (Available: € {walletBalance.toFixed(2)})
+                                            </p>
+                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569' }}>
+                                                {walletBalance >= (selectedGroupForAction.totalFee || 145)
+                                                    ? 'Instant consular settlement with automatic commission credit back to your Agency Wallet.'
+                                                    : 'Insufficient wallet balance. Top up your wallet in Commission Wallet or choose B2B Card / Bank Slip.'}
+                                            </p>
+                                        </div>
+                                    ) : b2bPaymentMethod === 'BANK_SLIP' ? (
+                                        <div className="client-form-grid" style={{ gap: '12px' }}>
+                                            <div className="client-input-group full-width">
+                                                <label>Bank Name</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={slipBankName} 
+                                                    onChange={(e) => setSlipBankName(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Remitter (Agency Company Name)</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={slipSenderName} 
+                                                    onChange={(e) => setSlipSenderName(e.target.value)}
+                                                    placeholder="Baku Tours MMC"
+                                                />
+                                            </div>
+                                            <div className="client-input-group">
+                                                <label>Bank Reference / Slip Number</label>
+                                                <input 
+                                                    type="text" 
+                                                    className="client-input" 
+                                                    value={slipReceiptNumber} 
+                                                    onChange={(e) => setSlipReceiptNumber(e.target.value)}
+                                                    placeholder="e.g. BB-98214"
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="client-input-group full-width">
+                                                <label>Upload Official Payment Receipt (PDF / Image)</label>
+                                                <input 
+                                                    type="file" 
+                                                    accept=".pdf,.jpg,.jpeg,.png"
+                                                    onChange={(e) => setSlipFile(e.target.files?.[0] || null)}
+                                                    className="client-input"
+                                                />
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '14px', textAlign: 'center' }}>
+                                            <p style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#0F1E36', fontWeight: 600 }}>
+                                                B2B 3D-Secure Card Checkout
+                                            </p>
+                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#64748B' }}>
+                                                Fast consular processing fee payment via corporate credit/debit card with automatic VAT proforma receipt.
+                                            </p>
+                                        </div>
+                                    )}
+
                                     <div className="info-alert" style={{ marginTop: '16px' }}>
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                                        <span>Qrup ödənişi təsdiqləndikdən sonra konsulluq emalına icazə verilir və rəsmi invoys PDF statusu yenilənir.</span>
+                                        <span>Ödəniş təsdiqləndikdən sonra qrup konsulluq emalına icazə verilir və agent komissiyası aktivləşir.</span>
                                     </div>
                                 </form>
                             </div>
 
                             <div className="modal-footer">
                                 <button type="button" className="btn-modal-secondary" onClick={() => setIsPaymentModalOpen(false)} disabled={isSaving}>Cancel</button>
-                                <button type="submit" form="paymentStatusForm" className="btn-modal-primary" disabled={isSaving}>
-                                    {isSaving ? 'Yadda saxlanılır...' : 'Update Payment Status'}
+                                <button
+                                    type="submit"
+                                    form="paymentStatusForm"
+                                    className="btn-modal-primary"
+                                    disabled={isSaving || (b2bPaymentMethod === 'WALLET' && walletBalance < (selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145))}
+                                >
+                                    {isSaving
+                                        ? 'Processing...'
+                                        : b2bPaymentMethod === 'BANK_SLIP'
+                                          ? 'Submit Bank Slip'
+                                          : 'Pay €' + (selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145).toFixed(2)}
                                 </button>
                             </div>
                         </div>

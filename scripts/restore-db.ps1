@@ -12,6 +12,16 @@ param (
     [string]$DbHost = "localhost"
 )
 
+# Parse from DATABASE_URL if provided
+if ($env:DATABASE_URL -and (-not $PSBoundParameters.ContainsKey('DbPass'))) {
+    if ($env:DATABASE_URL -match "mysql://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)") {
+        if (-not $PSBoundParameters.ContainsKey('DbUser')) { $DbUser = $Matches[1] }
+        if (-not $PSBoundParameters.ContainsKey('DbPass')) { $DbPass = $Matches[2] }
+        if (-not $PSBoundParameters.ContainsKey('DbHost')) { $DbHost = $Matches[3] }
+        if (-not $PSBoundParameters.ContainsKey('DbName')) { $DbName = $Matches[5] }
+    }
+}
+
 if (-not (Test-Path $BackupZipFile)) {
     Write-Host "[ERROR] Backup file not found: $BackupZipFile" -ForegroundColor Red
     exit 1
@@ -34,7 +44,8 @@ try {
     }
 
     $StartTime = Get-Date
-    $RestoreCmd = "mysql -u $DbUser --host=$DbHost $DbName < `"$($SqlFile.FullName)`""
+    $PassArg = if ($DbPass) { "-p`"$DbPass`"" } else { "" }
+    $RestoreCmd = "mysql -u $DbUser $PassArg --host=$DbHost $DbName < `"$($SqlFile.FullName)`""
     cmd /c $RestoreCmd
 
     $Duration = ((Get-Date) - $StartTime).TotalSeconds

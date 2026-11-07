@@ -76,6 +76,19 @@ export default function CorporateBatches() {
     const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
     const [targetUploadType, setTargetUploadType] = useState<string>('');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const handledUrlBatchIdRef = useRef<string | null>(null);
+
+    // Add Employee to Batch Modal state
+    const [isAddEmpModalOpen, setIsAddEmpModalOpen] = useState(false);
+    const [batchForAddEmp, setBatchForAddEmp] = useState<Batch | null>(null);
+    const [newEmpFirstName, setNewEmpFirstName] = useState('');
+    const [newEmpLastName, setNewEmpLastName] = useState('');
+    const [newEmpPassport, setNewEmpPassport] = useState('');
+    const [newEmpJobTitle, setNewEmpJobTitle] = useState('');
+    const [newEmpDept, setNewEmpDept] = useState('');
+    const [newEmpDob, setNewEmpDob] = useState('');
+    const [newEmpExpiry, setNewEmpExpiry] = useState('');
+    const [isAddingEmp, setIsAddingEmp] = useState(false);
 
     // Filter & Search State-ləri
     const [searchQuery, setSearchQuery] = useState('');
@@ -198,6 +211,10 @@ export default function CorporateBatches() {
         setView('list');
         setActiveBatch(null);
         setActiveEmployee(null);
+        handledUrlBatchIdRef.current = null;
+        if (urlBatchId) {
+            navigate('/corporate/batches', { replace: true });
+        }
     };
 
     useEffect(() => {
@@ -206,9 +223,10 @@ export default function CorporateBatches() {
 
     // Auto-select or filter if batchId is provided in URL
     useEffect(() => {
-        if (urlBatchId && batches.length > 0) {
+        if (urlBatchId && batches.length > 0 && handledUrlBatchIdRef.current !== urlBatchId) {
             const found = batches.find(b => b.id === urlBatchId || b.code === urlBatchId);
             if (found) {
+                handledUrlBatchIdRef.current = urlBatchId;
                 if (found.employees && found.employees.length > 0) {
                     handleManageEmployee(found, found.employees[0]);
                 } else {
@@ -355,18 +373,73 @@ export default function CorporateBatches() {
 
     const handleCopyDelegationLink = async (empId: string, empName: string, batchId?: string) => {
         try {
-            const res = await corporateService.generateDelegationLink(empId, batchId);
-            if (res.data?.delegationUrl) {
-                await navigator.clipboard.writeText(res.data.delegationUrl);
+            const res: any = await corporateService.generateDelegationLink(empId, batchId);
+            const url = res?.delegationUrl || res?.data?.delegationUrl;
+            if (url) {
+                await navigator.clipboard.writeText(url);
                 showSuccess(`Delegation link for ${empName} copied to clipboard!`);
                 return;
             }
-        } catch (err) {
+        } catch (err: any) {
             console.warn('Error generating delegation link:', err);
+            showError(err.message || 'Failed to generate delegation link');
         }
-        const fallbackUrl = `${window.location.origin}/corporate/delegation?token=del_${empId}`;
-        await navigator.clipboard.writeText(fallbackUrl);
-        showSuccess(`Delegation link for ${empName} copied to clipboard!`);
+    };
+
+    const handleRemoveEmployeeFromBatch = async (batchId: string, employeeId: string, employeeName: string) => {
+        if (!window.confirm(`Are you sure you want to remove "${employeeName}" from this batch?`)) return;
+        try {
+            await corporateService.removeEmployeeFromBatch(batchId, employeeId);
+            showSuccess(`Removed ${employeeName} from batch successfully.`);
+            await fetchBatches();
+            if (activeEmployee?.id === employeeId) {
+                handleBackToList();
+            }
+        } catch (err: any) {
+            showError(err.message || 'Failed to remove employee from batch');
+        }
+    };
+
+    const handleOpenAddEmpModal = (batch: Batch) => {
+        setBatchForAddEmp(batch);
+        setNewEmpFirstName('');
+        setNewEmpLastName('');
+        setNewEmpPassport('');
+        setNewEmpJobTitle('');
+        setNewEmpDept('');
+        setNewEmpDob('');
+        setNewEmpExpiry('');
+        setIsAddEmpModalOpen(true);
+    };
+
+    const handleAddEmployeeSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!batchForAddEmp) return;
+        if (!newEmpFirstName.trim() || !newEmpPassport.trim()) {
+            showError('Please enter at least First Name and Passport Number.');
+            return;
+        }
+
+        setIsAddingEmp(true);
+        try {
+            await corporateService.addEmployeeToBatch(batchForAddEmp.id, {
+                firstName: newEmpFirstName.trim(),
+                lastName: newEmpLastName.trim(),
+                passportNumber: newEmpPassport.trim().toUpperCase(),
+                jobTitle: newEmpJobTitle.trim() || 'Specialist',
+                department: newEmpDept.trim() || 'General',
+                dob: newEmpDob || undefined,
+                expiryDate: newEmpExpiry || undefined,
+            });
+            showSuccess(`Employee ${newEmpFirstName} ${newEmpLastName} added to batch successfully!`);
+            setIsAddEmpModalOpen(false);
+            setBatchForAddEmp(null);
+            await fetchBatches();
+        } catch (err: any) {
+            showError(err.message || 'Failed to add employee to batch');
+        } finally {
+            setIsAddingEmp(false);
+        }
     };
 
     const handleDownloadSchengenPdf = async (batch: Batch, employee: Employee) => {
@@ -702,7 +775,7 @@ export default function CorporateBatches() {
                                 <div className="batch-employees-section">
                                     <div className="employees-header">
                                         <h4>Employees ({batch.employees.length})</h4>
-                                        <button className="btn-text add-emp-btn" onClick={() => navigate('/corporate/employees')}>
+                                        <button className="btn-text add-emp-btn" onClick={() => handleOpenAddEmpModal(batch)}>
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                                             Add Employee
                                         </button>
@@ -752,6 +825,14 @@ export default function CorporateBatches() {
                                                                     <button className="btn-action-outline" onClick={() => handleManageEmployee(batch, emp)}>
                                                                         Manage Dossier
                                                                     </button>
+                                                                    <button 
+                                                                        className="btn-icon-secondary" 
+                                                                        title="Remove Employee from Batch" 
+                                                                        onClick={() => handleRemoveEmployeeFromBatch(batch.id, emp.id, emp.fullName)}
+                                                                        style={{ color: '#EF4444' }}
+                                                                    >
+                                                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                                    </button>
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -763,6 +844,112 @@ export default function CorporateBatches() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {/* --- ADD EMPLOYEE TO BATCH MODAL --- */}
+                {isAddEmpModalOpen && batchForAddEmp && (
+                    <div className="premium-modal-overlay fade-in" onClick={() => setIsAddEmpModalOpen(false)}>
+                        <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+                            <div className="modal-header">
+                                <div className="modal-header-info">
+                                    <span className="modal-badge">Batch Roster</span>
+                                    <h2>Add Employee to {batchForAddEmp.name}</h2>
+                                </div>
+                                <button className="btn-modal-close" onClick={() => setIsAddEmpModalOpen(false)}>×</button>
+                            </div>
+
+                            <form onSubmit={handleAddEmployeeSubmit}>
+                                <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '20px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>First Name *</label>
+                                            <input
+                                                type="text"
+                                                required
+                                                className="premium-input"
+                                                value={newEmpFirstName}
+                                                onChange={(e) => setNewEmpFirstName(e.target.value)}
+                                                placeholder="e.g. John"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Last Name</label>
+                                            <input
+                                                type="text"
+                                                className="premium-input"
+                                                value={newEmpLastName}
+                                                onChange={(e) => setNewEmpLastName(e.target.value)}
+                                                placeholder="e.g. Doe"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Passport Number *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            className="premium-input"
+                                            value={newEmpPassport}
+                                            onChange={(e) => setNewEmpPassport(e.target.value.toUpperCase())}
+                                            placeholder="e.g. P1234567"
+                                        />
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Job Title / Role</label>
+                                            <input
+                                                type="text"
+                                                className="premium-input"
+                                                value={newEmpJobTitle}
+                                                onChange={(e) => setNewEmpJobTitle(e.target.value)}
+                                                placeholder="e.g. Senior Specialist"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Department</label>
+                                            <input
+                                                type="text"
+                                                className="premium-input"
+                                                value={newEmpDept}
+                                                onChange={(e) => setNewEmpDept(e.target.value)}
+                                                placeholder="e.g. Engineering"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Date of Birth</label>
+                                            <input
+                                                type="date"
+                                                className="premium-input"
+                                                value={newEmpDob}
+                                                onChange={(e) => setNewEmpDob(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Passport Expiry</label>
+                                            <input
+                                                type="date"
+                                                className="premium-input"
+                                                value={newEmpExpiry}
+                                                onChange={(e) => setNewEmpExpiry(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px' }}>
+                                    <button type="button" className="btn-modal-secondary" onClick={() => setIsAddEmpModalOpen(false)}>Cancel</button>
+                                    <button type="submit" className="btn-modal-primary" disabled={isAddingEmp}>
+                                        {isAddingEmp ? 'Adding...' : 'Add to Batch'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 )}
 

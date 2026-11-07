@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { IndividualApplicant } from './Step3Applicant';
+import { paymentService } from '@/shared/api/services';
 
 interface Step5Props {
     data: {
@@ -21,6 +22,7 @@ interface Step5Props {
         appointmentDate: string;
         appointmentTime: string;
         gdprConsent?: boolean;
+        paymentMethod?: 'INVOICE' | 'WALLET' | 'CARD';
     };
     updateData?: (field: string, value: any) => void;
 }
@@ -46,20 +48,41 @@ const NATIONALITY_NAMES: Record<string, string> = {
 };
 
 const SERVICE_CATALOG = [
-    { key: 'lounge', name: 'VIP Consular Lounge Access', eur: 45, azn: 81 },
-    { key: 'filePrep', name: 'Comprehensive File Audit & Prep', eur: 30, azn: 55 },
-    { key: 'insurance', name: 'Schengen Travel Medical Insurance', eur: 20, azn: 36 },
-    { key: 'hotelFlight', name: 'Verifiable Hotel & Flight Reservations', eur: 18, azn: 32 },
-    { key: 'formAssist', name: 'Consular Visa Application Form Assistance', eur: 15, azn: 27 },
-    { key: 'courier', name: 'Secure Courier Passport Return', eur: 12, azn: 22 },
-    { key: 'photo', name: 'ICAO Biometric Passport Photo', eur: 8, azn: 14 },
+    { key: 'lounge', name: 'VIP Consular Lounge Access', eur: 81, azn: 145.8 },
+    { key: 'filePrep', name: 'Comprehensive File Audit & Prep', eur: 55, azn: 99 },
+    { key: 'insurance', name: 'Schengen Travel Medical Insurance', eur: 35, azn: 63 },
+    { key: 'hotelFlight', name: 'Verifiable Hotel & Flight Reservations', eur: 30, azn: 54 },
+    { key: 'formAssist', name: 'Consular Visa Application Form Assistance', eur: 24, azn: 43.2 },
+    { key: 'courier', name: 'Secure Courier Passport Return', eur: 20, azn: 36 },
+    { key: 'photo', name: 'ICAO Biometric Passport Photo', eur: 12, azn: 21.6 },
 ];
 
 export default function Step5Confirm({ data, updateData }: Step5Props) {
     const s = data.services;
     const applicantCount = Math.max(data.applicants.length, 1);
-    const primaryApplicant = data.applicants[0] || { firstName: 'N/A', lastName: '', passportNumber: 'N/A' };
     const countryMeta = COUNTRY_DATA[data.country.toUpperCase()] || { name: data.country || 'Schengen Area', flag: '🇪🇺' };
+
+    // Wallet balance state
+    const [walletBalanceEur, setWalletBalanceEur] = useState<number>(0);
+    const [walletLoading, setWalletLoading] = useState(true);
+
+    useEffect(() => {
+        let isMounted = true;
+        paymentService.getUserWallet()
+            .then((res: any) => {
+                if (isMounted) {
+                    const bal = Number(res.data?.wallet?.balanceEur ?? res.data?.balance ?? 0);
+                    setWalletBalanceEur(bal);
+                }
+            })
+            .catch(() => {
+                if (isMounted) setWalletBalanceEur(0);
+            })
+            .finally(() => {
+                if (isMounted) setWalletLoading(false);
+            });
+        return () => { isMounted = false; };
+    }, []);
 
     // Consular fee: €80 per applicant (~144 AZN)
     const consularFeePerPersonEur = 80;
@@ -73,13 +96,13 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
     let packageTotalAzn = 0;
 
     if (s.activePackage === 'premium') {
-        packageTotalEur = 45;
-        packageTotalAzn = 81;
-        activeServices.push({ name: 'Premium Service Package (Audit, Photo, Priority Alerts)', eur: 45, azn: 81 });
+        packageTotalEur = 126;
+        packageTotalAzn = 226.8;
+        activeServices.push({ name: 'Premium Service Package (Audit €55, Insurance €35, Form €24, Photo €12)', eur: 126, azn: 226.8 });
     } else if (s.activePackage === 'vip') {
-        packageTotalEur = 120;
-        packageTotalAzn = 216;
-        activeServices.push({ name: 'VIP Platinum Package (Lounge, Courier, Priority Audit)', eur: 120, azn: 216 });
+        packageTotalEur = 257;
+        packageTotalAzn = 462.6;
+        activeServices.push({ name: 'VIP Concierge Package (Lounge €81, Courier €20, Itinerary €30 + Premium Bundle)', eur: 257, azn: 462.6 });
     } else if (s.activePackage === 'standard') {
         activeServices.push({ name: 'Standard Consular Processing Package', eur: 0, azn: 0 });
     }
@@ -87,8 +110,8 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
     // Add standalone add-ons if selected individually
     SERVICE_CATALOG.forEach(item => {
         if ((s as any)[item.key]) {
-            const alreadyInPackage = (s.activePackage === 'vip' && ['lounge', 'courier', 'filePrep', 'photo'].includes(item.key)) ||
-                                     (s.activePackage === 'premium' && ['filePrep', 'photo'].includes(item.key));
+            const alreadyInPackage = (s.activePackage === 'vip' && ['lounge', 'courier', 'filePrep', 'insurance', 'formAssist', 'photo', 'hotelFlight'].includes(item.key)) ||
+                                     (s.activePackage === 'premium' && ['filePrep', 'insurance', 'formAssist', 'photo'].includes(item.key));
             if (!alreadyInPackage) {
                 packageTotalEur += item.eur;
                 packageTotalAzn += item.azn;
@@ -106,6 +129,15 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
     const centerLabel = data.visaCenter === 'ganja'
         ? 'EuroTech Regional Hub — Ganja (Heydar Aliyev Ave. 45)'
         : 'EuroTech Main Center — Baku (Nizami St. 140, Landmark III)';
+
+    const selectedMethod = data.paymentMethod || 'WALLET';
+    const canPayWithWallet = walletBalanceEur >= grandTotalEur;
+
+    const handleMethodChange = (m: 'WALLET' | 'CARD' | 'INVOICE') => {
+        if (updateData) {
+            updateData('paymentMethod', m);
+        }
+    };
 
     return (
         <div className="step-content fade-in">
@@ -326,7 +358,123 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
                 </div>
             </div>
 
-            {/* 5. Mandatory GDPR & Consular Compliance Consent */}
+            {/* 5. Settlement & Payment Options Card */}
+            <div style={{
+                background: '#FFFFFF',
+                border: '1.5px solid #E2E8F0',
+                borderRadius: '14px',
+                padding: '24px',
+                marginBottom: '24px',
+                boxShadow: '0 4px 16px rgba(15, 23, 42, 0.05)'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#0F1E36', fontWeight: 700 }}>
+                        Select Settlement & Payment Method
+                    </h3>
+                    <div style={{ fontSize: '0.85rem', color: '#475569', background: '#F1F5F9', padding: '4px 12px', borderRadius: '16px' }}>
+                        Wallet Balance: <strong style={{ color: walletBalanceEur >= grandTotalEur ? '#059669' : '#D97706' }}>
+                            {walletLoading ? 'Checking...' : `€${walletBalanceEur.toFixed(2)}`}
+                        </strong>
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
+                    {/* Option 1: Pay from EuroTech Wallet */}
+                    <div 
+                        onClick={() => handleMethodChange('WALLET')}
+                        style={{
+                            border: selectedMethod === 'WALLET' ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                            borderRadius: '10px',
+                            padding: '16px',
+                            background: selectedMethod === 'WALLET' ? '#EFF6FF' : '#FFFFFF',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            position: 'relative'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <input 
+                                type="radio" 
+                                name="clientPaymentMethod" 
+                                checked={selectedMethod === 'WALLET'} 
+                                onChange={() => handleMethodChange('WALLET')} 
+                                style={{ accentColor: '#2563EB' }}
+                            />
+                            <strong style={{ color: '#0F1E36', fontSize: '0.95rem' }}>EuroTech Wallet</strong>
+                            <span style={{ fontSize: '0.72rem', background: '#DCFCE7', color: '#15803D', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                Instant
+                            </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748B' }}>
+                            Deduct directly from your available pre-funded balance (€{walletBalanceEur.toFixed(2)}).
+                        </p>
+                        {!canPayWithWallet && (
+                            <span style={{ display: 'block', marginTop: '6px', fontSize: '0.76rem', color: '#D97706', fontWeight: 600 }}>
+                                ⚠️ Insufficient balance (€{walletBalanceEur.toFixed(2)} &lt; €{grandTotalEur.toFixed(2)}). You can pay via Card or settle later in Wallet &amp; Billing.
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Option 2: Pay Online with Card */}
+                    <div 
+                        onClick={() => handleMethodChange('CARD')}
+                        style={{
+                            border: selectedMethod === 'CARD' ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                            borderRadius: '10px',
+                            padding: '16px',
+                            background: selectedMethod === 'CARD' ? '#EFF6FF' : '#FFFFFF',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <input 
+                                type="radio" 
+                                name="clientPaymentMethod" 
+                                checked={selectedMethod === 'CARD'} 
+                                onChange={() => handleMethodChange('CARD')} 
+                                style={{ accentColor: '#2563EB' }}
+                            />
+                            <strong style={{ color: '#0F1E36', fontSize: '0.95rem' }}>Credit / Debit Card</strong>
+                            <span style={{ fontSize: '0.72rem', background: '#DBEAFE', color: '#1D4ED8', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
+                                Visa / MC
+                            </span>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748B' }}>
+                            Pay immediately online using Visa, MasterCard, or European 3D-Secure cards.
+                        </p>
+                    </div>
+
+                    {/* Option 3: Proforma Invoice & Settle Later in Wallet */}
+                    <div 
+                        onClick={() => handleMethodChange('INVOICE')}
+                        style={{
+                            border: selectedMethod === 'INVOICE' ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                            borderRadius: '10px',
+                            padding: '16px',
+                            background: selectedMethod === 'INVOICE' ? '#EFF6FF' : '#FFFFFF',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <input 
+                                type="radio" 
+                                name="clientPaymentMethod" 
+                                checked={selectedMethod === 'INVOICE'} 
+                                onChange={() => handleMethodChange('INVOICE')} 
+                                style={{ accentColor: '#2563EB' }}
+                            />
+                            <strong style={{ color: '#0F1E36', fontSize: '0.95rem' }}>Wallet &amp; Billing (Later)</strong>
+                        </div>
+                        <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748B' }}>
+                            Register dossier, generate official Proforma Invoice, and settle via Bank Wire Slip or Wallet Top-Up.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* 6. Mandatory GDPR & Consular Compliance Consent */}
             <div style={{
                 background: data.gdprConsent ? '#ECFDF5' : '#F8FAFC',
                 border: data.gdprConsent ? '1.5px solid #A7F3D0' : '1.5px solid #CBD5E1',
@@ -350,7 +498,7 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
                     />
                     <div style={{ fontSize: '0.9rem', color: '#334155', lineHeight: 1.5 }}>
                         <strong style={{ color: '#0F1E36', display: 'block', marginBottom: '4px', fontSize: '0.95rem' }}>
-                            Consular Declaration & European GDPR Compliance Consent *
+                            Consular Declaration &amp; European GDPR Compliance Consent *
                         </strong>
                         I solemnly declare that all travel document numbers, biographical entries, and submitted information are accurate, authentic, and valid. I grant explicit consent to EuroTech Consular Services to process, store, and transmit my biometric and personal data in strict compliance with the European Union General Data Protection Regulation (GDPR) and the Law of the Republic of Azerbaijan on Personal Data.
                     </div>

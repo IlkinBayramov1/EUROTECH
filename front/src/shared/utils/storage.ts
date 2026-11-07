@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'eurotech_access_token';
+const REFRESH_TOKEN_KEY = 'eurotech_refresh_token';
 const USER_KEY = 'eurotech_user';
 const ROLE_KEY = 'eurotech_role';
 const DOSSIER_KEY = 'eurotech_active_dossier_id';
@@ -8,14 +9,33 @@ const REMEMBER_ENABLED_KEY = 'eurotech_remember_enabled';
 export const storage = {
   // Tab-scoped token storage
   getToken(): string | null {
-    return sessionStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
   },
-  setToken(token: string): void {
-    sessionStorage.setItem(TOKEN_KEY, token);
+  setToken(token: string, persist = false): void {
+    if (persist) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      sessionStorage.setItem(TOKEN_KEY, token);
+    }
   },
   removeToken(): void {
     sessionStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(TOKEN_KEY);
+  },
+
+  getRefreshToken(): string | null {
+    return sessionStorage.getItem(REFRESH_TOKEN_KEY) || localStorage.getItem(REFRESH_TOKEN_KEY);
+  },
+  setRefreshToken(token: string, persist = false): void {
+    if (persist) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    } else {
+      sessionStorage.setItem(REFRESH_TOKEN_KEY, token);
+    }
+  },
+  removeRefreshToken(): void {
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
   },
 
   // Tab-scoped user object
@@ -80,6 +100,7 @@ export const storage = {
   clearAll(): void {
     sessionStorage.clear();
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(ROLE_KEY);
     localStorage.removeItem(DOSSIER_KEY);

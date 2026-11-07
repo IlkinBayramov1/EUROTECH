@@ -24,7 +24,7 @@ function getKey(identifier, ip) {
 }
 
 function checkLockout(req, res, next) {
-  const identifier = req.body?.email || req.body?.username || req.body?.loginIdentifier;
+  const identifier = req.body?.email || req.body?.username || req.body?.passportNumber || req.body?.loginIdentifier;
   const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
 
   if (!identifier) {

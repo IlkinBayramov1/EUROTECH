@@ -30,7 +30,9 @@ export default function DocumentReviewModal({
   const isPdf = document.fileName?.toLowerCase().endsWith('.pdf') || document.fileUrl?.toLowerCase().includes('.pdf');
   const fileUrl = document.fileUrl?.startsWith('http') 
     ? document.fileUrl 
-    : `http://localhost:5000${document.fileUrl?.startsWith('/') ? '' : '/'}${document.fileUrl}`;
+    : document.fileUrl?.startsWith('/') 
+      ? document.fileUrl 
+      : `/${document.fileUrl}`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

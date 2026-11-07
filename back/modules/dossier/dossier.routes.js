@@ -36,6 +36,7 @@ router.post('/:dossierId/applicants/:applicantId/schengen-form-pdf', optionalAut
 router.get('/application-pdf', optionalAuth, dossierController.getApplicationFormPdf);
 router.post('/application-pdf', optionalAuth, dossierController.getApplicationFormPdf);
 router.get('/:dossierId/summary-pdf', optionalAuth, dossierController.getDossierSummaryPdf);
+router.get('/:dossierId/archive-zip', optionalAuth, dossierController.getArchiveZip);
 router.get('/track/:referenceNumber', optionalAuth, dossierController.getDossierTracking);
 
 router.use(authMiddleware);

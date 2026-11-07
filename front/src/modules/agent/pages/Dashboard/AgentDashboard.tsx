@@ -94,7 +94,7 @@ export default function AgentDashboard() {
                 // 1. Group events
                 realGroups.forEach((g: any) => {
                     const date = new Date(g.createdAt || Date.now());
-                    const timeStr = date.toLocaleDateString('az-AZ', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const timeStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
                     if (g.status === 'SUBMITTED' || g.status === 'PROCESSING') {
                         realActivities.push({
                             id: `group-sub-${g.id}`,
@@ -107,7 +107,7 @@ export default function AgentDashboard() {
                         realActivities.push({
                             id: `group-reg-${g.id}`,
                             title: 'New Group Registered',
-                            description: `${g.name} (${g.code}) initialized with ${g.applicantsCount || 0} passengers`,
+                            description: `${g.name} (${g.code}) initialized with ${g.totalApplicants ?? g.applicantsCount ?? 0} passengers`,
                             time: timeStr,
                             isNew: false,
                         });
@@ -118,8 +118,8 @@ export default function AgentDashboard() {
                 appointments.forEach((app: any) => {
                     const rawDate = app.timeSlot?.date || app.appointmentDate || app.createdAt || Date.now();
                     const date = new Date(rawDate);
-                    const timeStr = date.toLocaleDateString('az-AZ', { month: 'short', day: 'numeric', year: 'numeric' });
-                    const slotTime = app.timeSlot?.startTime || '10:00 AM';
+                    const timeStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+                    const slotTime = app.timeSlot?.startTime || '10:00';
                     const groupName = app.groupInfo?.name || app.groupBatch?.name || 'Tour Group';
                     realActivities.push({
                         id: `appt-${app.id}`,
@@ -134,14 +134,24 @@ export default function AgentDashboard() {
                 if (walletData && walletData.transactions) {
                     walletData.transactions.forEach((tx: any) => {
                         const date = new Date(tx.createdAt || Date.now());
-                        const timeStr = date.toLocaleDateString('az-AZ', { month: 'short', day: 'numeric', year: 'numeric' });
+                        const timeStr = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
                         const isCredit = tx.type === 'CREDIT';
+                        const title =
+                            tx.referenceType === 'TOPUP'
+                                ? 'Wallet Top-Up'
+                                : tx.referenceType === 'COMMISSION'
+                                  ? tx.status === 'PAID'
+                                      ? 'Commission Credited'
+                                      : 'Commission Pending Clearing'
+                                  : isCredit
+                                    ? 'Wallet Credit'
+                                    : 'Wallet Settlement / Payout';
                         realActivities.push({
                             id: `tx-${tx.id}`,
-                            title: isCredit ? 'Commission Credited' : 'Payout Processed',
+                            title,
                             description: `€ ${Math.abs(tx.amount).toFixed(2)} - ${tx.description}`,
                             time: timeStr,
-                            isNew: isCredit,
+                            isNew: isCredit && tx.status === 'PAID',
                         });
                     });
                 }

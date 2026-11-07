@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ADMIN AUDIT LOGS STYLES
+   ADMIN AUDIT LOGS STYLES: LIGHT THEME (AĞ ƏSASLI)
    ========================================================================== */
 
 .admin-audit-logs-view {
@@ -18,14 +18,14 @@
   font-family: var(--font-heading, 'Plus Jakarta Sans', sans-serif);
   font-size: 1.85rem;
   font-weight: 800;
-  color: #F8FAFC;
+  color: #0F172A;
   margin: 0 0 6px;
   letter-spacing: -0.5px;
 }
 
 .audit-subtitle {
   font-size: 0.95rem;
-  color: #94A3B8;
+  color: #64748B;
   margin: 0;
 }
 
@@ -33,13 +33,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #34D399;
+  background: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #047857;
 }
 
 .dot-green {
@@ -51,10 +51,11 @@
 }
 
 .audit-table-panel {
-  background: #0E1626;
-  border: 1px solid rgba(226, 232, 240, 0.08);
-  border-radius: 12px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .action-tag {
@@ -62,11 +63,11 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.76rem;
   font-weight: 700;
-  color: #F87171;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.2);
+  color: #2563EB;
+  background: #EFF6FF;
+  border: 1px solid #DBEAFE;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 .officer-cell {
@@ -75,19 +76,19 @@
 }
 
 .officer-cell strong {
-  font-size: 0.88rem;
-  color: #F1F5F9;
+  font-size: 0.9rem;
+  color: #0F172A;
 }
 
 .officer-cell span {
-  font-size: 0.72rem;
-  color: #94A3B8;
+  font-size: 0.76rem;
+  color: #64748B;
 }
 
 .ip-text {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 0.78rem;
-  color: #94A3B8;
+  font-size: 0.8rem;
+  color: #475569;
 }
 
 .meta-json-cell {
@@ -98,15 +99,16 @@
 }
 
 .meta-json-cell code {
-  font-size: 0.75rem;
-  color: #CBD5E1;
-  background: rgba(15, 23, 42, 0.6);
-  padding: 2px 6px;
+  font-size: 0.78rem;
+  color: #334155;
+  background: #F1F5F9;
+  border: 1px solid #E2E8F0;
+  padding: 3px 8px;
   border-radius: 4px;
 }
 
 .time-text {
-  font-size: 0.82rem;
-  color: #94A3B8;
+  font-size: 0.84rem;
+  color: #64748B;
   white-space: nowrap;
 }

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
 import { storage } from '@/shared/utils/storage';
+import { apiClient } from '@/shared/api/client';
 import type { UserRole } from '@/shared/types/auth.types';
 import './AuthPage.css';
 
@@ -24,6 +25,9 @@ export default function AuthPage({ type }: AuthPageProps) {
   const [extraField, setExtraField] = useState('');
   const [rememberMe, setRememberMe] = useState(() => storage.isRememberEnabled());
   const [loading, setLoading] = useState(false);
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
   const isSubmittingRef = useRef(false);
 
   const navigate = useNavigate();
@@ -45,7 +49,7 @@ export default function AuthPage({ type }: AuthPageProps) {
   useEffect(() => {
     // Only automatically redirect if the user was ALREADY authenticated before arriving at this page
     if (isAuthenticated && user && !loading && !isSubmittingRef.current) {
-      if (type === 'admin' && (user.role === 'ADMIN' || user.role === 'OPERATOR')) {
+      if (type === 'admin' && (user.role === 'ADMIN' || user.role === 'OPERATOR' || user.role === 'MANAGER')) {
         navigate('/admin', { replace: true });
       } else if (type === 'individual' && user.role === 'INDIVIDUAL') {
         navigate('/client', { replace: true });
@@ -93,6 +97,25 @@ export default function AuthPage({ type }: AuthPageProps) {
   };
 
   const currentContent = contentMap[type];
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail) {
+      showError('Zəhmət olmasa e-poçt ünvanınızı daxil edin.');
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      const res = await apiClient.post('/auth/forgot-password', { email: forgotEmail });
+      showSuccess(res.message || 'Şifrə sıfırlama təlimatı e-poçtunuza göndərildi.');
+      setIsForgotOpen(false);
+      setForgotEmail('');
+    } catch (err: any) {
+      showError(err.message || 'Sorğu göndərilərkən xəta baş verdi.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,7 +275,7 @@ export default function AuthPage({ type }: AuthPageProps) {
                   />
                   <span>Remember me on this device</span>
                 </label>
-                <a href="#" className="forgot-password" onClick={(e) => { e.preventDefault(); alert('Please contact EuroTech Support (+994 12 400 00 00) or check the activation email sent to your inbox.'); }}>
+                <a href="#forgot" className="forgot-password" onClick={(e) => { e.preventDefault(); setIsForgotOpen(true); }}>
                   Forgot password?
                 </a>
               </div>
@@ -262,6 +285,85 @@ export default function AuthPage({ type }: AuthPageProps) {
               {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : 'Create Account'}
             </button>
           </form>
+
+          {isForgotOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+              padding: '16px',
+            }}>
+              <div style={{
+                background: '#fff',
+                borderRadius: '12px',
+                padding: '24px',
+                maxWidth: '420px',
+                width: '100%',
+                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+              }}>
+                <h3 style={{ margin: '0 0 8px 0', color: '#0f172a' }}>Şifrənin Sıfırlanması</h3>
+                <p style={{ fontSize: '0.88rem', color: '#64748b', marginBottom: '16px' }}>
+                  Hesabınıza bağlı e-poçt ünvanınızı daxil edin. Sizə şifrə sıfırlama keçidi göndərəcəyik.
+                </p>
+                <form onSubmit={handleForgotSubmit}>
+                  <input
+                    type="email"
+                    placeholder="ad@shebeke.az"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: '6px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '0.95rem',
+                      marginBottom: '16px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsForgotOpen(false)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#f1f5f9',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        color: '#475569',
+                      }}
+                    >
+                      Ləğv et
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={forgotLoading}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#2563eb',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        color: '#fff',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {forgotLoading ? 'Göndərilir...' : 'Keçid Göndər'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {type !== 'admin' ? (
             <div className="auth-toggle">

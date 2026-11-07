@@ -235,6 +235,22 @@ export default function SelectProfile() {
               </button>
             )}
             <p className="sp-actions-hint">Tip: You can double-click any card to enter directly.</p>
+            <div style={{ marginTop: '20px', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={() => navigate('/login/admin')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                }}
+              >
+                Diplomatic & Consular Staff Desk →
+              </button>
+            </div>
           </div>
         </div>
       </main>

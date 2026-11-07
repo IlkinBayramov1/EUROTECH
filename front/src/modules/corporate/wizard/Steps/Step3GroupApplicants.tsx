@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import type { EmployeeData } from '../CorporateWizard';
-import { UploadIcon, UserPlusIcon, LinkIcon, TrashIcon } from '@/shared/components/icons/Icons';
+import { UploadIcon, UserPlusIcon, LinkIcon, TrashIcon, UsersIcon } from '@/shared/components/icons/Icons';
 import { useToast } from '@/shared/context/ToastContext';
+import { corporateService } from '@/shared/api/services/corporate.service';
 
 interface Step3Props {
     data: {
@@ -14,6 +15,13 @@ interface Step3Props {
 export default function Step3Employees({ data, updateData }: Step3Props) {
     const { showSuccess, showError } = useToast();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Registry Picker State
+    const [isPickerOpen, setIsPickerOpen] = useState(false);
+    const [directoryEmployees, setDirectoryEmployees] = useState<any[]>([]);
+    const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
+    const [loadingDir, setLoadingDir] = useState(false);
+    const [searchDir, setSearchDir] = useState('');
     
     // İşçi əlavə etmək üçün funksiya
     const handleAddEmployee = () => {
@@ -50,9 +58,71 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
 
     // Nümayəndəlik linkini kopyalamaq (Delegation Link)
     const handleCopyDelegationLink = (id: string, name: string) => {
-        const link = `${window.location.origin}/corporate/delegation?token=del_${id}`;
-        navigator.clipboard.writeText(link);
-        showSuccess(`Delegation Link copied to clipboard for ${name || 'Employee'}!`);
+        showSuccess(`Delegation links with one-time tokens will be activated as soon as this batch is submitted. You can share them directly from Batches.`);
+    };
+
+    // Open Directory Picker Modal
+    const openDirectoryPicker = async () => {
+        setIsPickerOpen(true);
+        setLoadingDir(true);
+        try {
+            const res: any = await corporateService.getEmployees();
+            const list = res?.employees || res?.data?.employees || [];
+            setDirectoryEmployees(list);
+            const existingPassports = new Set(data.employees.map(e => (e.passportNumber || '').toUpperCase()));
+            const initialSelected = new Set<string>();
+            list.forEach((e: any) => {
+                if (existingPassports.has((e.passportNumber || '').toUpperCase())) {
+                    initialSelected.add(e.id);
+                }
+            });
+            setSelectedEmployeeIds(initialSelected);
+        } catch (err: any) {
+            showError('Could not load company employees directory.');
+        } finally {
+            setLoadingDir(false);
+        }
+    };
+
+    const toggleSelectEmployee = (id: string) => {
+        setSelectedEmployeeIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const confirmImportFromDirectory = () => {
+        const selected = directoryEmployees.filter(e => selectedEmployeeIds.has(e.id));
+        const existingPassports = new Set(data.employees.map(e => (e.passportNumber || '').toUpperCase()));
+
+        const newlyAdded: EmployeeData[] = [];
+        selected.forEach(emp => {
+            const pass = (emp.passportNumber || '').toUpperCase();
+            if (!existingPassports.has(pass)) {
+                newlyAdded.push({
+                    id: `emp-reg-${emp.id}`,
+                    firstName: emp.firstName || '',
+                    lastName: emp.lastName || '',
+                    dob: emp.dob ? String(emp.dob).split('T')[0] : '1990-01-01',
+                    passportNumber: pass || `P${Math.floor(1000000 + Math.random() * 9000000)}`,
+                    issueDate: '2020-01-01',
+                    expiryDate: emp.passportExpiry ? String(emp.passportExpiry).split('T')[0] : '2030-01-01',
+                    role: emp.jobTitle || 'Specialist',
+                    department: emp.department || 'General',
+                    documents: { passport: false, photo: false },
+                });
+            }
+        });
+
+        if (newlyAdded.length > 0) {
+            updateData('employees', [...data.employees, ...newlyAdded]);
+            showSuccess(`Added ${newlyAdded.length} employee(s) from company registry!`);
+        } else {
+            showSuccess('Selected employee(s) are already in this batch roster.');
+        }
+        setIsPickerOpen(false);
     };
 
     // Real CSV File Upload Parser
@@ -143,13 +213,17 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
                         style={{ display: 'none' }} 
                         accept=".csv" 
                     />
+                    <button className="btn-outline-corp" onClick={openDirectoryPicker} type="button" title="Select employees from company directory">
+                        <UsersIcon size={16} />
+                        Select from Registry
+                    </button>
                     <button className="btn-outline-corp" onClick={() => fileInputRef.current?.click()} type="button">
                         <UploadIcon size={16} />
                         Upload CSV
                     </button>
                     <button className="btn-add-corp" onClick={handleAddEmployee} type="button">
                         <UserPlusIcon size={16} />
-                        Add Employee
+                        Add Manually
                     </button>
                 </div>
             </div>
@@ -240,6 +314,94 @@ export default function Step3Employees({ data, updateData }: Step3Props) {
                     ))
                 )}
             </div>
+
+            {/* DIRECTORY PICKER MODAL */}
+            {isPickerOpen && (
+                <div className="premium-modal-overlay fade-in" onClick={() => setIsPickerOpen(false)}>
+                    <div className="premium-modal-container slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+                        <div className="modal-header">
+                            <div className="modal-header-info">
+                                <span className="modal-badge">Corporate Directory</span>
+                                <h2>Select Registered Employees</h2>
+                            </div>
+                            <button className="btn-modal-close" onClick={() => setIsPickerOpen(false)}>×</button>
+                        </div>
+                        <div className="modal-body" style={{ padding: '20px' }}>
+                            <input
+                                type="text"
+                                placeholder="Search by name, department, passport..."
+                                value={searchDir}
+                                onChange={(e) => setSearchDir(e.target.value)}
+                                className="premium-input"
+                                style={{ marginBottom: '16px' }}
+                            />
+                            {loadingDir ? (
+                                <p style={{ textAlign: 'center', padding: '20px', color: '#64748B' }}>Loading directory...</p>
+                            ) : directoryEmployees.length === 0 ? (
+                                <p style={{ textAlign: 'center', padding: '20px', color: '#64748B' }}>No employees registered in corporate directory yet.</p>
+                            ) : (
+                                <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {directoryEmployees
+                                        .filter((e) => {
+                                            const q = searchDir.toLowerCase();
+                                            return (
+                                                (e.firstName || '').toLowerCase().includes(q) ||
+                                                (e.lastName || '').toLowerCase().includes(q) ||
+                                                (e.department || '').toLowerCase().includes(q) ||
+                                                (e.passportNumber || '').toLowerCase().includes(q)
+                                            );
+                                        })
+                                        .map((emp) => {
+                                            const isSelected = selectedEmployeeIds.has(emp.id);
+                                            return (
+                                                <div
+                                                    key={emp.id}
+                                                    onClick={() => toggleSelectEmployee(emp.id)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        padding: '12px 16px',
+                                                        borderRadius: '8px',
+                                                        border: `1.5px solid ${isSelected ? '#3B82F6' : '#E2E8F0'}`,
+                                                        background: isSelected ? '#EFF6FF' : '#FFF',
+                                                        cursor: 'pointer',
+                                                    }}
+                                                >
+                                                    <div>
+                                                        <strong style={{ fontSize: '0.95rem', color: '#0F172A' }}>
+                                                            {emp.firstName} {emp.lastName}
+                                                        </strong>
+                                                        <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '2px' }}>
+                                                            {emp.department || 'General'} • {emp.jobTitle || 'Employee'} • Passport: {emp.passportNumber || 'N/A'}
+                                                        </div>
+                                                    </div>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => toggleSelectEmployee(emp.id)}
+                                                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                </div>
+                            )}
+                        </div>
+                        <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px' }}>
+                            <button type="button" className="btn-modal-secondary" onClick={() => setIsPickerOpen(false)}>Cancel</button>
+                            <button
+                                type="button"
+                                className="btn-modal-primary"
+                                onClick={confirmImportFromDirectory}
+                                disabled={selectedEmployeeIds.size === 0}
+                            >
+                                Import Selected ({selectedEmployeeIds.size})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
