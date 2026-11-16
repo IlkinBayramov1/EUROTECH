@@ -80,7 +80,12 @@ export default function ConsularDecisionModal({
                 checked={selectedDecision === 'SUBMITTED_TO_CONSULATE'}
                 onChange={() => setSelectedDecision('SUBMITTED_TO_CONSULATE')}
               />
-              <div className="decision-icon">🛂</div>
+              <div className="decision-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 2L11 13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
+              </div>
               <div className="decision-text">
                 <strong>Transmit to Embassy / VAC</strong>
                 <span>Internal verification passed. Dispatched to the diplomatic mission for biometric visa stamp.</span>
@@ -96,7 +101,11 @@ export default function ConsularDecisionModal({
                 checked={selectedDecision === 'APPROVED'}
                 onChange={() => setSelectedDecision('APPROVED')}
               />
-              <div className="decision-icon">✅</div>
+              <div className="decision-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
               <div className="decision-text">
                 <strong>Approve Visa Application</strong>
                 <span>Official visa grant authorized. Passport returned with approved Schengen/National sticker.</span>
@@ -112,7 +121,12 @@ export default function ConsularDecisionModal({
                 checked={selectedDecision === 'REJECTED'}
                 onChange={() => setSelectedDecision('REJECTED')}
               />
-              <div className="decision-icon">❌</div>
+              <div className="decision-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </div>
               <div className="decision-text">
                 <strong>Refuse Visa Application</strong>
                 <span>Application rejected under diplomatic immigration criteria. Official refusal letter generated.</span>
@@ -128,7 +142,13 @@ export default function ConsularDecisionModal({
                 checked={selectedDecision === 'NEEDS_CORRECTION'}
                 onChange={() => setSelectedDecision('NEEDS_CORRECTION')}
               />
-              <div className="decision-icon">⚠️</div>
+              <div className="decision-icon">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              </div>
               <div className="decision-text">
                 <strong>Return for Correction</strong>
                 <span>Applicant must submit amended documentation or clarify questionnaire answers.</span>

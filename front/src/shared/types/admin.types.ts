@@ -95,6 +95,16 @@ export interface AdminDossier {
   updatedAt: string;
   applicants: AdminApplicant[];
   documents?: AdminApplicantDocument[];
+  groupBatch?: {
+    id: string;
+    code: string;
+    name: string;
+    destination: string;
+    travelDate?: string | null;
+    projectReason?: string | null;
+    status: string;
+    packageTier?: string | null;
+  } | null;
   appointments?: Array<{
     id: string;
     status: string;

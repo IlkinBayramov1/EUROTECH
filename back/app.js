@@ -93,9 +93,35 @@ app.use((req, res, next) => {
   next();
 });
 
-// Secure static uploads & archives using unified directories
-app.use('/uploads', express.static(env.UPLOAD_DIR));
-app.use('/archives', authMiddleware, requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), express.static(env.ARCHIVE_DIR));
+// Secure static uploads & archives with cross-origin & framing support
+const allowCrossOriginAssetHeaders = (allowWildcardOrigin = false) => (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  if (allowWildcardOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.removeHeader('X-Frame-Options');
+  next();
+};
+
+app.use(
+  '/uploads',
+  allowCrossOriginAssetHeaders(true),
+  express.static(env.UPLOAD_DIR),
+  (req, res) => {
+    res.status(404).json({
+      success: false,
+      message: 'Physical file not found on server storage. If uploaded in another environment, please re-upload or run "npm run seed:files".',
+      requestedFile: req.path,
+    });
+  }
+);
+app.use(
+  '/archives',
+  allowCrossOriginAssetHeaders(false),
+  authMiddleware,
+  requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']),
+  express.static(env.ARCHIVE_DIR)
+);
 
 // API Routes Mounting
 app.use('/api', apiRoutes);

@@ -223,10 +223,20 @@
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .doc-link-btn:hover {
   text-decoration: underline;
+}
+
+.doc-link-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .status-pill {
@@ -510,6 +520,22 @@
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+
+.btn-download-slip:hover {
+  background: #dbeafe;
+}
+
+.btn-download-slip:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .notes-input-box textarea {

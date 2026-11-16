@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
 import './AgentLayout.css';
 
 export default function AgentLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const isGroupsActive =
+    location.pathname.startsWith('/agent/groups') ||
+    location.pathname.startsWith('/agent/application');
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
@@ -39,7 +44,7 @@ export default function AgentLayout() {
             Dashboard
           </NavLink>
 
-          <NavLink to="/agent/groups" className={({ isActive }) => `agent-nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/agent/groups" className={`agent-nav-item ${isGroupsActive ? 'active' : ''}`}>
             <span className="nav-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </span>

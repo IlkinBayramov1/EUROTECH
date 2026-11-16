@@ -1,8 +1,9 @@
 const prisma = require('../../../config/db');
 const { generateDossierNumber } = require('../../../utils/dossierCode.util');
 const { calculatePortalFees } = require('../../../utils/finance.util');
+const { getPricingCatalog } = require('../../service/pricingConfig.service');
 
-async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, visaCategoryId, costCenter, department, package: selectedPackage, services, applicantsCount = 1 }) {
+async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, visaCategoryId, costCenter, department, package: selectedPackage, services, applicantsCount = 1, applicants, primaryApplicant }) {
   const country = await prisma.country.findUnique({ where: { id: countryId } });
   const visaCategory = await prisma.visaCategory.findUnique({ where: { id: visaCategoryId } });
 
@@ -10,12 +11,17 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
     throw new Error('Invalid country or visa category');
   }
 
+  const catalog = await getPricingCatalog();
+  const effectivePax = Array.isArray(applicants) && applicants.length > 0 ? applicants.length : Math.max(1, Number(applicantsCount) || 1);
+  const resolvedPkg = selectedPackage || (services && services.activePackage) || 'standard';
+
   const fees = calculatePortalFees({
     portalType,
-    paxCount: Math.max(1, Number(applicantsCount) || 1),
-    activePackage: selectedPackage || (services && services.activePackage) || 'standard',
+    paxCount: effectivePax,
+    activePackage: resolvedPkg,
     services,
-    baseConsularFee: Number(visaCategory.baseFee) || 80.0,
+    baseConsularFee: Number(visaCategory.baseFee) || catalog.baseFees?.schengenShortStayFeeEur || 80.0,
+    catalog,
   });
 
   const dossierNumber = generateDossierNumber(country.code, 'AZ');
@@ -31,8 +37,8 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
       status: 'RECEIVED',
       costCenter,
       department,
-      governmentFee: Number(visaCategory.baseFee) || 80.0,
-      serviceFee: fees.serviceFeePerPax,
+      governmentFee: fees.govFeePerPax,
+      serviceFee: fees.serviceFeePerPaxForDossier,
       extraServicesFee: fees.extraServicesTotalForDossier,
       totalAmount: fees.grandTotalEur,
       statusHistory: {
@@ -50,43 +56,93 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
     },
   });
 
-  // Automatically create the primary applicant in database using user details
+  // Automatically create the primary applicant and any co-applicants in database
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (user) {
-      const nameParts = (user.fullName || '').trim().split(' ').filter(Boolean);
-      const firstName = nameParts[0] || 'Müştəri';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      await prisma.applicant.create({
-        data: {
-          dossierId: dossier.id,
+    const pApp = primaryApplicant || (Array.isArray(applicants) && applicants[0]) || {};
+    const nameParts = (user?.fullName || '').trim().split(' ').filter(Boolean);
+    const firstName = pApp.firstName || nameParts[0] || 'Müştəri';
+    const lastName = pApp.lastName || nameParts.slice(1).join(' ') || '';
+    const passportNumber = pApp.passportNumber || user?.passportNumber || '';
+    const nationality = pApp.nationality || 'AZ';
+    const gender = pApp.gender || 'MALE';
+    const birthDate = pApp.birthDate || pApp.dob ? new Date(pApp.birthDate || pApp.dob) : null;
+
+    await prisma.applicant.create({
+      data: {
+        dossierId: dossier.id,
+        firstName,
+        lastName,
+        passportNumber,
+        nationality,
+        gender,
+        birthDate: birthDate && !isNaN(birthDate.getTime()) ? birthDate : null,
+        familyRole: 'PRIMARY',
+        formDataJson: {
           firstName,
           lastName,
-          passportNumber: user.passportNumber || '',
-          nationality: 'AZ',
-          formDataJson: {
-            firstName,
-            lastName,
-            passportNumber: user.passportNumber || '',
-            homeEmail: user.email || '',
-            homePhone: user.phone || '',
-            nationality: 'Azerbaijan',
-          },
+          passportNumber,
+          homeEmail: user?.email || '',
+          homePhone: user?.phone || '',
+          nationality: nationality === 'AZ' ? 'Azerbaijan' : nationality,
+          gender,
+          destination: country.nameEn,
+          purpose: 'Tourism',
+          ...(pApp.formDataJson || {}),
         },
-      });
+      },
+    });
+
+    // If co-applicants were supplied during creation, save them directly to database
+    if (Array.isArray(applicants) && applicants.length > 1) {
+      for (let i = 1; i < applicants.length; i++) {
+        const coApp = applicants[i];
+        if (!coApp || (!coApp.firstName && !coApp.lastName)) continue;
+        const coDob = coApp.birthDate || coApp.dob ? new Date(coApp.birthDate || coApp.dob) : null;
+        await prisma.applicant.create({
+          data: {
+            dossierId: dossier.id,
+            firstName: coApp.firstName || 'Co-Applicant',
+            lastName: coApp.lastName || '',
+            passportNumber: coApp.passportNumber || '',
+            nationality: coApp.nationality || 'AZ',
+            gender: coApp.gender || 'MALE',
+            birthDate: coDob && !isNaN(coDob.getTime()) ? coDob : null,
+            familyRole: coApp.familyRole || 'SPOUSE',
+            formDataJson: {
+              firstName: coApp.firstName,
+              lastName: coApp.lastName,
+              passportNumber: coApp.passportNumber || '',
+              nationality: coApp.nationality || 'Azerbaijan',
+              destination: country.nameEn,
+              ...(coApp.formDataJson || {}),
+            },
+          },
+        });
+      }
     }
   } catch (err) {
     console.error('Error auto-creating primary applicant for dossier:', err);
   }
 
-  return await prisma.dossier.findUnique({
+  const result = await prisma.dossier.findUnique({
     where: { id: dossier.id },
     include: {
       country: true,
-      visaCategory: true,
+      visaCategory: {
+        include: {
+          requiredDocTypes: true,
+        },
+      },
       applicants: true,
     },
   });
+
+  if (result && Array.isArray(result.applicants)) {
+    result.applicants.sort((a, b) => (a.familyRole === 'PRIMARY' ? -1 : b.familyRole === 'PRIMARY' ? 1 : 0));
+  }
+
+  return result;
 }
 
 async function updateStep(dossierId, step) {
@@ -108,6 +164,7 @@ async function getDossierById(dossierId) {
           phone: true,
           passportNumber: true,
           role: true,
+          companyName: true,
           preferredLanguage: true,
         },
       },
@@ -116,6 +173,14 @@ async function getDossierById(dossierId) {
         include: {
           dynamicFields: true,
           requiredDocTypes: true,
+        },
+      },
+      groupBatch: {
+        include: {
+          invoices: true,
+          appointments: {
+            include: { timeSlot: true },
+          },
         },
       },
       applicants: {
@@ -140,6 +205,10 @@ async function getDossierById(dossierId) {
     throw new Error('Dossier not found');
   }
 
+  if (dossier && Array.isArray(dossier.applicants)) {
+    dossier.applicants.sort((a, b) => (a.familyRole === 'PRIMARY' ? -1 : b.familyRole === 'PRIMARY' ? 1 : 0));
+  }
+
   return dossier;
 }
 
@@ -155,6 +224,7 @@ async function getUserDossiers(userId) {
           phone: true,
           passportNumber: true,
           role: true,
+          companyName: true,
           preferredLanguage: true,
         },
       },
@@ -163,6 +233,14 @@ async function getUserDossiers(userId) {
         include: {
           dynamicFields: true,
           requiredDocTypes: true,
+        },
+      },
+      groupBatch: {
+        include: {
+          invoices: true,
+          appointments: {
+            include: { timeSlot: true },
+          },
         },
       },
       applicants: {
@@ -186,6 +264,9 @@ async function getUserDossiers(userId) {
 
   // Ensure every existing dossier in DB has at least 1 primary applicant in database
   for (const dossier of dossiers) {
+    if (dossier.applicants && dossier.applicants.length > 0) {
+      dossier.applicants.sort((a, b) => (a.familyRole === 'PRIMARY' ? -1 : b.familyRole === 'PRIMARY' ? 1 : 0));
+    }
     if ((!dossier.applicants || dossier.applicants.length === 0) && dossier.user) {
       try {
         const nameParts = (dossier.user.fullName || '').trim().split(' ').filter(Boolean);

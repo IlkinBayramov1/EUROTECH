@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dossierService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientTracking.css';
 
 interface ApplicantInfo {
@@ -131,7 +132,7 @@ export default function ClientTracking() {
             const fileName = payload?.fileName || `Dossier_Summary_${dossier?.dossierNumber || 'Tracking'}.pdf`;
 
             if (downloadUrl) {
-                const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `http://localhost:5000${downloadUrl}`;
+                const fullUrl = getFileUrl(downloadUrl);
 
                 try {
                     // Fetch blob to download directly to disk and bypass browser popup blockers
@@ -240,6 +241,42 @@ export default function ClientTracking() {
             return String(rawDate);
         }
     };
+
+    if (!isLoading && !dossier) {
+        return (
+            <div className="tracking-page-content fade-in">
+                <div className="tracking-header-premium">
+                    <div className="header-titles">
+                        <h1 className="docs-title">Live Application Tracking</h1>
+                        <p className="docs-subtitle">
+                            Real-time status, biometric milestones, and consular dispatch updates for your visa dossier.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="dash-card-premium onboarding-banner-card" style={{ marginTop: '24px', padding: '48px 32px', textAlign: 'center', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(37, 99, 235, 0.08)', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '32px', height: '32px' }}>
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                        </div>
+                        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F1E36', marginBottom: '10px' }}>
+                            No Active Application Dossier Found
+                        </h2>
+                        <p style={{ color: '#64748B', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '24px' }}>
+                            You do not have an active European visa dossier to track yet. Begin your application now to access real-time consular milestones.
+                        </p>
+                        <button className="btn-hero-primary pulse-btn" onClick={() => navigate('/individual/wizard')} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Start New Application
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="tracking-page-content fade-in">

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { corporateService, documentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './CorporateEmployees.css';
 
 // --- Tiplər ---
@@ -109,7 +110,7 @@ export default function CorporateEmployees() {
             const pdfUrl = res?.pdfUrl || res?.data?.pdfUrl;
             const fileName = res?.fileName || res?.data?.fileName || `guarantee_letter_${emp.passportNo}.pdf`;
             if (pdfUrl) {
-                const fullUrl = pdfUrl.startsWith('http') ? pdfUrl : `http://localhost:5000${pdfUrl}`;
+                const fullUrl = getFileUrl(pdfUrl);
                 const link = document.createElement('a');
                 link.href = fullUrl;
                 link.target = '_blank';
@@ -429,7 +430,7 @@ export default function CorporateEmployees() {
 
     const handleDownloadEmployeeDoc = (doc: ArchivedDoc, _emp: EmployeeProfile) => {
         if (doc.fileUrl) {
-            const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl}`;
+            const fullUrl = getFileUrl(doc.fileUrl);
             const link = document.createElement('a');
             link.href = fullUrl;
             link.download = doc.name;

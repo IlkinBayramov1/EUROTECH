@@ -8,6 +8,8 @@ export interface DossierCreatePayload {
   package?: string;
   services?: any;
   applicantsCount?: number;
+  applicants?: any[];
+  primaryApplicant?: any;
 }
 
 export interface ApplicantPayload {
@@ -18,6 +20,7 @@ export interface ApplicantPayload {
   nationality?: string;
   birthDate?: string;
   passportExpiry?: string;
+  familyRole?: string;
   formDataJson?: any;
 }
 
@@ -25,6 +28,9 @@ export const dossierService = {
   getMyDossiers: () => apiClient.get('/dossiers/my-dossiers'),
   
   getDossier: (dossierId: string) => apiClient.get(`/dossiers/${dossierId}`),
+
+  getApplicantDetails: (dossierId: string, applicantId: string) =>
+    apiClient.get(`/dossiers/${dossierId}/applicants/${applicantId}/details`),
 
   createDossier: (payload: DossierCreatePayload) => apiClient.post('/dossiers', payload),
 

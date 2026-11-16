@@ -89,10 +89,10 @@ export default function AdminAuditLogs() {
         </select>
         <button
           onClick={fetchLogs}
-          style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFF', cursor: 'pointer' }}
+          style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFF', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}
           title="Reload logs"
         >
-          🔄 Refresh
+          Refresh Logs
         </button>
       </div>
 

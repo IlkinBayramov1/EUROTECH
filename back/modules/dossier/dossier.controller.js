@@ -1,6 +1,9 @@
+const fs = require('fs');
+const path = require('path');
 const dossierService = require('./dossier.service');
 const ApiResponse = require('../../core/api.response');
 const { getText } = require('../../i18n');
+const { sendDownloadSafely } = require('../../utils/download.util');
 
 async function createDossier(req, res, next) {
   try {
@@ -70,11 +73,16 @@ async function updateApplicantForm(req, res, next) {
 async function getApplicationFormPdf(req, res, next) {
   try {
     const { dossierId, applicantId } = req.params;
-    const customData = { ...req.query, ...req.body };
+    const { download, format, ...customData } = { ...req.query, ...req.body };
     const result = await dossierService.generateApplicationFormPdf(dossierId, applicantId, customData);
 
     if (req.query.download === 'true' || req.query.download === '1') {
-      return res.download(result.filePath, result.fileName);
+      return sendDownloadSafely(res, {
+        filePath: result.filePath,
+        fileName: result.fileName,
+        buffer: result.pdfBytes,
+        contentType: 'application/pdf',
+      });
     }
 
     return ApiResponse.success(res, {
@@ -95,7 +103,12 @@ async function getDossierSummaryPdf(req, res, next) {
     const result = await dossierService.generateDossierSummaryPdf(dossierId);
 
     if (req.query.download === 'true' || req.query.download === '1') {
-      return res.download(result.filePath, result.fileName);
+      return sendDownloadSafely(res, {
+        filePath: result.filePath,
+        fileName: result.fileName,
+        buffer: result.pdfBytes,
+        contentType: 'application/pdf',
+      });
     }
 
     return ApiResponse.success(res, {
@@ -117,6 +130,17 @@ async function deleteApplicant(req, res, next) {
     return ApiResponse.success(res, result, 'Applicant deleted successfully');
   } catch (error) {
     const statusCode = error.statusCode || 400;
+    return ApiResponse.error(res, error.message, statusCode);
+  }
+}
+
+async function getApplicantDetails(req, res, next) {
+  try {
+    const { dossierId, applicantId } = req.params;
+    const result = await dossierService.getApplicantDetails(dossierId, applicantId, req.user);
+    return ApiResponse.success(res, result, 'Applicant details retrieved successfully');
+  } catch (error) {
+    const statusCode = error.statusCode || (error.message.includes('not found') ? 404 : 400);
     return ApiResponse.error(res, error.message, statusCode);
   }
 }
@@ -149,51 +173,104 @@ async function getArchiveZip(req, res, next) {
     }
 
     const { archiveDossierFiles } = require('../../utils/zip.util');
-    const path = require('path');
     const env = require('../../config/env');
-    const fs = require('fs');
-
-    const filePaths = [];
-    const allDocs = [...(dossier.documents || [])];
-    (dossier.applicants || []).forEach(a => {
-      if (a.documents) allDocs.push(...a.documents);
-    });
 
     const uploadDir = path.resolve(env.UPLOAD_DIR);
-    allDocs.forEach(d => {
-      if (d.filePath && fs.existsSync(d.filePath)) {
-        filePaths.push(d.filePath);
-      } else if (d.fileUrl) {
-        const localPath = path.join(uploadDir, path.basename(d.fileUrl));
-        if (fs.existsSync(localPath)) filePaths.push(localPath);
-      }
-    });
-
-    // If no document files uploaded yet, generate summary PDF & manifest so ZIP is never empty
-    if (filePaths.length === 0) {
-      try {
-        const { generateDossierSummaryPdf } = require('./services/dossierSummaryPdf.service');
-        const summaryRes = await generateDossierSummaryPdf(dossier.id);
-        if (summaryRes?.filePath && fs.existsSync(summaryRes.filePath)) {
-          filePaths.push(summaryRes.filePath);
-        }
-      } catch (sumErr) {
-        console.warn('Could not auto-generate summary for zip:', sumErr.message);
-      }
-
-      const manifestPath = path.join(uploadDir, `manifest_${dossier.dossierNumber}.json`);
-      fs.writeFileSync(manifestPath, JSON.stringify({
-        dossierNumber: dossier.dossierNumber,
-        status: dossier.status,
-        portalType: dossier.portalType,
-        totalAmount: dossier.totalAmount,
-        createdAt: dossier.createdAt,
-        note: 'Official Consular Electronic Archive Record'
-      }, null, 2));
-      filePaths.push(manifestPath);
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    const archiveResult = await archiveDossierFiles(dossier.dossierNumber, filePaths);
+    const applicantNameMap = new Map();
+    (dossier.applicants || []).forEach((a, idx) => {
+      const fullName = `${a.firstName || 'Member'}_${a.lastName || idx + 1}`.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      applicantNameMap.set(a.id, fullName);
+    });
+
+    const seenDocIds = new Set();
+    const allDocs = [];
+    const pushUniqueDoc = (d) => {
+      if (!d || (d.id && seenDocIds.has(d.id))) return;
+      if (d.id) seenDocIds.add(d.id);
+      allDocs.push(d);
+    };
+
+    (dossier.documents || []).forEach(pushUniqueDoc);
+    (dossier.applicants || []).forEach((a) => {
+      (a.documents || []).forEach(pushUniqueDoc);
+    });
+
+    const fileEntries = [];
+    allDocs.forEach((d) => {
+      let resolvedPath = null;
+      if (d.filePath && fs.existsSync(d.filePath)) {
+        resolvedPath = d.filePath;
+      } else if (d.fileUrl) {
+        const localPath = path.join(uploadDir, path.basename(d.fileUrl));
+        if (fs.existsSync(localPath)) resolvedPath = localPath;
+      }
+      if (!resolvedPath) return;
+
+      const ownerPrefix = d.applicantId && applicantNameMap.get(d.applicantId)
+        ? `${applicantNameMap.get(d.applicantId)}_`
+        : '';
+      const docTypePrefix = d.requiredDocumentType
+        ? `${String(d.requiredDocumentType).replace(/[^a-zA-Z0-9_-]/g, '_')}_`
+        : '';
+      const baseName = d.fileName
+        ? String(d.fileName).replace(/[^a-zA-Z0-9._-]/g, '_')
+        : path.basename(resolvedPath);
+
+      fileEntries.push({
+        filePath: resolvedPath,
+        archiveName: `${ownerPrefix}${docTypePrefix}${baseName}`,
+      });
+    });
+
+    // Include Summary PDF & Multi-Page Checklist PDF so consular archive is always complete
+    try {
+      const { generateDossierSummaryPdf } = require('./services/dossierSummaryPdf.service');
+      const summaryRes = await generateDossierSummaryPdf(dossier.id);
+      if (summaryRes?.filePath && fs.existsSync(summaryRes.filePath)) {
+        fileEntries.push({
+          filePath: summaryRes.filePath,
+          archiveName: summaryRes.fileName,
+        });
+      }
+    } catch (sumErr) {
+      console.warn('Could not auto-generate summary for zip:', sumErr.message);
+    }
+
+    try {
+      const { generateChecklistPdf } = require('../document/services/documentExport.service');
+      const checklistRes = await generateChecklistPdf(dossier.id, null);
+      if (checklistRes?.filePath && fs.existsSync(checklistRes.filePath)) {
+        fileEntries.push({
+          filePath: checklistRes.filePath,
+          archiveName: checklistRes.fileName,
+        });
+      }
+    } catch (chkErr) {
+      console.warn('Could not auto-generate checklist for zip:', chkErr.message);
+    }
+
+    const safeRef = String(dossier.dossierNumber || dossier.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const manifestPath = path.join(uploadDir, `manifest_${safeRef}_${Date.now()}.json`);
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      dossierNumber: dossier.dossierNumber,
+      status: dossier.status,
+      portalType: dossier.portalType,
+      totalAmount: dossier.totalAmount,
+      applicantsCount: dossier.applicants?.length || 0,
+      documentsCount: allDocs.length,
+      createdAt: dossier.createdAt,
+      note: 'Official Consular Electronic Archive Record',
+    }, null, 2));
+    fileEntries.push({
+      filePath: manifestPath,
+      archiveName: `manifest_${safeRef}.json`,
+    });
+
+    const archiveResult = await archiveDossierFiles(dossier.dossierNumber, fileEntries);
 
     await prisma.dossier.update({
       where: { id: dossier.id },
@@ -201,7 +278,11 @@ async function getArchiveZip(req, res, next) {
     });
 
     if (req.query.download === 'true' || req.query.download === '1') {
-      return res.download(archiveResult.filePath, archiveResult.fileName);
+      return sendDownloadSafely(res, {
+        filePath: archiveResult.filePath,
+        fileName: archiveResult.fileName,
+        contentType: 'application/zip',
+      });
     }
 
     return ApiResponse.success(res, {
@@ -224,6 +305,7 @@ module.exports = {
   getMyDossiers,
   updateApplicantForm,
   deleteApplicant,
+  getApplicantDetails,
   getApplicationFormPdf,
   getDossierSummaryPdf,
   getDossierTracking,

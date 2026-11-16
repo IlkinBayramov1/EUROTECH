@@ -86,7 +86,7 @@ async function generateDossierSummaryPdf(dossierId) {
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const obliqueFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
-  const dossierRef = dossier.dossierNumber || 'EU-DOSSIER';
+  const dossierRef = sanitizeTextForPdf(dossier.dossierNumber || 'EU-DOSSIER');
   const countryName = sanitizeTextForPdf(dossier.country?.nameEn || dossier.country?.nameAz || 'Hungary');
   const countryCode = sanitizeTextForPdf(dossier.country?.code || 'HU');
   const visaCatName = sanitizeTextForPdf(dossier.visaCategory?.nameEn || dossier.visaCategory?.nameAz || 'Schengen Visa');
@@ -96,9 +96,12 @@ async function generateDossierSummaryPdf(dossierId) {
     ? new Date(dossier.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : 'Sep 21, 2026';
 
-  const primaryApplicant = dossier.applicants?.[0];
+  const sortedApplicants = [...(dossier.applicants || [])].sort((a, b) =>
+    a.familyRole === 'PRIMARY' ? -1 : b.familyRole === 'PRIMARY' ? 1 : 0
+  );
+  const primaryApplicant = sortedApplicants[0];
   const primaryName = sanitizeTextForPdf(dossier.user?.fullName || (primaryApplicant ? `${primaryApplicant.firstName} ${primaryApplicant.lastName}` : 'Client'));
-  const emailStr = sanitizeTextForPdf(dossier.user?.email || '—');
+  const emailStr = sanitizeTextForPdf(dossier.user?.email || '-');
   const phoneStr = sanitizeTextForPdf(dossier.user?.phone || 'On File');
 
   // Design Tokens & Colors
@@ -239,11 +242,11 @@ async function generateDossierSummaryPdf(dossierId) {
   });
 
   // 3. SECTION 2: FINANCIAL & FEES SPECIFICATION
-  const govFee = (dossier.governmentFee ?? 80.0).toFixed(2);
-  const srvFee = (dossier.serviceFee ?? 120.0).toFixed(2);
-  const extraFee = (dossier.extraServicesFee ?? 0.0).toFixed(2);
-  const totFee = (dossier.totalAmount ?? 200.0).toFixed(2);
-  const pStatus = (dossier.paymentStatus || 'PENDING').toUpperCase();
+  const govFee = Number(dossier.governmentFee ?? 80.0).toFixed(2);
+  const srvFee = Number(dossier.serviceFee ?? 120.0).toFixed(2);
+  const extraFee = Number(dossier.extraServicesFee ?? 0.0).toFixed(2);
+  const totFee = Number(dossier.totalAmount ?? 200.0).toFixed(2);
+  const pStatus = sanitizeTextForPdf((dossier.paymentStatus || 'PENDING').toUpperCase());
 
   page.drawRectangle({
     x: 38,
@@ -322,8 +325,8 @@ async function generateDossierSummaryPdf(dossierId) {
   page.drawText('Nationality', { x: 350, y: curY + 4, size: 7, font: boldFont, color: textDark });
   page.drawText('Applicant Role', { x: 460, y: curY + 4, size: 7, font: boldFont, color: textDark });
 
-  const appList = (dossier.applicants && dossier.applicants.length > 0)
-    ? dossier.applicants
+  const appList = (sortedApplicants && sortedApplicants.length > 0)
+    ? sortedApplicants
     : [{ firstName: primaryName, lastName: '', passportNumber: 'ON_FILE', nationality: 'AZ' }];
 
   appList.slice(0, 3).forEach((app, idx) => {
@@ -344,11 +347,21 @@ async function generateDossierSummaryPdf(dossierId) {
     });
 
     page.drawText(String(idx + 1), { x: 46, y: curY + 3.5, size: 7, font, color: textMuted });
-    page.drawText(aName, { x: 70, y: curY + 3.5, size: 7, font: boldFont, color: textDark });
+    page.drawText(aName.substring(0, 32), { x: 70, y: curY + 3.5, size: 7, font: boldFont, color: textDark });
     page.drawText(aPass, { x: 230, y: curY + 3.5, size: 7, font, color: textDark });
-    page.drawText(aNat, { x: 350, y: curY + 3.5, size: 7, font, color: textDark });
+    page.drawText(aNat.substring(0, 20), { x: 350, y: curY + 3.5, size: 7, font, color: textDark });
     page.drawText(aRole, { x: 460, y: curY + 3.5, size: 7, font: boldFont, color: rgb(0.15, 0.35, 0.7) });
   });
+
+  if (appList.length > 3) {
+    page.drawText(`+ ${appList.length - 3} additional group members listed on Page 2`, {
+      x: 360,
+      y: 604,
+      size: 7,
+      font: obliqueFont,
+      color: navy,
+    });
+  }
 
   // 5. SECTION 4: CONSULAR BIOMETRICS APPOINTMENT
   curY = 536;
@@ -365,13 +378,13 @@ async function generateDossierSummaryPdf(dossierId) {
     || dossier.appointments?.[0];
 
   const apptSlot = activeAppt?.timeSlot;
-  const apptDateStr = apptSlot?.date
+  const apptDateStr = sanitizeTextForPdf(apptSlot?.date
     ? new Date(apptSlot.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-    : (dossier.appointmentDate ? new Date(dossier.appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending Scheduling');
-  const apptTimeStr = apptSlot?.startTime || '10:00 AM';
+    : (dossier.appointmentDate ? new Date(dossier.appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending Scheduling'));
+  const apptTimeStr = sanitizeTextForPdf(apptSlot?.startTime || '10:00 AM');
   const apptLoc = sanitizeTextForPdf(activeAppt?.location || apptSlot?.location || dossier.appointmentLocation || 'EuroTech Visa Submission Center');
-  const apptStatus = activeAppt?.status || 'CONFIRMED';
-  const apptRef = activeAppt?.id ? `ET-APT-${activeAppt.id.substring(0, 8).toUpperCase()}` : 'ET-APT-RESERVED';
+  const apptStatus = sanitizeTextForPdf(activeAppt?.status || 'CONFIRMED');
+  const apptRef = sanitizeTextForPdf(activeAppt?.id ? `ET-APT-${activeAppt.id.substring(0, 8).toUpperCase()}` : 'ET-APT-RESERVED');
 
   curY = 484;
   page.drawRectangle({
@@ -456,7 +469,7 @@ async function generateDossierSummaryPdf(dossierId) {
     dossier.services.slice(0, 3).forEach((srv, idx) => {
       curY -= 14;
       const srvTitle = sanitizeTextForPdf(formatServiceTitle(srv.serviceType));
-      const srvPrice = `${(srv.price || 0).toFixed(2)} AZN`;
+      const srvPrice = `${Number(srv.price || 0).toFixed(2)} AZN`;
       const srvStatus = sanitizeTextForPdf(srv.status || 'ACTIVE');
 
       page.drawRectangle({
@@ -641,21 +654,79 @@ async function generateDossierSummaryPdf(dossierId) {
     color: green,
   });
 
-  // 9. FOOTER BAR
-  page.drawText('EuroTech Immigration Services | www.eurotech.az | support@eurotech.az | Certified Consular Partner | Baku - Budapest - Warsaw', {
-    x: 55,
-    y: 28,
-    size: 7,
-    font,
-    color: textMuted,
+  // 9. GROUP ROSTER CONTINUATION PAGES (if more than 3 applicants)
+  if (appList.length > 3) {
+    let rosterPage = pdfDoc.addPage([595.28, 841.89]);
+    const drawRosterHeader = (pg) => {
+      pg.drawRectangle({ x: 0, y: 785, width: 595.28, height: 56.89, color: navy });
+      pg.drawText(`COMPLETE GROUP ROSTER - DOSSIER ${dossierRef}`, { x: 38, y: 814, size: 12, font: boldFont, color: rgb(1, 1, 1) });
+      pg.drawText(`${appList.length} Registered Applicants`, { x: 38, y: 798, size: 8, font, color: rgb(0.85, 0.9, 1) });
+
+      pg.drawRectangle({ x: 38, y: 752, width: 519.28, height: 18, color: rgb(0.91, 0.94, 0.98) });
+      pg.drawText('#', { x: 46, y: 757, size: 7.5, font: boldFont, color: textDark });
+      pg.drawText('Full Name', { x: 70, y: 757, size: 7.5, font: boldFont, color: textDark });
+      pg.drawText('Passport Number', { x: 235, y: 757, size: 7.5, font: boldFont, color: textDark });
+      pg.drawText('Date of Birth', { x: 345, y: 757, size: 7.5, font: boldFont, color: textDark });
+      pg.drawText('Nationality', { x: 430, y: 757, size: 7.5, font: boldFont, color: textDark });
+      pg.drawText('Role', { x: 500, y: 757, size: 7.5, font: boldFont, color: textDark });
+      return 734;
+    };
+
+    let ry = drawRosterHeader(rosterPage);
+    appList.forEach((app, idx) => {
+      if (ry < 65) {
+        rosterPage = pdfDoc.addPage([595.28, 841.89]);
+        ry = drawRosterHeader(rosterPage);
+      }
+      const aName = sanitizeTextForPdf(`${app.firstName || ''} ${app.lastName || ''}`.trim() || 'Applicant');
+      const aPass = sanitizeTextForPdf((app.passportNumber || 'ON FILE').toUpperCase());
+      const aDob = app.birthDate ? String(app.birthDate instanceof Date ? app.birthDate.toISOString() : app.birthDate).split('T')[0] : '-';
+      const aNat = sanitizeTextForPdf(app.nationality || 'Azerbaijan');
+      const aRole = idx === 0 ? 'Primary' : `Member #${idx + 1}`;
+
+      rosterPage.drawRectangle({
+        x: 38,
+        y: ry,
+        width: 519.28,
+        height: 16,
+        color: idx % 2 === 0 ? rgb(1, 1, 1) : rgb(0.98, 0.985, 0.99),
+        borderColor: rgb(0.9, 0.92, 0.95),
+        borderWidth: 0.5,
+      });
+
+      rosterPage.drawText(String(idx + 1), { x: 46, y: ry + 4.5, size: 7.5, font, color: textMuted });
+      rosterPage.drawText(aName.substring(0, 32), { x: 70, y: ry + 4.5, size: 7.5, font: boldFont, color: textDark });
+      rosterPage.drawText(aPass, { x: 235, y: ry + 4.5, size: 7.5, font, color: textDark });
+      rosterPage.drawText(aDob, { x: 345, y: ry + 4.5, size: 7.5, font, color: textDark });
+      rosterPage.drawText(aNat.substring(0, 14), { x: 430, y: ry + 4.5, size: 7.5, font, color: textDark });
+      rosterPage.drawText(aRole, { x: 500, y: ry + 4.5, size: 7, font: boldFont, color: rgb(0.15, 0.35, 0.7) });
+      ry -= 16;
+    });
+  }
+
+  // 10. FOOTER BAR ACROSS ALL PAGES
+  const pages = pdfDoc.getPages();
+  const totalPages = pages.length;
+  pages.forEach((pg, pageIdx) => {
+    pg.drawText('EuroTech Immigration Services | www.eurotech.az | support@eurotech.az | Certified Consular Partner | Baku - Budapest - Warsaw', {
+      x: 55,
+      y: 28,
+      size: 7,
+      font,
+      color: textMuted,
+    });
+    pg.drawText(`Page ${pageIdx + 1} of ${totalPages}`, {
+      x: 505,
+      y: 28,
+      size: 7,
+      font: boldFont,
+      color: textMuted,
+    });
   });
-  page.drawText('Page 1 of 1', {
-    x: 505,
-    y: 28,
-    size: 7,
-    font: boldFont,
-    color: textMuted,
-  });
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
 
   const pdfBytes = await pdfDoc.save();
   const fileName = `Dossier_Summary_${dossierRef.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.pdf`;

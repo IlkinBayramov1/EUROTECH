@@ -4,8 +4,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import SelectProfile from '@/modules/auth/pages/SelectProfile';
 import AuthPage from '@/modules/auth/pages/AuthPage';
 
-// --- INDIVIDUAL (CLIENT) WIZARD & PORTAL ---
-import IndividualWizard from '@/modules/client/wizard/ClientWizard';
+// --- UNIFIED APPLICATION WIZARD (ALL PORTALS) ---
+import UnifiedWizard from '@/modules/wizard/UnifiedWizard';
 import ClientLayout from '@/layouts/ClientLayout/ClientLayout';
 import ClientDashboard from '@/modules/client/pages/Dashboard/ClientDashboard';
 import ClientDocuments from '@/modules/client/pages/Documents/ClientDocuments';
@@ -22,7 +22,6 @@ import AgentDashboard from '@/modules/agent/pages/Dashboard/AgentDashboard';
 import AgentGroups from '@/modules/agent/pages/Groups/AgentGroups';
 import AgentFinance from '@/modules/agent/pages/Finance/AgentFinance';
 import AgentAppointments from '@/modules/agent/pages/Appointments/AgentAppointments';
-import AgentWizard from '@/modules/agent/wizard/AgentWizard';
 import AgentApplicantFill from '@/modules/agent/pages/ApplicantFill/AgentApplicantFill';
 
 // --- CORPORATE PORTAL ---
@@ -32,8 +31,11 @@ import CorporateBatches from '@/modules/corporate/pages/Batches/CorporateBatches
 import CorporateEmployees from '@/modules/corporate/pages/Employees/CorporateEmployees';
 import CorporateAppointments from '@/modules/corporate/pages/Appointments/CorporateAppointments';
 import CorporateFinance from '@/modules/corporate/pages/Finance/CorporateFinance';
-import CorporateWizard from '@/modules/corporate/wizard/CorporateWizard';
 import CorporateDelegation from '@/modules/corporate/pages/Delegation/CorporateDelegation';
+
+// --- UNIVERSAL APPLICANT APPLICATION WORKSPACE (ALL PORTALS) ---
+import UnifiedApplicantWorkspace from '@/modules/applicant/pages/UnifiedApplicantWorkspace';
+import DynamicApplicantRedirect from '@/modules/applicant/pages/DynamicApplicantRedirect';
 
 // --- ADMIN & CONSULAR PORTAL ---
 import AdminLayout from '@/layouts/AdminLayout/AdminLayout';
@@ -63,12 +65,12 @@ export default function App() {
         <Route path="/set-password" element={<PasswordActionPage action="set" />} />
         <Route path="/reset-password" element={<PasswordActionPage action="reset" />} />
 
-        {/* --- INDIVIDUAL APPLICATION WIZARD --- */}
+        {/* --- UNIFIED APPLICATION WIZARD (INDIVIDUAL) --- */}
         <Route
           path="/individual/wizard"
           element={
             <ProtectedRoute allowedRoles={['INDIVIDUAL', 'ADMIN']} redirectPath="/login/individual">
-              <IndividualWizard />
+              <UnifiedWizard portalType="INDIVIDUAL" />
             </ProtectedRoute>
           }
         />
@@ -86,6 +88,8 @@ export default function App() {
           <Route index element={<ClientDashboard />} />
           <Route path="documents" element={<ClientDocuments />} />
           <Route path="application" element={<ClientApplication />} />
+          <Route path="application/:dossierId" element={<UnifiedApplicantWorkspace />} />
+          <Route path="application/:dossierId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
           <Route path="appointment" element={<ClientAppointment />} />
           <Route path="services" element={<ClientServices />} />
           <Route path="wallet" element={<ClientWallet />} />
@@ -104,16 +108,20 @@ export default function App() {
         >
           <Route index element={<AgentDashboard />} />
           <Route path="groups" element={<AgentGroups />} />
+          <Route path="application" element={<ClientApplication />} />
+          <Route path="application/:dossierId" element={<UnifiedApplicantWorkspace />} />
+          <Route path="application/:dossierId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
+          <Route path="groups/:groupId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
           <Route path="finance" element={<AgentFinance />} />
           <Route path="appointments" element={<AgentAppointments />} />
         </Route>
 
-        {/* --- AGENT GROUP CREATION WIZARD --- */}
+        {/* --- UNIFIED AGENT GROUP CREATION WIZARD --- */}
         <Route
           path="/agent/create-group"
           element={
             <ProtectedRoute allowedRoles={['AGENT', 'AGENT_TUR_OPERATOR', 'ADMIN']} redirectPath="/login/agent">
-              <AgentWizard />
+              <UnifiedWizard portalType="GROUP_AGENT" />
             </ProtectedRoute>
           }
         />
@@ -132,16 +140,21 @@ export default function App() {
         >
           <Route index element={<CorporateDashboard />} />
           <Route path="batches" element={<CorporateBatches />} />
+          <Route path="application" element={<ClientApplication />} />
+          <Route path="application/:dossierId" element={<UnifiedApplicantWorkspace />} />
+          <Route path="application/:dossierId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
+          <Route path="batches/:batchId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
           <Route path="employees" element={<CorporateEmployees />} />
           <Route path="appointments" element={<CorporateAppointments />} />
           <Route path="finance" element={<CorporateFinance />} />
         </Route>
 
+        {/* --- UNIFIED CORPORATE BATCH CREATION WIZARD --- */}
         <Route
           path="/corporate/create-batch"
           element={
             <ProtectedRoute allowedRoles={['CORPORATE', 'CORPORATE_HR', 'ADMIN']} redirectPath="/login/corporate">
-              <CorporateWizard />
+              <UnifiedWizard portalType="CORPORATE" />
             </ProtectedRoute>
           }
         />
@@ -161,10 +174,26 @@ export default function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="dossiers" element={<AdminDossierList />} />
           <Route path="dossiers/:id" element={<AdminDossierDetail />} />
+          <Route path="dossiers/:dossierId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
           <Route path="financials" element={<AdminFinancials />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
+
+        {/* --- UNIVERSAL APPLICANT APPLICATION WORKSPACE (FALLBACK & SMART REDIRECT) --- */}
+        <Route
+          path="/application/:dossierId/applicant/:applicantId"
+          element={<DynamicApplicantRedirect />}
+        />
+        <Route
+          path="/application/:dossierId"
+          element={<DynamicApplicantRedirect />}
+        />
+        <Route
+          path="/application"
+          element={<DynamicApplicantRedirect />}
+        />
+        <Route path="/application/self-fill" element={<UnifiedApplicantWorkspace />} />
 
         {/* --- FALLBACK ROUTE --- */}
         <Route path="*" element={<Navigate to="/" replace />} />

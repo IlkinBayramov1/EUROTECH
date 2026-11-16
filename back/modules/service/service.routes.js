@@ -11,6 +11,7 @@ router.use(authMiddleware);
 
 router.post('/add', serviceController.addService);
 router.post('/checkout', serviceController.checkoutServices);
+router.patch('/dossier/:dossierId/package', serviceController.updateDossierPackage);
 router.delete('/:serviceId', serviceController.removeService);
 
 module.exports = router;

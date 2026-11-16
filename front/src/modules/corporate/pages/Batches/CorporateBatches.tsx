@@ -3,6 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { corporateService } from '@/shared/api/services/corporate.service';
 import { documentService, dossierService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
+import SchengenQuestionnaire from '@/modules/applicant/components/SchengenQuestionnaire/SchengenQuestionnaire';
+import { DEFAULT_SCHENGEN_FORM_DATA } from '@/modules/applicant/types/applicant.types';
+import { usePricingCatalog } from '@/shared/hooks/usePricingCatalog';
 import './CorporateBatches.css';
 
 // --- Tiplər ---
@@ -43,6 +47,8 @@ export interface Batch {
     projectReason: string;
     createdDate: string;
     status: 'draft' | 'processing' | 'ready';
+    packageTier?: string;
+    totalFee?: number;
     employees: Employee[];
     dossierId?: string;
 }
@@ -61,6 +67,8 @@ export default function CorporateBatches() {
     const [searchParams] = useSearchParams();
     const urlBatchId = searchParams.get('batchId');
     const { showSuccess, showError } = useToast();
+    const { packages: adminPackages, calculateLiveFees } = usePricingCatalog();
+    const activeAdminPackages = (adminPackages || []).filter(p => p.isActive !== false);
 
     // --- State-lər ---
     const [view, setView] = useState<'list' | 'manage'>('list');
@@ -70,7 +78,7 @@ export default function CorporateBatches() {
     const [loading, setLoading] = useState(true);
     
     // Manage View State-ləri
-    const [manageTab, setManageTab] = useState<'form' | 'docs'>('form');
+    const [manageTab, setManageTab] = useState<'form' | 'docs' | 'packages'>('form');
     const [currentFormStep, setCurrentFormStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
     const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
@@ -99,18 +107,11 @@ export default function CorporateBatches() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [batchForSettings, setBatchForSettings] = useState<Batch | null>(null);
     const [editBatchName, setEditBatchName] = useState('');
+    const [editBatchPackage, setEditBatchPackage] = useState('standard');
 
-    // Employee Form Data
-    const [employeeFormData, setEmployeeFormData] = useState({
-        firstName: '',
-        lastName: '',
-        passportNumber: '',
-        dob: '',
-        expiryDate: '',
-        jobTitle: '',
-        department: '',
-        hotelAccommodation: '',
-        specialNotes: '',
+    // Employee Form Data (Official 37-Point Schengen Questionnaire)
+    const [employeeFormData, setEmployeeFormData] = useState<Record<string, any>>({
+        ...DEFAULT_SCHENGEN_FORM_DATA,
     });
 
     // Qrupları Verilənlər Bazasından Yükləmə Funksiyası
@@ -152,8 +153,8 @@ export default function CorporateBatches() {
                             lastName: emp.lastName || '',
                             passport: emp.passportNumber || emp.passport || 'P0000000',
                             passportNumber: emp.passportNumber || emp.passport || 'P0000000',
-                            dob: emp.birthDate ? String(emp.birthDate).split('T')[0] : emp.formDataJson?.dob || '',
-                            expiryDate: emp.formDataJson?.expiryDate || '',
+                            dob: emp.birthDate ? String(emp.birthDate).split('T')[0] : (emp.formDataJson?.birthDate || emp.formDataJson?.dob || ''),
+                            expiryDate: emp.formDataJson?.passportExpiry || emp.formDataJson?.passportExpiryDate || emp.formDataJson?.expiryDate || '',
                             status: empStatus,
                             formProgress,
                             documents: docs,
@@ -171,6 +172,8 @@ export default function CorporateBatches() {
                         projectReason: b.projectReason || 'Business / Corporate',
                         createdDate: new Date(b.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
                         status: (b.status ? b.status.toLowerCase() : 'draft') as 'draft' | 'processing' | 'ready',
+                        packageTier: String(b.packageTier || mappedEmployees[0]?.formDataJson?.package || 'standard').toLowerCase(),
+                        totalFee: Number(primaryDossier.totalAmount || (mappedEmployees.length * 145) || 145),
                         employees: mappedEmployees,
                         dossierId: primaryDossierId,
                     };
@@ -191,16 +194,19 @@ export default function CorporateBatches() {
     const handleManageEmployee = (batch: Batch, employee: Employee) => {
         setActiveBatch(batch);
         setActiveEmployee(employee);
+        const savedForm = (employee.formDataJson && typeof employee.formDataJson === 'object') ? employee.formDataJson : {};
+        const nameParts = (employee.fullName || '').trim().split(' ');
         setEmployeeFormData({
-            firstName: employee.firstName || employee.fullName.split(' ')[0] || '',
-            lastName: employee.lastName || employee.fullName.split(' ').slice(1).join(' ') || '',
-            passportNumber: employee.passportNumber || employee.passport || '',
-            dob: employee.dob || '',
-            expiryDate: employee.expiryDate || '',
-            jobTitle: employee.formDataJson?.jobTitle || '',
-            department: employee.formDataJson?.department || '',
-            hotelAccommodation: employee.formDataJson?.hotelAccommodation || '',
-            specialNotes: employee.formDataJson?.specialNotes || '',
+            ...DEFAULT_SCHENGEN_FORM_DATA,
+            ...savedForm,
+            firstName: employee.firstName || savedForm.firstName || nameParts[0] || '',
+            lastName: employee.lastName || savedForm.lastName || nameParts.slice(1).join(' ') || '',
+            passportNumber: employee.passportNumber || employee.passport || savedForm.passportNumber || '',
+            birthDate: employee.dob || savedForm.birthDate || savedForm.dob || '',
+            passportExpiry: employee.expiryDate || savedForm.passportExpiry || savedForm.passportExpiryDate || savedForm.expiryDate || '',
+            homePhone: savedForm.homePhone || savedForm.phone || savedForm.contactPhone || '',
+            destination: batch.destination || savedForm.destination || 'Hungary',
+            employerName: batch.name || savedForm.employerName || '',
         });
         setManageTab('form');
         setCurrentFormStep(1);
@@ -227,11 +233,8 @@ export default function CorporateBatches() {
             const found = batches.find(b => b.id === urlBatchId || b.code === urlBatchId);
             if (found) {
                 handledUrlBatchIdRef.current = urlBatchId;
-                if (found.employees && found.employees.length > 0) {
-                    handleManageEmployee(found, found.employees[0]);
-                } else {
-                    setSearchQuery(found.code || found.name);
-                }
+                setActiveBatch(found);
+                setSearchQuery(found.code || found.name);
             }
         }
     }, [urlBatchId, batches]);
@@ -276,26 +279,13 @@ export default function CorporateBatches() {
         }
     };
 
-    const handleSaveForm = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSaveForm = async (e?: React.FormEvent) => {
+        if (e && e.preventDefault) e.preventDefault();
         if (!activeBatch || !activeEmployee) return;
 
         setIsSaving(true);
         try {
-            const payload = {
-                firstName: employeeFormData.firstName,
-                lastName: employeeFormData.lastName,
-                passportNumber: employeeFormData.passportNumber,
-                dob: employeeFormData.dob,
-                expiryDate: employeeFormData.expiryDate,
-                jobTitle: employeeFormData.jobTitle,
-                department: employeeFormData.department,
-                hotelAccommodation: employeeFormData.hotelAccommodation,
-                specialNotes: employeeFormData.specialNotes,
-                formProgress: Math.min(100, currentFormStep * 25),
-            };
-
-            await corporateService.saveEmployeeForm(activeBatch.id, activeEmployee.id, payload);
+            await corporateService.saveEmployeeForm(activeBatch.id, activeEmployee.id, employeeFormData);
 
             setActiveEmployee(prev => prev ? {
                 ...prev,
@@ -304,18 +294,13 @@ export default function CorporateBatches() {
                 fullName: `${employeeFormData.firstName} ${employeeFormData.lastName}`.trim() || prev.fullName,
                 passport: employeeFormData.passportNumber || prev.passport,
                 passportNumber: employeeFormData.passportNumber || prev.passportNumber,
-                dob: employeeFormData.dob,
-                expiryDate: employeeFormData.expiryDate,
-                formDataJson: { ...prev.formDataJson, ...payload },
-                formProgress: Math.min(100, currentFormStep * 25),
+                dob: employeeFormData.birthDate || employeeFormData.dob,
+                expiryDate: employeeFormData.passportExpiry || employeeFormData.expiryDate,
+                formDataJson: { ...prev.formDataJson, ...employeeFormData },
+                formProgress: 100,
             } : null);
 
-            if (currentFormStep < 4) {
-                setCurrentFormStep(prev => prev + 1);
-                showSuccess(`Step ${currentFormStep} data saved to database! Proceeding to next step.`);
-            } else {
-                showSuccess('Employee dossier successfully updated in database!');
-            }
+            showSuccess('Employee Schengen application (37 points) saved successfully!');
             await fetchBatches();
         } catch (err: any) {
             showError(err.message || 'Failed to save employee dossier form.');
@@ -422,7 +407,7 @@ export default function CorporateBatches() {
 
         setIsAddingEmp(true);
         try {
-            await corporateService.addEmployeeToBatch(batchForAddEmp.id, {
+            const res: any = await corporateService.addEmployeeToBatch(batchForAddEmp.id, {
                 firstName: newEmpFirstName.trim(),
                 lastName: newEmpLastName.trim(),
                 passportNumber: newEmpPassport.trim().toUpperCase(),
@@ -431,6 +416,11 @@ export default function CorporateBatches() {
                 dob: newEmpDob || undefined,
                 expiryDate: newEmpExpiry || undefined,
             });
+            const createdData = res.data?.data || res.data || {};
+            const createdApplicant = createdData.applicant;
+            const targetDossierId = createdApplicant?.dossierId || batchForAddEmp.dossierId || batchForAddEmp.id;
+            const batchId = batchForAddEmp.id;
+
             showSuccess(`Employee ${newEmpFirstName} ${newEmpLastName} added to batch successfully!`);
             setIsAddEmpModalOpen(false);
             setBatchForAddEmp(null);
@@ -459,9 +449,7 @@ export default function CorporateBatches() {
             });
 
             if (res.data?.downloadUrl) {
-                const fullUrl = res.data.downloadUrl.startsWith('http')
-                    ? res.data.downloadUrl
-                    : `http://localhost:5000${res.data.downloadUrl}`;
+                const fullUrl = getFileUrl(res.data.downloadUrl);
                 
                 const fileRes = await fetch(fullUrl);
                 if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
@@ -486,6 +474,7 @@ export default function CorporateBatches() {
     const openSettings = (batch: Batch) => {
         setBatchForSettings(batch);
         setEditBatchName(batch.name);
+        setEditBatchPackage(batch.packageTier || 'standard');
         setIsSettingsOpen(true);
     };
 
@@ -503,12 +492,32 @@ export default function CorporateBatches() {
 
         setIsSaving(true);
         try {
-            await corporateService.updateBatch(batchForSettings.id, { name: editBatchName });
-            showSuccess('Batch details successfully updated in database!');
+            await corporateService.updateBatch(batchForSettings.id, {
+                name: editBatchName,
+                packageTier: editBatchPackage,
+            } as any);
+            showSuccess('Batch details and payment package successfully updated in database!');
             closeSettings();
             await fetchBatches();
         } catch (err: any) {
             showError(err.message || 'Failed to update batch');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleChangeBatchPackageDirect = async (batch: Batch, pkgId: string) => {
+        setIsSaving(true);
+        try {
+            await corporateService.updateBatch(batch.id, { packageTier: pkgId } as any);
+            const pkgName = activeAdminPackages.find(p => p.id === pkgId)?.name || pkgId.toUpperCase();
+            showSuccess(`Batch "${batch.name}" payment package updated to "${pkgName}"!`);
+            await fetchBatches();
+            if (activeBatch && activeBatch.id === batch.id) {
+                setActiveBatch(prev => prev ? { ...prev, packageTier: pkgId } : null);
+            }
+        } catch (err: any) {
+            showError(err.message || 'Failed to update batch payment package');
         } finally {
             setIsSaving(false);
         }
@@ -755,6 +764,17 @@ export default function CorporateBatches() {
                                             <div className="batch-meta">
                                                 <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Created: {batch.createdDate}</span>
                                                 <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> Destination: <strong>{batch.destination}</strong></span>
+                                                <span
+                                                    onClick={() => openSettings(batch)}
+                                                    style={{ cursor: 'pointer', color: '#1D4ED8', fontWeight: 700 }}
+                                                    title="Change Batch Payment Package"
+                                                >
+                                                    📦 Package:{' '}
+                                                    <strong>
+                                                        {activeAdminPackages.find(p => p.id === (batch.packageTier || 'standard'))?.name ||
+                                                            (batch.packageTier || 'standard').toUpperCase()}
+                                                    </strong>
+                                                </span>
                                                 <span>ID: {batch.code || batch.id}</span>
                                             </div>
                                         </div>
@@ -1001,6 +1021,36 @@ export default function CorporateBatches() {
                                         </div>
                                     </div>
 
+                                    <div className="settings-section">
+                                        <h3>Payment Package &amp; Service Tier</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                                            {activeAdminPackages.map(pkg => {
+                                                const isSel = editBatchPackage === pkg.id;
+                                                return (
+                                                    <div
+                                                        key={pkg.id}
+                                                        onClick={() => setEditBatchPackage(pkg.id)}
+                                                        style={{
+                                                            padding: '12px',
+                                                            borderRadius: '10px',
+                                                            border: isSel ? '2px solid #2563EB' : '1.5px solid #CBD5E1',
+                                                            background: isSel ? '#EFF6FF' : '#FFFFFF',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <strong style={{ fontSize: '0.88rem', color: '#0F172A' }}>{pkg.name}</strong>
+                                                            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#2563EB' }}>
+                                                                {Number(pkg.priceEur) > 0 ? `+€${Number(pkg.priceEur).toFixed(0)}` : '€0'}
+                                                            </span>
+                                                        </div>
+                                                        <p style={{ margin: '4px 0 0 0', fontSize: '0.74rem', color: '#64748B' }}>{pkg.description}</p>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
                                     <div className="settings-danger-zone">
                                         <div className="danger-info">
                                             <h4>Cancel Batch</h4>
@@ -1032,15 +1082,8 @@ export default function CorporateBatches() {
     }
 
     // ==========================================
-    // RENDER: VİEW 2 - MANAGE EMPLOYEE DOSSIER
+    // RENDER: VIEW 2 - MANAGE EMPLOYEE DOSSIER (37 POINTS)
     // ==========================================
-    const formSteps = [
-        { id: 1, title: 'Personal Info' }, 
-        { id: 2, title: 'Travel Docs' }, 
-        { id: 3, title: 'Employment' }, 
-        { id: 4, title: 'Accommodation' }
-    ];
-
     const uploadedDocTypes = new Set(activeEmployee?.documents.map(d => d.requiredDocumentType) || []);
     const additionalDocs = (activeEmployee?.documents || []).filter(d => !REQ_CORP_DOC_TYPES.has(d.requiredDocumentType));
     const uploadedMandatoryCount = REQUIRED_CORP_DOCS.filter(d => uploadedDocTypes.has(d.type)).length;
@@ -1071,11 +1114,11 @@ export default function CorporateBatches() {
                         <button 
                             type="button" 
                             className="btn-action-outline"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#EF4444', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#1E293B', borderColor: '#CBD5E1' }}
                             onClick={() => handleDownloadSchengenPdf(activeBatch, activeEmployee)}
                         >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                            📄 Şengen Forması (PDF)
+                            Download Schengen PDF
                         </button>
                     </div>
                 )}
@@ -1084,174 +1127,115 @@ export default function CorporateBatches() {
             {/* Premium Tabs */}
             <div className="corp-tabs-container">
                 <button className={`corp-premium-tab ${manageTab === 'form' ? 'active' : ''}`} onClick={() => setManageTab('form')}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                    1. HR Form Completion
+                    1. Application Form (37 Points)
                 </button>
                 <button className={`corp-premium-tab ${manageTab === 'docs' ? 'active' : ''}`} onClick={() => setManageTab('docs')}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     2. Document Repository ({activeEmployee?.documents.length || 0})
+                </button>
+                <button className={`corp-premium-tab ${manageTab === 'packages' ? 'active' : ''}`} onClick={() => setManageTab('packages')}>
+                    3. Payment Packages ({activeAdminPackages.find(p => p.id === (activeBatch?.packageTier || 'standard'))?.name || 'Standard'})
                 </button>
             </div>
 
-            {/* --- TAB 1: FORM --- */}
+            {/* --- TAB 3: PAYMENT PACKAGES --- */}
+            {manageTab === 'packages' && activeBatch && (
+                <div className="fade-in" style={{ background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0', padding: '24px', marginTop: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                                Corporate Batch Payment Package ({activeBatch.name})
+                            </h3>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748B' }}>
+                                Select or upgrade the payment package applied to all {activeBatch.employees.length} employee(s) in this batch.
+                            </p>
+                        </div>
+                        <span style={{ background: '#EFF6FF', color: '#1D4ED8', padding: '8px 14px', borderRadius: '10px', fontWeight: 800, fontSize: '0.88rem' }}>
+                            Batch Total: €{(activeBatch.totalFee || 145).toFixed(2)}
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+                        {activeAdminPackages.map(pkg => {
+                            const isCur = (activeBatch.packageTier || 'standard') === pkg.id;
+                            const liveCalc = calculateLiveFees({
+                                portalType: 'CORPORATE',
+                                paxCount: Math.max(1, activeBatch.employees.length),
+                                activePackage: pkg.id,
+                                duration: activeBatch.duration || 'short',
+                            });
+                            return (
+                                <div
+                                    key={pkg.id}
+                                    style={{
+                                        border: isCur ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                                        background: isCur ? '#EFF6FF' : '#F8FAFC',
+                                        borderRadius: '12px',
+                                        padding: '20px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'space-between',
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0F172A' }}>{pkg.name}</h4>
+                                            {pkg.badge && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: 800, background: isCur ? '#2563EB' : '#E2E8F0', color: isCur ? '#FFFFFF' : '#334155', padding: '3px 8px', borderRadius: '8px' }}>
+                                                    {pkg.badge}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#1D4ED8', marginBottom: '6px' }}>
+                                            {Number(pkg.priceEur) > 0 ? `+€${Number(pkg.priceEur).toFixed(2)}` : '€0.00'} <span style={{ fontSize: '0.78rem', color: '#64748B' }}>/ employee</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0F172A', marginBottom: '10px' }}>
+                                            Batch Total ({activeBatch.employees.length} Emp): €{liveCalc.grandTotalEur.toFixed(2)}
+                                        </div>
+                                        <p style={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.45, marginBottom: '12px' }}>{pkg.description}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={isCur || isSaving}
+                                        onClick={() => handleChangeBatchPackageDirect(activeBatch, pkg.id)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            borderRadius: '8px',
+                                            border: isCur ? '1.5px solid #2563EB' : 'none',
+                                            background: isCur ? '#DBEAFE' : '#2563EB',
+                                            color: isCur ? '#1E40AF' : '#FFFFFF',
+                                            fontWeight: 700,
+                                            cursor: isCur ? 'default' : 'pointer',
+                                        }}
+                                    >
+                                        {isCur ? '✓ Active Batch Package' : `Switch Batch to ${pkg.name}`}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* --- TAB 1: 37-POINT SCHENGEN FORM --- */}
             {manageTab === 'form' && (
                 <div className="fade-in">
-                    <div className="horizontal-stepper-wrapper">
-                        {formSteps.map(step => (
-                            <div key={step.id} className={`stepper-item-horiz ${currentFormStep === step.id ? 'active' : ''} ${currentFormStep > step.id ? 'completed' : ''}`} onClick={() => setCurrentFormStep(step.id)}>
-                                <span className="stepper-label">{step.title}</span>
-                                <div className="stepper-line"></div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="form-centered-container">
-                        <form className="step-form-card" onSubmit={handleSaveForm}>
-                            <div className="step-content-block">
-                                <h2>{formSteps.find(s => s.id === currentFormStep)?.title}</h2>
-                                <p className="step-desc">Fill out or verify the official consular data for {activeEmployee?.fullName}. All updates are persisted directly to database.</p>
-                                
-                                <div className="corp-form-grid">
-                                    {currentFormStep === 1 && (
-                                        <>
-                                            <div className="corp-input-group">
-                                                <label>First Name</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.firstName}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, firstName: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Last Name</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.lastName}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, lastName: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Passport Number</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.passportNumber}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, passportNumber: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Date of Birth</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.dob}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, dob: e.target.value })}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 2 && (
-                                        <>
-                                            <div className="corp-input-group">
-                                                <label>Passport Number</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.passportNumber}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, passportNumber: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Passport Expiry Date</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="corp-input" 
-                                                    value={employeeFormData.expiryDate}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, expiryDate: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Destination Country</label>
-                                                <input type="text" className="corp-input" value={activeBatch?.destination || 'Europe / Schengen'} disabled />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Intended Departure Date</label>
-                                                <input type="text" className="corp-input" value={activeBatch?.travelDate || 'TBD'} disabled />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 3 && (
-                                        <>
-                                            <div className="corp-input-group">
-                                                <label>Job Title / Position</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    placeholder="e.g. Senior Software Engineer"
-                                                    value={employeeFormData.jobTitle}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, jobTitle: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="corp-input-group">
-                                                <label>Corporate Department</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    placeholder="e.g. Information Technology"
-                                                    value={employeeFormData.department}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, department: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="corp-input-group full-width">
-                                                <label>Corporate Mission / Travel Reason</label>
-                                                <input type="text" className="corp-input" value={activeBatch?.projectReason || 'Corporate Business'} disabled />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 4 && (
-                                        <>
-                                            <div className="corp-input-group full-width">
-                                                <label>Accommodation / Hotel Details</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="corp-input" 
-                                                    placeholder="e.g. Hilton Vienna Park, Am Stadtpark 1, Vienna"
-                                                    value={employeeFormData.hotelAccommodation}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, hotelAccommodation: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="corp-input-group full-width">
-                                                <label>Special Requests & Consular Notes</label>
-                                                <textarea 
-                                                    className="corp-input" 
-                                                    rows={3}
-                                                    placeholder="Additional information for consulate or internal HR records..."
-                                                    value={employeeFormData.specialNotes}
-                                                    onChange={(e) => setEmployeeFormData({ ...employeeFormData, specialNotes: e.target.value })}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="step-form-footer">
-                                <button type="button" className="btn-secondary" onClick={() => setCurrentFormStep(prev => prev - 1)} disabled={currentFormStep === 1}>Previous</button>
-                                <button type="submit" className="btn-primary" disabled={isSaving}>
-                                    {isSaving ? 'Saving to DB...' : currentFormStep === 4 ? 'Save Dossier' : 'Next Step →'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
+                    <SchengenQuestionnaire
+                        formData={employeeFormData}
+                        onFieldChange={(field, value) => setEmployeeFormData(prev => ({ ...prev, [field]: value }))}
+                        dossier={activeBatch ? {
+                            id: activeBatch.dossierId || activeBatch.id,
+                            dossierNumber: activeBatch.code || activeBatch.id,
+                            portalType: 'CORPORATE',
+                            status: activeBatch.status,
+                            currentStep: 1,
+                            country: { id: '', code: '', nameEn: activeBatch.destination, nameAz: activeBatch.destination },
+                            user: { id: '', fullName: '', email: '', companyName: activeBatch.name, role: 'CORPORATE' }
+                        } : null}
+                        onOpenMrzModal={() => {}}
+                        onSaveForm={handleSaveForm}
+                        isCorporateMode={true}
+                    />
                 </div>
             )}
 
@@ -1398,9 +1382,7 @@ export default function CorporateBatches() {
                                     {additionalDocs.map((extraDoc, idx) => {
                                         const isRejected = extraDoc.status === 'REJECTED';
                                         const isVerified = extraDoc.status === 'VERIFIED';
-                                        const fileUrl = extraDoc.fileUrl
-                                            ? (extraDoc.fileUrl.startsWith('http') ? extraDoc.fileUrl : `http://localhost:5000${extraDoc.fileUrl}`)
-                                            : '';
+                                        const fileUrl = getFileUrl(extraDoc.fileUrl);
                                         const fileName = extraDoc.originalFileName || extraDoc.fileName || `Additional Document ${idx + 1}`;
 
                                         return (

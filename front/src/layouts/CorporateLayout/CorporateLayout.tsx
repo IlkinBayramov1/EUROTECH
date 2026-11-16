@@ -1,16 +1,21 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/shared/context/AuthContext';
 import { EuroTechLogo } from '@/shared/components/icons/Icons';
 import './CorporateLayout.css';
 
 export default function CorporateLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuth();
 
   const handleLogout = () => {
     logout();
     navigate('/');
   };
+
+  const isBatchesActive =
+    location.pathname.startsWith('/corporate/batches') ||
+    location.pathname.startsWith('/corporate/application');
 
   return (
     <div className="corporate-layout">
@@ -30,7 +35,7 @@ export default function CorporateLayout() {
             Dashboard
           </NavLink>
 
-          <NavLink to="/corporate/batches" className={({ isActive }) => `corp-nav-item ${isActive ? 'active' : ''}`}>
+          <NavLink to="/corporate/batches" className={`corp-nav-item ${isBatchesActive ? 'active' : ''}`}>
             <span className="nav-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </span>

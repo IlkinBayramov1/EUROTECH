@@ -4,6 +4,9 @@ const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const prisma = require('../../../config/db');
 const env = require('../../../config/env');
 const { generateSecureToken, hashToken } = require('../../../utils/token.util');
+const { calculatePortalFees } = require('../../../utils/finance.util');
+const { getPricingCatalog } = require('../../service/pricingConfig.service');
+const walletService = require('../../payment/wallet.service');
 
 const uploadDir = path.resolve(env.UPLOAD_DIR);
 if (!fs.existsSync(uploadDir)) {
@@ -43,15 +46,24 @@ async function createBatch({
   appointmentTime,
   employees,
   totalAmount,
+  paymentMethod,
 }) {
   const code = generateBatchCode();
   const dest = destination || 'Europe / Schengen';
-  const pkg = activePackage || 'standard';
-  const pkgPrice = Number(packagePrice) || (pkg === 'premium' ? 126.0 : pkg === 'vip' ? 257.0 : 0.0);
+  const pkg = String(activePackage || 'standard').toLowerCase();
   const empList = Array.isArray(employees) ? employees : [];
   const batchSize = Math.max(1, empList.length);
-  const consularFeePP = 145.0;
-  const calculatedTotal = Number(totalAmount) || ((consularFeePP + pkgPrice) * batchSize);
+  const catalog = await getPricingCatalog();
+  const fees = calculatePortalFees({
+    portalType: 'CORPORATE',
+    paxCount: batchSize,
+    activePackage: pkg,
+    duration: duration || 'short',
+    catalog,
+  });
+  const pkgPrice = Number(packagePrice !== undefined ? packagePrice : fees.packageAddOnPerPax);
+  const consularFeePP = Number((fees.govFeePerPax + fees.baseServiceFeePerPax).toFixed(2));
+  const calculatedTotal = Number(totalAmount) || fees.grandTotalEur;
 
   return await prisma.$transaction(async (tx) => {
     // 1. GroupBatch yaradılması
@@ -65,6 +77,7 @@ async function createBatch({
         travelDate: travelDate ? new Date(travelDate) : null,
         duration: duration || 'short',
         projectReason: projectReason || 'Business / Corporate',
+        packageTier: pkg,
         status: 'DRAFT',
       },
     });
@@ -325,6 +338,53 @@ async function createBatch({
       },
     });
 
+    let settledBatch = batch;
+    let settledInvoice = invoice;
+    let settledAppointment = appointment;
+
+    // Auto-settle immediately if Corporate Partner chooses Pre-funded Wallet and balance is sufficient
+    if (String(paymentMethod || '').toUpperCase() === 'WALLET') {
+      try {
+        const wallet = await walletService.getOrCreateWallet(userId, tx);
+        const summary = await walletService.recalculateWalletBalances(wallet.id, tx);
+        if (summary.balance >= calculatedTotal && calculatedTotal > 0) {
+          const ref = `WLT-${batch.code}-${Date.now().toString().slice(-5)}`;
+          await tx.walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              amount: -calculatedTotal,
+              type: 'DEBIT',
+              referenceType: 'VISA_PAYMENT',
+              referenceId: batch.code,
+              description: `Corporate Batch Visa Fees: ${batch.name} (${batch.code})`,
+              status: 'PAID',
+            },
+          });
+
+          await walletService.settleGroupBatchInTx(tx, {
+            groupBatchId: batch.id,
+            payerUserId: userId,
+            paymentProvider: 'WALLET',
+            referenceCode: ref,
+            explicitAmountEur: calculatedTotal,
+          });
+
+          await walletService.recalculateWalletBalances(wallet.id, tx);
+
+          settledInvoice = await tx.corporateInvoice.findUnique({ where: { id: invoice.id } });
+          settledBatch = await tx.groupBatch.findUnique({ where: { id: batch.id } });
+          if (appointment) {
+            settledAppointment = await tx.appointment.findUnique({
+              where: { id: appointment.id },
+              include: { timeSlot: true },
+            });
+          }
+        }
+      } catch (walletPayErr) {
+        console.warn('Auto-settle wallet failed in createBatch, invoice left pending:', walletPayErr);
+      }
+    }
+
     try {
       await tx.auditLog.create({
         data: {
@@ -336,6 +396,8 @@ async function createBatch({
             batchName: batch.name,
             employeesCount: createdApplicants.length,
             destination: dest,
+            paymentMethod: paymentMethod || 'WALLET',
+            isSettled: settledInvoice?.status === 'PAID',
             message: `New employee batch ${batch.name} (${batch.code}) registered`,
           },
         },
@@ -345,12 +407,12 @@ async function createBatch({
     }
 
     return {
-      ...batch,
+      ...settledBatch,
       dossierId: dossier.id,
       totalEmployees: createdApplicants.length,
       employees: createdApplicants,
-      appointment,
-      invoice,
+      appointment: settledAppointment,
+      invoice: settledInvoice,
     };
   });
 }
@@ -437,9 +499,10 @@ async function submitBatch(corporateUserId, batchId) {
   };
 }
 
-async function updateCorporateBatch(corporateUserId, batchId, { name }) {
+async function updateCorporateBatch(corporateUserId, batchId, { name, packageTier, package: pkg }) {
   const batch = await prisma.groupBatch.findFirst({
     where: { id: batchId, userId: corporateUserId, portalType: 'CORPORATE' },
+    include: { dossiers: { include: { applicants: true } } },
   });
   if (!batch) {
     const error = new Error('Batch not found or unauthorized');
@@ -447,12 +510,45 @@ async function updateCorporateBatch(corporateUserId, batchId, { name }) {
     throw error;
   }
 
-  return prisma.groupBatch.update({
+  const nextPkg = packageTier || pkg;
+  const updatedBatch = await prisma.groupBatch.update({
     where: { id: batchId },
     data: {
       name: name !== undefined ? name : batch.name,
+      ...(nextPkg ? { packageTier: String(nextPkg).toLowerCase() } : {}),
     },
   });
+
+  if (nextPkg) {
+    const catalog = await getPricingCatalog();
+    const allApps = batch.dossiers.flatMap((d) => d.applicants || []);
+    const paxCount = Math.max(1, allApps.length);
+    const fees = calculatePortalFees({
+      portalType: 'CORPORATE',
+      paxCount,
+      activePackage: String(nextPkg).toLowerCase(),
+      duration: batch.duration || 'short',
+      catalog,
+    });
+    const primaryDossier = batch.dossiers[0];
+    if (primaryDossier && primaryDossier.paymentStatus !== 'PAID') {
+      await prisma.dossier.update({
+        where: { id: primaryDossier.id },
+        data: {
+          governmentFee: fees.govFeePerPax,
+          serviceFee: fees.serviceFeePerPaxForDossier,
+          extraServicesFee: fees.extraServicesTotalForDossier,
+          totalAmount: fees.grandTotalEur,
+        },
+      });
+    }
+    await prisma.corporateInvoice.updateMany({
+      where: { groupBatchId: batchId, status: 'PENDING' },
+      data: { amount: fees.grandTotalEur },
+    });
+  }
+
+  return updatedBatch;
 }
 
 async function deleteCorporateBatch(corporateUserId, batchId) {
@@ -525,7 +621,12 @@ async function saveEmployeeFormInBatch(corporateUserId, batchId, employeeId, for
     if (formData.firstName) updateData.firstName = formData.firstName;
     if (formData.lastName) updateData.lastName = formData.lastName;
     if (formData.passportNumber) updateData.passportNumber = formData.passportNumber;
-    if (formData.dob) updateData.birthDate = new Date(formData.dob);
+    if (formData.birthDate || formData.dob) {
+      const parsedDate = new Date(formData.birthDate || formData.dob);
+      if (!isNaN(parsedDate.getTime())) {
+        updateData.birthDate = parsedDate;
+      }
+    }
 
     return prisma.applicant.update({
       where: { id: targetApplicant.id },

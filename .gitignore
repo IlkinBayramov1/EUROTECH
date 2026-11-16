@@ -10,10 +10,14 @@ yarn-error.log*
 .env.*.local
 
 # File uploads and temporary archives
-uploads/
-archives/
-back/uploads/
-back/archives/
+uploads/*
+!uploads/.gitkeep
+archives/*
+!archives/.gitkeep
+back/uploads/*
+!back/uploads/.gitkeep
+back/archives/*
+!back/archives/.gitkeep
 
 # IDE and OS files
 .DS_Store

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { agentService, dossierService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './AgentApplicantFill.css';
 
 const REQUIRED_DOC_TYPES = [
@@ -179,9 +180,7 @@ export default function AgentApplicantFill() {
             });
 
             if (res.data?.downloadUrl) {
-                const fullUrl = res.data.downloadUrl.startsWith('http')
-                    ? res.data.downloadUrl
-                    : `http://localhost:5000${res.data.downloadUrl}`;
+                const fullUrl = getFileUrl(res.data.downloadUrl);
                 
                 const fileRes = await fetch(fullUrl);
                 if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);

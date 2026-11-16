@@ -19,6 +19,8 @@ export const additionalService = {
   getCatalog: () => apiClient.get('/services/catalog'),
   addService: (payload: AddServicePayload) => apiClient.post('/services/add', payload),
   checkout: (payload: CheckoutServicesPayload) => apiClient.post('/services/checkout', payload),
+  updateDossierPackage: (dossierId: string, payload: { packageId: string; groupBatchId?: string }) =>
+    apiClient.patch(`/services/dossier/${dossierId}/package`, payload),
   removeService: (serviceId: string) => apiClient.delete(`/services/${serviceId}`),
 };
 

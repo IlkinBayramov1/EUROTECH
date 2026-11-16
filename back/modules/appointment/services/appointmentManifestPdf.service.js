@@ -110,22 +110,25 @@ async function generateManifestPdf({ appointmentId, groupBatchId, customGroupInf
   }
 
   // Collect real applicants exclusively from database
-  if (groupBatch && groupBatch.dossiers && groupBatch.dossiers.length > 0) {
-    groupBatch.dossiers.forEach((d) => {
-      if (d.applicants) applicants.push(...d.applicants);
-    });
-    groupName = groupBatch.name;
-    groupCode = groupBatch.code;
+  if (groupBatch) {
+    groupName = groupBatch.name || groupName;
+    groupCode = groupBatch.code || groupCode;
+    if (groupBatch.dossiers && groupBatch.dossiers.length > 0) {
+      groupBatch.dossiers.forEach((d) => {
+        if (d.applicants) applicants.push(...d.applicants);
+      });
+    }
   } else if (appointment && appointment.dossier && appointment.dossier.applicants) {
     applicants = appointment.dossier.applicants;
-    groupName = appointment.dossier.dossierNumber;
-    groupCode = appointment.dossier.dossierNumber;
+    groupName = appointment.dossier.dossierNumber || groupName;
+    groupCode = appointment.dossier.dossierNumber || groupCode;
   }
 
-  if (appointment?.timeSlot) {
-    apptDate = appointment.timeSlot.date ? new Date(appointment.timeSlot.date).toISOString().split('T')[0] : apptDate;
-    apptTime = appointment.timeSlot.startTime || apptTime;
-    apptLocation = appointment.location || appointment.timeSlot.location || apptLocation;
+  const primaryAppt = appointment || groupBatch?.appointments?.[0] || null;
+  if (primaryAppt?.timeSlot) {
+    apptDate = primaryAppt.timeSlot.date ? new Date(primaryAppt.timeSlot.date).toISOString().split('T')[0] : apptDate;
+    apptTime = primaryAppt.timeSlot.startTime || apptTime;
+    apptLocation = primaryAppt.location || primaryAppt.timeSlot.location || apptLocation;
   } else if (groupBatch?.travelDate) {
     apptDate = new Date(groupBatch.travelDate).toISOString().split('T')[0];
   }
@@ -232,6 +235,8 @@ async function generateManifestPdf({ appointmentId, groupBatchId, customGroupInf
     fileName,
     filePath,
     fileUrl: `/uploads/${fileName}`,
+    downloadUrl: `/uploads/${fileName}`,
+    pdfUrl: `/uploads/${fileName}`,
   };
 }
 

@@ -1,11 +1,8 @@
 const { DEFAULT_EUR_TO_AZN_RATE, convertEurToAzn, convertToEur } = require('../config/constants');
+const { getCachedPricingCatalog } = require('../modules/service/pricingConfig.service');
 
 /**
- * Unified Per-Applicant Package Add-On Prices (EUR)
- * Matches Step 2 & Step 5 across Individual, Tour Agent, and Corporate portals:
- * - Standard: €0
- * - Premium: €126 (File Prep €55 + Insurance €35 + Form Assist €24 + Photo €12)
- * - VIP: €257 (Premium €126 + VIP Lounge €81 + Hotel/Flight €30 + Courier €20)
+ * Fallback Per-Applicant Package Add-On Prices (EUR) — overridden dynamically by Admin Pricing Catalog
  */
 const UNIFIED_PACKAGE_PRICES_EUR = {
   standard: 0.0,
@@ -43,6 +40,42 @@ const AGENT_TIER_COMMISSION_EUR = {
   GOLD: 28.0,
   PLATINUM: 32.0,
 };
+
+function getDynamicPriceLookup(catalog) {
+  const cat = catalog || getCachedPricingCatalog();
+  const pkgPrices = { ...UNIFIED_PACKAGE_PRICES_EUR };
+  if (cat && Array.isArray(cat.packages)) {
+    for (const p of cat.packages) {
+      if (p && p.id) {
+        pkgPrices[String(p.id).toLowerCase()] = Number(p.priceEur ?? 0);
+      }
+      if (p && p.code) {
+        pkgPrices[String(p.code).toLowerCase()] = Number(p.priceEur ?? 0);
+      }
+    }
+  }
+
+  const addonPrices = { ...INDIVIDUAL_ADDON_PRICES_EUR };
+  if (cat && Array.isArray(cat.services)) {
+    let hotelPrice = null;
+    let flightPrice = null;
+    for (const s of cat.services) {
+      if (!s) continue;
+      const p = Number(s.priceEur ?? s.price ?? 0);
+      if (s.id) addonPrices[s.id] = p;
+      if (s.wizardKey && s.wizardKey !== 'hotelFlight') {
+        addonPrices[s.wizardKey] = p;
+      }
+      if (s.id === 'HOTEL_BOOKING') hotelPrice = p;
+      if (s.id === 'FLIGHT_BOOKING') flightPrice = p;
+    }
+    if (hotelPrice !== null || flightPrice !== null) {
+      addonPrices.hotelFlight = (hotelPrice ?? 15.0) + (flightPrice ?? 15.0);
+    }
+  }
+
+  return { cat, pkgPrices, addonPrices };
+}
 
 /**
  * Safely parses date strings (YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, ISO) into a valid Date object.
@@ -110,54 +143,64 @@ function parseSafeDate(value, fieldLabel = 'date', { required = false } = {}) {
   return parsed;
 }
 
-function getAgentCommissionRate(tier = 'BRONZE') {
+function getAgentCommissionRate(tier = 'BRONZE', catalog = null) {
   const key = String(tier || 'BRONZE').toUpperCase();
+  const cat = catalog || getCachedPricingCatalog();
+  const dynamicRates = cat?.baseFees?.agentCommissionRates || {};
+  if (dynamicRates[key] !== undefined) {
+    return Number(dynamicRates[key]);
+  }
   return AGENT_TIER_COMMISSION_EUR[key] || 20.0;
 }
 
 /**
- * Calculates unified EUR & AZN fees for Individual, Tour Agent, and Corporate portals.
- * - INDIVIDUAL: €80 consular base per person + selected package/add-ons per person
- * - GROUP_AGENT: €80 consular + €65 B2B processing (€145 base) per person + package (€0 / €126 / €257) per person
- * - CORPORATE: €80 consular + €65 Corporate mobility (€145 base) per person + package (€0 / €126 / €257) per person
+ * Calculates unified EUR & AZN fees for Individual, Tour Agent, and Corporate portals
+ * using the live Admin-managed Pricing Catalog.
  */
 function calculatePortalFees({
   portalType = 'INDIVIDUAL',
   paxCount = 1,
   activePackage = 'standard',
   services = null,
-  baseConsularFee = 80.0,
-  eurToAznRate = DEFAULT_EUR_TO_AZN_RATE,
+  baseConsularFee = null,
+  duration = 'short',
+  eurToAznRate = null,
+  catalog = null,
 } = {}) {
+  const { cat, pkgPrices, addonPrices } = getDynamicPriceLookup(catalog);
+  const bf = cat?.baseFees || {};
+  const resolvedRate = Number(eurToAznRate || bf.eurToAznRate || DEFAULT_EUR_TO_AZN_RATE) || 1.85;
   const count = Math.max(1, Number(paxCount) || 1);
   const pkgKey = String(activePackage || (services && services.activePackage) || 'standard').toLowerCase();
-  const govFeePerPax = Number(baseConsularFee || 80.0);
 
-  let baseServiceFeePerPax = 0.0;
-  if (portalType === 'GROUP_AGENT' || portalType === 'CORPORATE') {
-    baseServiceFeePerPax = 65.0; // €80 gov + €65 B2B service = €145.00 base per person
+  const defaultGovFee =
+    duration === 'long'
+      ? Number(bf.nationalLongStayFeeEur ?? 90.0)
+      : Number(bf.schengenShortStayFeeEur ?? 80.0);
+  const govFeePerPax = baseConsularFee !== null && baseConsularFee !== undefined ? Number(baseConsularFee) : defaultGovFee;
+
+  let baseServiceFeePerPax = Number(bf.individualBaseServiceFeeEur ?? 0.0);
+  if (portalType === 'GROUP_AGENT') {
+    baseServiceFeePerPax = Number(bf.agentBaseServiceFeeEur ?? 65.0);
+  } else if (portalType === 'CORPORATE') {
+    baseServiceFeePerPax = Number(bf.corporateBaseServiceFeeEur ?? 65.0);
   }
 
   let packageAddOnPerPax = 0.0;
   if (pkgKey === 'custom' && services && typeof services === 'object') {
-    ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo'].forEach((k) => {
+    ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo', 'express', 'translation', 'sms'].forEach((k) => {
       if (services[k]) {
-        packageAddOnPerPax += INDIVIDUAL_ADDON_PRICES_EUR[k] || 0;
+        packageAddOnPerPax += addonPrices[k] || 0;
       }
     });
   } else {
-    packageAddOnPerPax = UNIFIED_PACKAGE_PRICES_EUR[pkgKey] ?? 0.0;
-    // Also add standalone extras on Individual if selected outside the bundle
+    packageAddOnPerPax = pkgPrices[pkgKey] ?? 0.0;
+    const matchedPkg = cat?.packages?.find((p) => String(p.id).toLowerCase() === pkgKey);
+    const includedFlags = matchedPkg?.wizardFlags || {};
     if (portalType === 'INDIVIDUAL' && services && typeof services === 'object') {
-      const includedInBundle =
-        pkgKey === 'vip'
-          ? ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo']
-          : pkgKey === 'premium'
-            ? ['filePrep', 'insurance', 'formAssist', 'photo']
-            : [];
-      ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo'].forEach((k) => {
-        if (services[k] && !includedInBundle.includes(k)) {
-          packageAddOnPerPax += INDIVIDUAL_ADDON_PRICES_EUR[k] || 0;
+      ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo', 'express', 'translation', 'sms'].forEach((k) => {
+        if (services[k] && !includedFlags[k]) {
+          packageAddOnPerPax += addonPrices[k] || 0;
         }
       });
     }
@@ -167,9 +210,6 @@ function calculatePortalFees({
   const totalBaseServiceFee = Number((baseServiceFeePerPax * count).toFixed(2));
   const totalPackageAddOnFee = Number((packageAddOnPerPax * count).toFixed(2));
 
-  // For Dossier model:
-  // governmentFee & serviceFee are stored per-passenger on Dossier when computeDossierTotals multiplies by pax,
-  // OR we store per-pax governmentFee & serviceFee and extraServicesFee for add-ons.
   const serviceFeePerPaxForDossier =
     portalType === 'INDIVIDUAL'
       ? baseServiceFeePerPax
@@ -177,15 +217,16 @@ function calculatePortalFees({
 
   const extraServicesTotalForDossier = portalType === 'INDIVIDUAL' ? totalPackageAddOnFee : 0.0;
   const grandTotalEur = Number((totalGovFee + totalBaseServiceFee + totalPackageAddOnFee).toFixed(2));
-  const grandTotalAzn = convertEurToAzn(grandTotalEur, eurToAznRate);
+  const grandTotalAzn = convertEurToAzn(grandTotalEur, resolvedRate);
 
   return {
     paxCount: count,
     currency: 'EUR',
-    eurToAznRate,
+    eurToAznRate: resolvedRate,
     govFeePerPax,
     baseServiceFeePerPax,
     packageAddOnPerPax,
+    serviceFeePerPax: serviceFeePerPaxForDossier,
     serviceFeePerPaxForDossier,
     extraServicesTotalForDossier,
     totalGovFee,
@@ -193,9 +234,10 @@ function calculatePortalFees({
     totalPackageAddOnFee,
     grandTotalEur,
     grandTotalAzn,
+    totalAmount: grandTotalEur,
     totalAmountEur: grandTotalEur,
     totalAmountAzn: grandTotalAzn,
-    convertToEur: (amt, curr) => convertToEur(amt, curr, eurToAznRate),
+    convertToEur: (amt, curr) => convertToEur(amt, curr, resolvedRate),
   };
 }
 

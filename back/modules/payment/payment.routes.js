@@ -25,6 +25,11 @@ router.post('/bank-slip', upload.single('slip'), paymentController.submitBankPay
 router.get('/bank-slips', requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), paymentController.getBankPaymentSlips);
 router.patch('/bank-slip/:receiptId/review', requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), paymentController.reviewBankPaymentSlip);
 
+// EuroTech Pre-Funded Multi-Currency Wallet Engine
+router.get('/wallet/overview', paymentController.getWalletOverview);
+router.post('/wallet/topup', paymentController.topupWallet);
+router.post('/wallet/pay', paymentController.payWithWallet);
+
 // Corporate Subscriptions
 router.post('/subscribe-saas', paymentController.createSaaSSubscription);
 

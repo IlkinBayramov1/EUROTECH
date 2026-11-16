@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService, documentService } from '@/shared/api/services';
 import { storage } from '@/shared/utils/storage';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientDocuments.css';
 
 type DocStatus = 'missing' | 'review' | 'verified' | 'rejected';
@@ -23,157 +25,109 @@ interface DocumentItem {
     isInheritedFromFamily?: boolean;
 }
 
-const DEFAULT_REQUIREMENTS: DocumentItem[] = [
-    {
-        id: 'passport',
-        docType: 'PASSPORT',
-        title: 'Valid Passport Copy',
-        description: 'Provide a clear, colored scan of the main passport page containing your photo and personal details. Must be valid for at least 3 months beyond your return date.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'photo',
-        docType: 'BIOMETRIC_PHOTO',
-        title: 'Biometric Photograph',
-        description: 'Recent (no older than 6 months) color photograph measuring 3.5 x 4.5 cm. Light background, neutral expression, adherence to ICAO standards.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'bank',
-        docType: 'BANK_STATEMENT',
-        title: 'Proof of Financial Means',
-        description: 'Official bank statements covering the last 3 consecutive months with the bank\'s stamp and signature, proving sufficient funds.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M12 12h.01" /><path d="M17 12h.01" /><path d="M7 12h.01" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'employment',
-        docType: 'EMPLOYMENT_LETTER',
-        title: 'Employment / Leave Letter',
-        description: 'An official letter from your employer stating your position, salary, and approved leave dates. Must include company letterhead and stamp.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'accommodation',
-        docType: 'ACCOMMODATION',
-        title: 'Proof of Accommodation',
-        description: 'Confirmed hotel reservation or a letter of invitation from the host covering the entire duration of your stay in the Schengen area.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'flight',
-        docType: 'FLIGHT_ITINERARY',
-        title: 'Flight Itinerary',
-        description: 'Round-trip flight reservation or itinerary under your name. (Purchasing the actual ticket before visa approval is not recommended).',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>,
-        isMandatory: true,
-    },
-    {
-        id: 'insurance',
-        docType: 'INSURANCE',
-        title: 'Travel Medical Insurance',
-        description: 'Insurance certificate covering the entire Schengen area with a minimum coverage of €30,000 for medical emergencies.',
-        status: 'missing',
-        icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M8 11h8" /><path d="M12 7v8" /></svg>,
-        isMandatory: true,
-    }
-];
-
 const SHARABLE_TYPES = ['ACCOMMODATION', 'INSURANCE', 'FLIGHT_ITINERARY'];
 
+function getDocumentIcon(code: string) {
+    const c = (code || '').toUpperCase();
+    if (c.includes('PASSPORT')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /></svg>;
+    }
+    if (c.includes('PHOTO')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>;
+    }
+    if (c.includes('BANK')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M12 12h.01" /><path d="M17 12h.01" /><path d="M7 12h.01" /></svg>;
+    }
+    if (c.includes('EMPLOYMENT') || c.includes('WORK')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>;
+    }
+    if (c.includes('ACCOMMODATION') || c.includes('HOTEL')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>;
+    }
+    if (c.includes('FLIGHT') || c.includes('TICKET') || c.includes('ITINERARY')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>;
+    }
+    if (c.includes('INSURANCE')) {
+        return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M8 11h8" /><path d="M12 7v8" /></svg>;
+    }
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>;
+}
+
 export default function ClientDocuments() {
+    const navigate = useNavigate();
     const { showSuccess, showError } = useToast();
     const [dossier, setDossier] = useState<any>(null);
     const [dossierId, setDossierId] = useState<string>('');
-    const [selectedApplicant, setSelectedApplicant] = useState('app-1');
+    const [selectedApplicant, setSelectedApplicant] = useState<string>('');
     const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
     const [exportingPdf, setExportingPdf] = useState(false);
     const [exportingExcel, setExportingExcel] = useState(false);
     const [previewDoc, setPreviewDoc] = useState<DocumentItem | null>(null);
     const [zoomLevel, setZoomLevel] = useState(1);
+    const [loading, setLoading] = useState(true);
 
-    const [applicants, setApplicants] = useState([
-        { id: 'app-1', name: 'Primary Applicant' },
-    ]);
+    const [applicants, setApplicants] = useState<Array<{ id: string; name: string }>>([]);
+    const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
-    const [documents, setDocuments] = useState<DocumentItem[]>(DEFAULT_REQUIREMENTS);
-
-    // Map documents for the chosen applicant
+    // Map documents dynamically from database requiredDocTypes
     const syncDocumentsForApplicant = useCallback((targetAppId: string, currentDossier: any) => {
         if (!currentDossier) return;
 
         const allDocs = currentDossier.documents || [];
+        const requiredDocTypes = currentDossier.visaCategory?.requiredDocTypes || [];
 
-        // If this dossier has documents, map direct or family-shared ones
-        if (allDocs.length > 0) {
-            setDocuments(prev => prev.map(req => {
-                const directDoc = allDocs.find(
-                    (d: any) => d.applicantId === targetAppId &&
-                    (d.requiredDocumentType === req.docType || d.requiredDocumentType?.toLowerCase() === req.docType.toLowerCase())
-                );
+        const builtItems: DocumentItem[] = requiredDocTypes.map((req: any) => {
+            const docCode = req.code;
+            const directDoc = allDocs.find(
+                (d: any) => d.applicantId === targetAppId &&
+                (d.requiredDocumentType === docCode || d.requiredDocumentType?.toLowerCase() === docCode.toLowerCase())
+            );
 
-                const sharedDoc = !directDoc && SHARABLE_TYPES.includes(req.docType)
-                    ? allDocs.find((d: any) =>
-                        d.isSharedWithFamily &&
-                        (d.requiredDocumentType === req.docType || d.requiredDocumentType?.toLowerCase() === req.docType.toLowerCase())
-                      )
-                    : null;
+            const sharedDoc = !directDoc && SHARABLE_TYPES.includes(docCode)
+                ? allDocs.find((d: any) =>
+                    d.isSharedWithFamily &&
+                    (d.requiredDocumentType === docCode || d.requiredDocumentType?.toLowerCase() === docCode.toLowerCase())
+                  )
+                : null;
 
-                const found = directDoc || sharedDoc;
+            const found = directDoc || sharedDoc;
 
-                if (found) {
-                    let status: DocStatus = 'review';
-                    if (found.status === 'VERIFIED') status = 'verified';
-                    else if (found.status === 'NEEDS_CORRECTION' || found.status === 'REJECTED') status = 'rejected';
-                    else status = 'review';
+            let status: DocStatus = 'missing';
+            if (found) {
+                if (found.status === 'VERIFIED') status = 'verified';
+                else if (found.status === 'NEEDS_CORRECTION' || found.status === 'REJECTED') status = 'rejected';
+                else status = 'review';
+            }
 
-                    return {
-                        ...req,
-                        status,
-                        backendDocId: found.id,
-                        fileName: found.fileName,
-                        fileSize: found.fileSize,
-                        fileUrl: found.fileUrl,
-                        feedback: found.operatorNotes || undefined,
-                        isSharedWithFamily: Boolean(found.isSharedWithFamily),
-                        isInheritedFromFamily: Boolean(sharedDoc && !directDoc),
-                    };
-                } else {
-                    return {
-                        ...req,
-                        status: 'missing' as DocStatus,
-                        backendDocId: undefined,
-                        fileName: undefined,
-                        fileSize: undefined,
-                        fileUrl: undefined,
-                        feedback: undefined,
-                        isSharedWithFamily: false,
-                        isInheritedFromFamily: false,
-                    };
-                }
-            }));
-        } else {
-            // First time visit / demo state: keep DEFAULT_REQUIREMENTS
-            setDocuments(DEFAULT_REQUIREMENTS);
-        }
+            return {
+                id: `doc-${docCode.toLowerCase()}`,
+                backendDocId: found?.id,
+                docType: docCode,
+                title: req.nameEn || req.nameAz || docCode,
+                description: req.nameAz ? `${req.nameEn} (${req.nameAz})` : req.nameEn,
+                status,
+                icon: getDocumentIcon(docCode),
+                feedback: found?.operatorNotes || undefined,
+                fileName: found?.fileName,
+                fileSize: found?.fileSize,
+                fileUrl: found?.fileUrl,
+                isMandatory: req.isRequired !== false,
+                isSharedWithFamily: Boolean(found?.isSharedWithFamily),
+                isInheritedFromFamily: Boolean(sharedDoc && !directDoc),
+            };
+        });
+
+        setDocuments(builtItems);
     }, []);
 
     // Load active dossier from backend
     const loadDossierData = useCallback(async () => {
+        setLoading(true);
         try {
             const res = await dossierService.getMyDossiers();
-            if (res.data?.dossiers && res.data.dossiers.length > 0) {
-                const active = res.data.dossiers[0];
+            const dossiers = res.data?.dossiers || [];
+            if (dossiers.length > 0) {
+                const active = dossiers[0];
                 setDossier(active);
                 setDossierId(active.id);
 
@@ -186,11 +140,23 @@ export default function ClientDocuments() {
                     setSelectedApplicant(mappedApps[0].id);
                     syncDocumentsForApplicant(mappedApps[0].id, active);
                 } else {
-                    syncDocumentsForApplicant('app-1', active);
+                    setApplicants([]);
+                    setDocuments([]);
                 }
+            } else {
+                setDossier(null);
+                setDossierId('');
+                setApplicants([]);
+                setDocuments([]);
             }
         } catch (err) {
             console.warn('Documents dossier load error:', err);
+            setDossier(null);
+            setDossierId('');
+            setApplicants([]);
+            setDocuments([]);
+        } finally {
+            setLoading(false);
         }
     }, [syncDocumentsForApplicant]);
 
@@ -221,7 +187,7 @@ export default function ClientDocuments() {
             let currentDossierId = dossierId;
             let currentApplicantId = selectedApplicant;
 
-            if (!currentDossierId || !currentApplicantId || currentApplicantId === 'app-1') {
+            if (!currentDossierId || !currentApplicantId) {
                 try {
                     const freshRes = await dossierService.getMyDossiers();
                     const dossiers = freshRes.data?.dossiers || [];
@@ -240,7 +206,7 @@ export default function ClientDocuments() {
                 }
             }
 
-            if (currentDossierId && currentApplicantId && currentApplicantId !== 'app-1') {
+            if (currentDossierId && currentApplicantId) {
                 const isSharable = SHARABLE_TYPES.includes(docType);
                 const res = await documentService.uploadDocument({
                     dossierId: currentDossierId,
@@ -347,7 +313,7 @@ export default function ClientDocuments() {
                 const res = await documentService.getSignedUrl(doc.backendDocId);
                 const downloadPath = res.data?.signedUrl;
                 if (downloadPath) {
-                    const fullUrl = downloadPath.startsWith('http') ? downloadPath : `http://localhost:5000${downloadPath}`;
+                    const fullUrl = getFileUrl(downloadPath);
                     const a = document.createElement('a');
                     a.href = fullUrl;
                     a.download = doc.fileName || `${doc.docType.toLowerCase()}.pdf`;
@@ -360,7 +326,7 @@ export default function ClientDocuments() {
             }
 
             if (doc.fileUrl) {
-                const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl}`;
+                const fullUrl = getFileUrl(doc.fileUrl);
                 const a = document.createElement('a');
                 a.href = fullUrl;
                 a.download = doc.fileName || `${doc.docType.toLowerCase()}.pdf`;
@@ -395,7 +361,7 @@ export default function ClientDocuments() {
         setExportingPdf(true);
         try {
             const token = storage.getToken();
-            const res = await fetch(`http://localhost:5000/api/v1/documents/dossier/${dossierId}/export-checklist?format=pdf`, {
+            const res = await fetch(getFileUrl(`/api/v1/documents/dossier/${dossierId}/export-checklist?format=pdf`), {
                 headers: {
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 }
@@ -436,7 +402,7 @@ export default function ClientDocuments() {
         setExportingExcel(true);
         try {
             const token = storage.getToken();
-            const res = await fetch(`http://localhost:5000/api/v1/documents/dossier/${dossierId}/export-checklist?format=excel`, {
+            const res = await fetch(getFileUrl(`/api/v1/documents/dossier/${dossierId}/export-checklist?format=excel`), {
                 headers: {
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 }
@@ -480,6 +446,51 @@ export default function ClientDocuments() {
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
         return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     };
+
+    if (loading) {
+        return (
+            <div className="documents-content fade-in" style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{ width: 36, height: 36, border: '3px solid #E2E8F0', borderTopColor: '#2563EB', borderRadius: '50%', margin: '0 auto 16px', animation: 'spin 1s linear infinite' }}></div>
+                <p style={{ color: '#64748B', fontWeight: 600 }}>Loading official visa requirements...</p>
+            </div>
+        );
+    }
+
+    if (!dossier || !dossierId) {
+        return (
+            <div className="documents-content fade-in">
+                <div className="docs-header-premium">
+                    <div className="header-titles">
+                        <h1 className="docs-title">Document Repository</h1>
+                        <p className="docs-subtitle">Securely upload and manage official documentation required for visa processing.</p>
+                    </div>
+                </div>
+
+                <div className="dash-card-premium onboarding-banner-card" style={{ marginTop: '24px', padding: '48px 32px', textAlign: 'center', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(37, 99, 235, 0.08)', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '32px', height: '32px' }}>
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="12" y1="18" x2="12" y2="12" />
+                                <polyline points="9 15 12 18 15 15" />
+                            </svg>
+                        </div>
+                        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F1E36', marginBottom: '10px' }}>
+                            No Active Application Dossier Found
+                        </h2>
+                        <p style={{ color: '#64748B', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '24px' }}>
+                            You do not have an active European visa dossier yet. To upload passport scans, financial statements, and supporting documents, please begin your visa application first.
+                        </p>
+                        <button className="btn-hero-primary pulse-btn" onClick={() => navigate('/individual/wizard')} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Start New Application
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="documents-content fade-in">
@@ -739,13 +750,13 @@ export default function ClientDocuments() {
                                                 <div className="real-preview-container">
                                                     {(previewDoc.fileName?.match(/\.(jpg|jpeg|png|webp)$/i) || previewDoc.fileUrl.match(/\.(jpg|jpeg|png|webp)/i)) ? (
                                                         <img
-                                                            src={previewDoc.fileUrl.startsWith('http') ? previewDoc.fileUrl : `http://localhost:5000${previewDoc.fileUrl}`}
+                                                            src={getFileUrl(previewDoc.fileUrl)}
                                                             alt={previewDoc.title}
                                                             className="real-preview-img"
                                                         />
                                                     ) : (
                                                         <iframe
-                                                            src={`${previewDoc.fileUrl.startsWith('http') ? previewDoc.fileUrl : `http://localhost:5000${previewDoc.fileUrl}`}#toolbar=0`}
+                                                            src={`${getFileUrl(previewDoc.fileUrl)}#toolbar=0`}
                                                             className="real-preview-iframe"
                                                             title={previewDoc.title}
                                                         />

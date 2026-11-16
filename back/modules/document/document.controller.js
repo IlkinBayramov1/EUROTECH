@@ -1,5 +1,6 @@
 const documentService = require('./document.service');
 const ApiResponse = require('../../core/api.response');
+const { sendDownloadSafely } = require('../../utils/download.util');
 
 async function uploadDocument(req, res, next) {
   try {
@@ -113,8 +114,8 @@ async function exportChecklist(req, res, next) {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(csvContent);
     } else {
-      const { filePath, fileName } = await documentService.generateChecklistPdf(dossierId, req.user);
-      return res.download(filePath, fileName);
+      const { filePath, fileName, pdfBytes } = await documentService.generateChecklistPdf(dossierId, req.user);
+      return sendDownloadSafely(res, { filePath, fileName, buffer: pdfBytes, contentType: 'application/pdf' });
     }
   } catch (error) {
     const statusCode = error.statusCode || 400;

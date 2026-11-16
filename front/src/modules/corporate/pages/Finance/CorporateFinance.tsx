@@ -4,6 +4,7 @@ import { corporateService, DepartmentItem } from '@/shared/api/services/corporat
 import { paymentService } from '@/shared/api/services/payment.service';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './CorporateFinance.css';
 
 interface Transaction {
@@ -185,8 +186,7 @@ export default function CorporateFinance() {
         }
 
         if (downloadUrl) {
-            const apiOrigin = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1').replace(/\/api\/v1\/?$/, '');
-            const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `${apiOrigin}${downloadUrl.startsWith('/') ? '' : '/'}${downloadUrl}`;
+            const fullUrl = getFileUrl(downloadUrl);
             const link = document.createElement('a');
             link.href = fullUrl;
             link.target = '_blank';
@@ -212,10 +212,12 @@ export default function CorporateFinance() {
                     return;
                 }
 
-                await paymentService.payWithWallet({
+                const payRes: any = await paymentService.payWithWallet({
                     invoiceId: selectedInvoice.id,
                     groupBatchId: selectedInvoice.batchId,
                 });
+                const updatedBal = Number(payRes?.data?.newBalance ?? payRes?.newBalance ?? (walletBalance - selectedInvoice.amount));
+                setWalletBalance(updatedBal);
                 showSuccess('Payment settled from Company Wallet! Biometric appointments confirmed.');
                 await loadFinanceData();
             } else if (paymentMethod === 'invoice') {

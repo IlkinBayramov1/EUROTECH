@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const stripe = require('stripe')(require('../../config/env').STRIPE_SECRET_KEY);
 const prisma = require('../../config/db');
 const env = require('../../config/env');
@@ -8,6 +11,177 @@ const { archiveDossierFiles } = require('../../utils/zip.util');
 const notificationService = require('../notification/notification.service');
 const localBankAdapter = require('./adapters/localBankAdapter');
 const walletService = require('./wallet.service');
+
+function sanitizePdfText(text) {
+  if (!text) return '';
+  const charMap = {
+    'ə': 'a', 'Ə': 'A',
+    'ı': 'i', 'İ': 'I',
+    'ş': 's', 'Ş': 'S',
+    'ç': 'c', 'Ç': 'C',
+    'ğ': 'g', 'Ğ': 'G',
+    'ö': 'o', 'Ö': 'O',
+    'ü': 'u', 'Ü': 'U',
+    '₼': 'AZN ', '€': 'EUR ',
+  };
+  return String(text)
+    .replace(/[əƏıİşŞçÇğĞöÖüÜ₼€]/g, (m) => charMap[m] || m)
+    .replace(/[^\x20-\x7E]/g, ' ');
+}
+
+/**
+ * Generates an official A4 Bank Wire Transfer Receipt Voucher PDF when a receipt was submitted
+ * without a physical scan or when the physical file is missing on local storage.
+ */
+async function generateBankSlipVoucherPdf(receipt) {
+  const uploadDir = path.resolve(env.UPLOAD_DIR);
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([595.28, 841.89]); // A4
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const meta = receipt.metadataJson && typeof receipt.metadataJson === 'object' ? receipt.metadataJson : {};
+  const refCode = sanitizePdfText(receipt.referenceCode || receipt.id || 'REF-WIRE');
+  const amountStr = `${Number(receipt.amount || 0).toFixed(2)} ${sanitizePdfText(receipt.currency || 'EUR')}`;
+  const targetStr = sanitizePdfText(
+    receipt.dossier?.dossierNumber
+      ? `Dossier ${receipt.dossier.dossierNumber}`
+      : receipt.groupBatch?.code
+        ? `Group Batch ${receipt.groupBatch.code}`
+        : (receipt.purpose || 'WALLET_TOPUP').replace(/_/g, ' ')
+  );
+  const senderStr = sanitizePdfText(
+    meta.senderName || receipt.user?.companyName || receipt.user?.fullName || 'Authorized Payer'
+  );
+  const emailStr = sanitizePdfText(receipt.user?.email || '—');
+  const bankStr = sanitizePdfText(meta.bankName || 'Local / International Wire Transfer');
+  const statusStr = sanitizePdfText(
+    receipt.status === 'PAID' ? 'APPROVED (RECONCILED)' : receipt.status === 'REFUNDED' ? 'REJECTED' : receipt.status || 'PENDING REVIEW'
+  );
+  const dateStr = receipt.createdAt
+    ? new Date(receipt.createdAt).toISOString().replace('T', ' ').substring(0, 19) + ' UTC'
+    : new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+
+  // Header Banner
+  page.drawRectangle({
+    x: 40,
+    y: 735,
+    width: 515.28,
+    height: 68,
+    color: rgb(0.06, 0.12, 0.22),
+  });
+
+  page.drawText('EUROTECH CONSULAR & FINANCIAL CLEARING HOUSE', {
+    x: 56,
+    y: 774,
+    size: 13,
+    font: fontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  page.drawText('OFFICIAL BANK WIRE TRANSFER RECEIPT VOUCHER', {
+    x: 56,
+    y: 752,
+    size: 10,
+    font: fontReg,
+    color: rgb(0.75, 0.85, 0.98),
+  });
+
+  // Main Voucher Frame
+  page.drawRectangle({
+    x: 40,
+    y: 350,
+    width: 515.28,
+    height: 365,
+    borderColor: rgb(0.8, 0.84, 0.9),
+    borderWidth: 1,
+    color: rgb(0.98, 0.99, 1),
+  });
+
+  const rows = [
+    ['Voucher / Reference Code', refCode],
+    ['Transfer Amount & Currency', amountStr],
+    ['Payment Purpose / Target', targetStr],
+    ['Payer / Sender Name', senderStr],
+    ['Account Email', emailStr],
+    ['Originating Bank', bankStr],
+    ['Submission Timestamp', dateStr],
+    ['Clearing Status', statusStr],
+  ];
+
+  let yPos = 685;
+  for (const [label, value] of rows) {
+    page.drawText(sanitizePdfText(label.toUpperCase()), {
+      x: 58,
+      y: yPos,
+      size: 9,
+      font: fontBold,
+      color: rgb(0.38, 0.45, 0.55),
+    });
+    page.drawText(sanitizePdfText(value || '—'), {
+      x: 240,
+      y: yPos,
+      size: 10.5,
+      font: fontBold,
+      color: rgb(0.06, 0.12, 0.22),
+    });
+    page.drawLine({
+      start: { x: 56, y: yPos - 12 },
+      end: { x: 538, y: yPos - 12 },
+      thickness: 0.6,
+      color: rgb(0.88, 0.91, 0.95),
+    });
+    yPos -= 38;
+  }
+
+  if (receipt.adminNotes) {
+    page.drawText('TREASURY / OFFICER REMARKS:', {
+      x: 58,
+      y: yPos - 4,
+      size: 9,
+      font: fontBold,
+      color: rgb(0.38, 0.45, 0.55),
+    });
+    page.drawText(sanitizePdfText(receipt.adminNotes).substring(0, 95), {
+      x: 58,
+      y: yPos - 20,
+      size: 9.5,
+      font: fontReg,
+      color: rgb(0.15, 0.2, 0.3),
+    });
+  }
+
+  page.drawText(
+    'This electronic voucher is generated by the EuroTech Financial Ledger for audit and consular verification.',
+    {
+      x: 42,
+      y: 325,
+      size: 8.5,
+      font: fontReg,
+      color: rgb(0.45, 0.5, 0.58),
+    }
+  );
+
+  const pdfBytes = await pdfDoc.save();
+  const buffer = Buffer.from(pdfBytes);
+  const safeRef = String(receipt.referenceCode || receipt.id || 'slip').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `bank_voucher_${safeRef}.pdf`;
+  const filePath = path.join(uploadDir, fileName);
+
+  fs.writeFileSync(filePath, buffer);
+
+  return {
+    filePath,
+    fileName,
+    fileUrl: `/uploads/${fileName}`,
+    buffer,
+    contentType: 'application/pdf',
+  };
+}
 
 /**
  * Fulfills a dossier payment once confirmed via Stripe, Local Bank, Wallet, or Bank Slip
@@ -541,23 +715,51 @@ async function submitBankPaymentSlip({
     purpose ||
     (resolvedGroupBatchId ? 'GROUP_BATCH_PAYMENT' : dossierId ? 'DOSSIER_PAYMENT' : 'WALLET_TOPUP');
 
+  const resolvedRefCode = referenceCode || `REF-EUR-${Date.now()}`;
+  const resolvedAmount = Number(amount) || (dossier ? dossier.totalAmount : 0);
+  const resolvedCurrency = currency || 'EUR';
+  const metadataJson = {
+    bankName: bankName || null,
+    depositDate: depositDate ? new Date(depositDate).toISOString() : null,
+    senderName: senderName || null,
+    invoiceId: invoiceId || null,
+  };
+
+  let finalFileUrl = fileUrl;
+  let finalFileName = fileName;
+
+  if (!finalFileUrl || finalFileUrl.includes('bank-slip-placeholder')) {
+    try {
+      const voucher = await generateBankSlipVoucherPdf({
+        referenceCode: resolvedRefCode,
+        amount: resolvedAmount,
+        currency: resolvedCurrency,
+        purpose: resolvedPurpose,
+        status: 'PENDING',
+        createdAt: new Date(),
+        metadataJson,
+        dossier,
+      });
+      finalFileUrl = voucher.fileUrl;
+      finalFileName = voucher.fileName;
+    } catch (err) {
+      finalFileUrl = '/uploads/bank-slip-placeholder.pdf';
+      finalFileName = 'bank-slip.pdf';
+    }
+  }
+
   const receipt = await prisma.bankPaymentReceipt.create({
     data: {
       dossierId: dossierId || null,
       groupBatchId: resolvedGroupBatchId,
       userId,
-      amount: Number(amount) || (dossier ? dossier.totalAmount : 0),
-      currency: currency || 'EUR',
-      referenceCode: referenceCode || `REF-EUR-${Date.now()}`,
-      fileUrl: fileUrl || '/uploads/bank-slip-placeholder.pdf',
-      fileName: fileName || 'bank-slip.pdf',
+      amount: resolvedAmount,
+      currency: resolvedCurrency,
+      referenceCode: resolvedRefCode,
+      fileUrl: finalFileUrl,
+      fileName: finalFileName || 'bank-slip.pdf',
       purpose: resolvedPurpose,
-      metadataJson: {
-        bankName: bankName || null,
-        depositDate: depositDate ? new Date(depositDate).toISOString() : null,
-        senderName: senderName || null,
-        invoiceId: invoiceId || null,
-      },
+      metadataJson,
       status: 'PENDING',
     },
   });
@@ -619,6 +821,18 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
 
   if (isApproved && receipt.status === 'PAID') {
     const err = new Error('This bank payment slip has already been approved and reconciled.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isApproved && receipt.status === 'PAID') {
+    const err = new Error('This bank payment slip has already been approved and settled. It cannot be rejected.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!isApproved && receipt.status === 'REFUNDED') {
+    const err = new Error('This bank payment slip has already been rejected.');
     err.statusCode = 400;
     throw err;
   }
@@ -711,21 +925,26 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
       }
     }
 
-    await tx.auditLog.create({
-      data: {
-        userId: adminUserId,
-        action: 'BANK_SLIP_REVIEWED',
-        details: {
-          receiptId: receipt.id,
-          purpose: receipt.purpose,
-          dossierId: receipt.dossierId,
-          groupBatchId: receipt.groupBatchId,
-          amountEur,
-          decision: isApproved ? 'APPROVED' : 'REJECTED',
-          notes: adminNotes || null,
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId: adminUserId || null,
+          action: 'BANK_SLIP_REVIEWED',
+          details: {
+            receiptId: receipt.id,
+            purpose: receipt.purpose,
+            dossierId: receipt.dossierId,
+            groupBatchId: receipt.groupBatchId,
+            amountEur,
+            status: isApproved ? 'APPROVED' : 'REJECTED',
+            decision: isApproved ? 'APPROVED' : 'REJECTED',
+            notes: adminNotes || null,
+          },
         },
-      },
-    });
+      });
+    } catch (auditErr) {
+      console.warn('Audit log creation failed for bank slip review:', auditErr.message);
+    }
 
     return updated;
   });
@@ -740,6 +959,58 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
   }
 
   return updatedReceipt;
+}
+
+/**
+ * Resolves the physical receipt file for a BankPaymentReceipt or dynamically generates
+ * an Official Bank Wire Transfer Receipt Voucher PDF if the file was submitted without an attachment
+ * or is missing on local storage.
+ */
+async function getBankSlipFile(receiptId) {
+  const receipt = await prisma.bankPaymentReceipt.findUnique({
+    where: { id: receiptId },
+    include: {
+      user: { select: { id: true, fullName: true, email: true, companyName: true, role: true } },
+      dossier: { select: { id: true, dossierNumber: true, totalAmount: true, status: true } },
+      groupBatch: { select: { id: true, code: true, name: true, status: true } },
+    },
+  });
+
+  if (!receipt) {
+    const err = new Error('Bank payment receipt not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const uploadDir = path.resolve(env.UPLOAD_DIR);
+  const rawUrl = String(receipt.fileUrl || '');
+  const baseName = rawUrl ? path.basename(rawUrl) : '';
+  const diskPath = baseName ? path.join(uploadDir, baseName) : '';
+  const isPlaceholder =
+    !baseName ||
+    baseName === 'bank-slip-placeholder.pdf' ||
+    baseName === 'bank-slip.pdf';
+
+  if (diskPath && !isPlaceholder && fs.existsSync(diskPath)) {
+    const stat = fs.statSync(diskPath);
+    const ext = (receipt.fileName || baseName).split('.').pop()?.toLowerCase();
+    const isImage = ext === 'png' || ext === 'jpg' || ext === 'jpeg';
+    // Use existing physical file if it is an image or a real PDF (> 450 bytes)
+    if (isImage || stat.size > 450) {
+      const contentType =
+        ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'application/pdf';
+      const buffer = fs.readFileSync(diskPath);
+      return {
+        filePath: diskPath,
+        fileName: receipt.fileName || baseName,
+        buffer,
+        contentType,
+      };
+    }
+  }
+
+  // Generate an official Bank Wire Transfer Voucher PDF with the receipt's full ledger details
+  return generateBankSlipVoucherPdf(receipt);
 }
 
 /**
@@ -776,6 +1047,8 @@ module.exports = {
   submitBankPaymentSlip,
   getBankPaymentSlips,
   reviewBankPaymentSlip,
+  getBankSlipFile,
+  generateBankSlipVoucherPdf,
   createSaaSSubscription,
   fulfillDossierPayment,
 };

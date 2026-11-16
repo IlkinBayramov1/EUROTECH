@@ -1,7 +1,10 @@
 const prisma = require('../../../config/db');
 const pdfUtil = require('../../../utils/pdf.util');
+const { calculatePortalFees, getAgentCommissionRate } = require('../../../utils/finance.util');
+const { getPricingCatalog } = require('../../service/pricingConfig.service');
 
 async function getAgentWallet(userId) {
+  const catalog = await getPricingCatalog();
   let wallet = await prisma.wallet.findUnique({
     where: { userId },
     include: {
@@ -28,12 +31,7 @@ async function getAgentWallet(userId) {
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } });
   const tier = user?.agentTier || 'BRONZE';
-
-  let ratePerPax = 20.0;
-  if (tier === 'BRONZE') ratePerPax = 20.0;
-  else if (tier === 'SILVER') ratePerPax = 25.0;
-  else if (tier === 'GOLD') ratePerPax = 28.0;
-  else if (tier === 'PLATINUM') ratePerPax = 32.0;
+  const ratePerPax = getAgentCommissionRate(tier, catalog);
 
   // Retrieve all groups for this agent with dossiers and applicants
   const allGroups = await prisma.groupBatch.findMany({
@@ -169,23 +167,37 @@ async function getAgentWallet(userId) {
     });
   }
 
-  // Build group invoices & consular payments list
+  // Build group invoices & consular payments list using dynamic Admin catalog
   const groupInvoices = allGroups.map((g) => {
     const primaryDossier = g.dossiers?.[0];
-    const paxCount = g.dossiers.reduce((acc, d) => acc + (d.applicants ? d.applicants.length : 0), 0);
-    const govFee = primaryDossier ? (primaryDossier.governmentFee || 80.0) * (paxCount || 1) : 80.0 * (paxCount || 1);
-    const srvFee = primaryDossier ? (primaryDossier.serviceFee || 90.0) * (paxCount || 1) : 90.0 * (paxCount || 1);
-    const totalAmount = govFee + srvFee;
+    const allApps = g.dossiers.flatMap((d) => d.applicants || []);
+    const paxCount = Math.max(1, allApps.length);
+    const pkg = g.packageTier || allApps[0]?.formDataJson?.package || 'standard';
+    const fees = calculatePortalFees({
+      portalType: 'GROUP_AGENT',
+      paxCount,
+      activePackage: pkg,
+      duration: g.duration || 'short',
+      catalog,
+    });
+    const govFee = primaryDossier?.governmentFee ? Number(primaryDossier.governmentFee) * paxCount : fees.totalGovFee;
+    const srvFee = primaryDossier?.serviceFee ? Number(primaryDossier.serviceFee) * paxCount : fees.totalBaseServiceFee + fees.totalPackageAddOnFee;
+    const totalAmount = primaryDossier?.totalAmount && Number(primaryDossier.totalAmount) > 0
+      ? Number(primaryDossier.totalAmount)
+      : fees.grandTotalEur;
 
     return {
       groupId: g.id,
+      dossierId: primaryDossier?.id || null,
       groupCode: g.code,
       groupName: g.name,
       destination: g.destination,
-      paxCount,
+      package: pkg,
+      paxCount: allApps.length,
       governmentFee: govFee,
       serviceFee: srvFee,
       totalAmount,
+      estimatedCommissionEur: Number((allApps.length * ratePerPax).toFixed(2)),
       currency: 'EUR',
       paymentStatus: primaryDossier?.paymentStatus || 'PENDING',
       groupStatus: g.status,

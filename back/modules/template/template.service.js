@@ -1,11 +1,12 @@
 const prisma = require('../../config/db');
 const cacheService = require('../../services/cache.service');
+const { bootstrapSystemData } = require('../../core/bootstrap.service');
 
 async function getActiveCountries() {
   return cacheService.getOrSet(
     'templates:countries:active',
     async () => {
-      return prisma.country.findMany({
+      let countries = await prisma.country.findMany({
         where: { isActive: true },
         select: {
           id: true,
@@ -16,6 +17,23 @@ async function getActiveCountries() {
           flagUrl: true,
         },
       });
+
+      if (!countries || countries.length === 0) {
+        await bootstrapSystemData(prisma);
+        countries = await prisma.country.findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            code: true,
+            nameAz: true,
+            nameEn: true,
+            nameRu: true,
+            flagUrl: true,
+          },
+        });
+      }
+
+      return countries;
     },
     3600 // 1 hour TTL
   );
@@ -27,16 +45,9 @@ async function getVisaCategoriesByCountry(countryId) {
     async () => {
       return prisma.visaCategory.findMany({
         where: { countryId },
-        select: {
-          id: true,
-          code: true,
-          nameAz: true,
-          nameEn: true,
-          nameRu: true,
-          baseFee: true,
-          descriptionAz: true,
-          descriptionEn: true,
-          descriptionRu: true,
+        include: {
+          requiredDocTypes: true,
+          dynamicFields: true,
         },
       });
     },

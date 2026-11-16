@@ -1,6 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
-const { encryptAES256GCM, hashHMACSHA256 } = require('../utils/crypto.util');
 
 const prisma = new PrismaClient();
 
@@ -97,19 +96,19 @@ async function ensureVisaCategory(countryId, categoryDef) {
 }
 
 async function main() {
-  console.log('Seeding EUROTECH initial database data...');
+  console.log('Seeding EUROTECH production database (Core Admin & System Config only)...');
 
+  // 1. Single Master Admin Account
   const adminPassword = await bcrypt.hash('admin123', 10);
-  const operatorPassword = await bcrypt.hash('operator123', 10);
-  const managerPassword = await bcrypt.hash('manager123', 10);
-  const userPassword = await bcrypt.hash('user123', 10);
-
-  const encryptedSamplePassport = encryptAES256GCM('C12345678');
-  const hashedSamplePassport = hashHMACSHA256('C12345678');
-
-  await prisma.user.upsert({
+  const adminUser = await prisma.user.upsert({
     where: { email: 'admin@eurotech.services' },
-    update: { accountStatus: 'ACTIVE', isVerified: true, role: 'ADMIN', passwordHash: adminPassword },
+    update: {
+      accountStatus: 'ACTIVE',
+      isVerified: true,
+      role: 'ADMIN',
+      fullName: 'E. Abdullayev',
+      passwordHash: adminPassword,
+    },
     create: {
       email: 'admin@eurotech.services',
       passwordHash: adminPassword,
@@ -123,99 +122,9 @@ async function main() {
       isVerified: true,
     },
   });
+  console.log(`[Admin] Ensured active master admin account: ${adminUser.email}`);
 
-  await prisma.user.upsert({
-    where: { email: 'operator@eurotech.services' },
-    update: { accountStatus: 'ACTIVE', isVerified: true, role: 'OPERATOR', passwordHash: operatorPassword },
-    create: {
-      email: 'operator@eurotech.services',
-      passwordHash: operatorPassword,
-      role: 'OPERATOR',
-      fullName: 'Rəşad Məmmədov',
-      phone: '+994502223344',
-      companyName: 'EuroTech Services',
-      preferredLanguage: 'az',
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { email: 'manager@eurotech.services' },
-    update: { accountStatus: 'ACTIVE', isVerified: true, role: 'MANAGER', passwordHash: managerPassword },
-    create: {
-      email: 'manager@eurotech.services',
-      passwordHash: managerPassword,
-      role: 'MANAGER',
-      fullName: 'Leyla Əliyeva',
-      phone: '+994502229988',
-      companyName: 'EuroTech Consular Operations',
-      preferredLanguage: 'az',
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-    },
-  });
-
-  const individualUser = await prisma.user.upsert({
-    where: { email: 'mammadov@gmail.com' },
-    update: {
-      passwordHash: userPassword,
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-      passportNumberEncrypted: encryptedSamplePassport,
-      passportNumberHash: hashedSamplePassport,
-    },
-    create: {
-      email: 'mammadov@gmail.com',
-      passwordHash: userPassword,
-      role: 'INDIVIDUAL',
-      fullName: 'Reşad Məmmədov',
-      phone: '+994503334455',
-      preferredLanguage: 'az',
-      passportNumber: 'C12345678',
-      passportNumberEncrypted: encryptedSamplePassport,
-      passportNumberHash: hashedSamplePassport,
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-    },
-  });
-
-  const agentUser = await prisma.user.upsert({
-    where: { email: 'agent@baku-tours.az' },
-    update: { passwordHash: userPassword, accountStatus: 'ACTIVE', isVerified: true, agentTier: 'SILVER', taxId: '1400293841' },
-    create: {
-      email: 'agent@baku-tours.az',
-      passwordHash: userPassword,
-      role: 'AGENT_TUR_OPERATOR',
-      fullName: 'Baku Tours Agent',
-      phone: '+994124445566',
-      companyName: 'Baku Tours MMC',
-      taxId: '1400293841',
-      agentTier: 'SILVER',
-      preferredLanguage: 'az',
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-    },
-  });
-
-  const corporateUser = await prisma.user.upsert({
-    where: { email: 'hr@corp.az' },
-    update: { passwordHash: userPassword, accountStatus: 'ACTIVE', isVerified: true, taxId: '1701992831' },
-    create: {
-      email: 'hr@corp.az',
-      passwordHash: userPassword,
-      role: 'CORPORATE_HR',
-      fullName: 'Elvin Ağayev',
-      phone: '+994505556677',
-      companyName: 'Corp Tech Azerbaijan MMC',
-      taxId: '1701992831',
-      preferredLanguage: 'az',
-      accountStatus: 'ACTIVE',
-      isVerified: true,
-    },
-  });
-
-  // Seed Countries (including Austria AT!)
+  // 2. Seed Destination Countries
   const countriesData = [
     { code: 'HU', nameAz: 'Macarıstan', nameEn: 'Hungary', nameRu: 'Венгрия', flagUrl: 'https://flagcdn.com/w80/hu.png' },
     { code: 'DE', nameAz: 'Almaniya', nameEn: 'Germany', nameRu: 'Германия', flagUrl: 'https://flagcdn.com/w80/de.png' },
@@ -232,11 +141,11 @@ async function main() {
       create: { ...c, isActive: true },
     });
   }
+  console.log(`[Countries] Ensured ${countriesData.length} European destination countries.`);
 
-  // Seed Visa Categories for all countries idempotently
-  let huSchengenCategory = null;
+  // 3. Seed Visa Categories & Dynamic Fields
   for (const code of ['HU', 'DE', 'AT', 'CZ']) {
-    const touristCat = await ensureVisaCategory(countriesMap[code].id, {
+    await ensureVisaCategory(countriesMap[code].id, {
       code: 'SCHENGEN_TOURIST',
       nameAz: 'Şengen turist (C)',
       nameEn: 'Schengen Tourist (C)',
@@ -246,7 +155,6 @@ async function main() {
       descriptionEn: 'Short-stay Schengen Tourist Visa application.',
       descriptionRu: 'Краткосрочная туристическая виза Шенген.',
     });
-    if (code === 'HU') huSchengenCategory = touristCat;
 
     await ensureVisaCategory(countriesMap[code].id, {
       code: 'SCHENGEN_BUSINESS',
@@ -270,15 +178,11 @@ async function main() {
     descriptionEn: 'Long-stay National D Visa application.',
     descriptionRu: 'Долгосрочная национальная виза.',
   });
+  console.log('[VisaCategories] Ensured Schengen Tourist, Business & National D visa categories.');
 
-  // Seed System Settings
+  // 4. Seed Essential System Settings (Only Non-Pricing Core Flags; All Fees & Packages Managed by Admin)
   const defaultSettings = [
     { key: 'BASE_CURRENCY', value: 'EUR', valueType: 'STRING', description: 'Sistemin baza hesablama valyutası' },
-    { key: 'EUR_TO_AZN_RATE', value: '1.85', valueType: 'NUMBER', description: '1 EUR üçün AZN konvertasiya məzənnəsi' },
-    { key: 'INDIVIDUAL_SERVICE_FEE', value: '120.00', valueType: 'NUMBER', description: 'Fərdi müraciət xidmət haqqı (EUR)' },
-    { key: 'AGENT_SERVICE_FEE', value: '90.00', valueType: 'NUMBER', description: 'Tur agent qrup xidmət haqqı (EUR)' },
-    { key: 'CORPORATE_SERVICE_FEE', value: '150.00', valueType: 'NUMBER', description: 'Korporativ ezamiyyət xidmət haqqı (EUR)' },
-    { key: 'EXPRESS_PROCESSING_FEE', value: '60.00', valueType: 'NUMBER', description: 'Sürətləndirilmiş baxılma rüsumu (EUR)' },
     { key: 'ENABLE_OTP_VERIFICATION', value: 'false', valueType: 'BOOLEAN', description: 'Qeydiyyat zamanı məcburi OTP doğrulaması' },
   ];
 
@@ -289,50 +193,15 @@ async function main() {
       create: s,
     });
   }
+  console.log('[SystemSettings] Ensured core system parameters (Pricing & Packages are managed via Admin Panel).');
 
-  // Seed Sample Dossier (HU-AZ-2026-04891)
-  await prisma.dossier.upsert({
-    where: { dossierNumber: 'HU-AZ-2026-04891' },
-    update: {},
-    create: {
-      dossierNumber: 'HU-AZ-2026-04891',
-      portalType: 'INDIVIDUAL',
-      userId: individualUser.id,
-      countryId: countriesMap.HU.id,
-      visaCategoryId: huSchengenCategory.id,
-      currentStep: 8,
-      status: 'UNDER_REVIEW',
-      appointmentDate: new Date('2026-08-19T10:15:00Z'),
-      appointmentLocation: 'EuroTech Main Center',
-      governmentFee: 80.0,
-      serviceFee: 120.0,
-      extraServicesFee: 95.0,
-      totalAmount: 295.0,
-      paymentStatus: 'PAID',
-      gdprConsent: true,
-      gdprConsentAt: new Date(),
-      applicants: {
-        create: [
-          {
-            firstName: 'Reşad',
-            lastName: 'Məmmədov',
-            passportNumber: 'C12345678',
-            passportNumberEncrypted: encryptedSamplePassport,
-            passportNumberHash: hashedSamplePassport,
-            familyRole: 'PRIMARY',
-            formDataJson: { travelPurpose: 'Tourism', intendedEntryDate: '2026-09-15' },
-          },
-        ],
-      },
-    },
-  });
-
-  // Seed TimeSlots idempotently for next 14 days across all 3 Visa Centers
+  // 5. Seed Clean Biometric TimeSlots (Next 14 Days, completely unbooked)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const slotTimes = ['09:00 AM', '10:30 AM', '14:00 PM', '16:00 PM'];
   const centers = ['EuroTech Main Center', 'EuroTech Premium Lounge', 'Ganja Regional Center'];
 
+  let slotsCreated = 0;
   for (let i = 1; i <= 14; i++) {
     const slotDate = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
     if (slotDate.getDay() === 0) continue; // Skip Sundays
@@ -352,113 +221,14 @@ async function main() {
               isActive: true,
             },
           });
+          slotsCreated++;
         }
       }
     }
   }
+  console.log(`[TimeSlots] Ensured clean appointment slots across all 3 centers (${slotsCreated} new slots).`);
 
-  // Seed Agent Wallet
-  await prisma.wallet.upsert({
-    where: { userId: agentUser.id },
-    update: {},
-    create: {
-      userId: agentUser.id,
-      balance: 480.0,
-      pendingBalance: 0.0,
-      currency: 'EUR',
-      transactions: {
-        create: [
-          {
-            amount: 480.0,
-            type: 'CREDIT',
-            referenceType: 'COMMISSION',
-            referenceId: 'SEED-GRP-8821',
-            description: 'Commission: Seed Partner Group (24 Pax)',
-            status: 'PAID',
-          },
-        ],
-      },
-    },
-  });
-
-  // Seed Corporate Wallet, Departments & Initial Employee idempotently
-  await prisma.wallet.upsert({
-    where: { userId: corporateUser.id },
-    update: {},
-    create: {
-      userId: corporateUser.id,
-      balance: 5000.0,
-      currency: 'EUR',
-      transactions: {
-        create: [
-          {
-            amount: 5000.0,
-            type: 'CREDIT',
-            referenceType: 'TOPUP',
-            description: 'Initial Corporate Retainer (Wire Transfer)',
-            status: 'PAID',
-          },
-        ],
-      },
-    },
-  });
-
-  const defaultDepts = [
-    { name: 'Engineering', annualBudget: 60000 },
-    { name: 'Sales & Business Development', annualBudget: 45000 },
-    { name: 'Executive Management', annualBudget: 40000 },
-    { name: 'Operations', annualBudget: 35000 },
-  ];
-  for (const dept of defaultDepts) {
-    const existingDept = await prisma.corporateDepartment.findFirst({
-      where: { corporateUserId: corporateUser.id, name: dept.name },
-    });
-    if (!existingDept) {
-      await prisma.corporateDepartment.create({
-        data: {
-          corporateUserId: corporateUser.id,
-          name: dept.name,
-          annualBudget: dept.annualBudget,
-          spentBudget: 0,
-          currency: 'EUR',
-        },
-      });
-    }
-  }
-
-  const existingEmp = await prisma.corporateEmployee.findFirst({
-    where: { corporateUserId: corporateUser.id, passportNumber: 'P1234567' },
-  });
-  if (!existingEmp) {
-    await prisma.corporateEmployee.create({
-      data: {
-        corporateUserId: corporateUser.id,
-        firstName: 'David',
-        lastName: 'Smith',
-        jobTitle: 'Senior Software Engineer',
-        department: 'Engineering',
-        nationality: 'United Kingdom',
-        passportNumber: 'P1234567',
-        passportExpiry: new Date('2030-05-14'),
-        email: 'd.smith@corp.az',
-        phone: '+44 7700 900077',
-        visaHistory: {
-          create: [
-            {
-              country: 'Austria',
-              type: 'Schengen C (Business)',
-              issueDate: new Date('2026-06-01'),
-              expiryDate: new Date('2027-06-01'),
-              status: 'ACTIVE',
-              batchRef: 'BCH-2026-101',
-            },
-          ],
-        },
-      },
-    });
-  }
-
-  console.log('Database seeding completed successfully!');
+  console.log('--- Production database seed finished successfully! No dummy or mock data created. ---');
 }
 
 main()

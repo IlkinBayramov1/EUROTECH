@@ -29,6 +29,8 @@ async function optionalAuth(req, res, next) {
 }
 
 // Application Form PDF Generation & Download (Supports both GET and POST with optionalAuth)
+router.get('/:dossierId/applicants/:applicantId/details', optionalAuth, dossierController.getApplicantDetails);
+router.get('/:dossierId/applicants/:applicantId', optionalAuth, dossierController.getApplicantDetails);
 router.get('/:dossierId/applicants/:applicantId/application-pdf', optionalAuth, dossierController.getApplicationFormPdf);
 router.post('/:dossierId/applicants/:applicantId/application-pdf', optionalAuth, dossierController.getApplicationFormPdf);
 router.get('/:dossierId/applicants/:applicantId/schengen-form-pdf', optionalAuth, dossierController.getApplicationFormPdf);

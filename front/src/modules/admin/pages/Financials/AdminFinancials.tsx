@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { adminService } from '@/shared/api/services/admin.service';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
+import { storage } from '@/shared/utils/storage';
+import { downloadFileFromApi } from '@/shared/utils/download.util';
 import './AdminFinancials.css';
 
 interface BankSlipItem {
   id: string;
-  dossierId?: string;
-  dossierNumber?: string;
+  dossierId?: string | null;
+  groupBatchId?: string | null;
+  dossierNumber?: string | null;
+  groupBatchCode?: string | null;
   applicantName?: string;
   email?: string;
   amount: number;
@@ -21,6 +26,12 @@ interface BankSlipItem {
   notes?: string;
   createdAt: string;
   reviewedAt?: string;
+}
+
+function formatSlipCurrency(amount?: number, currency?: string): string {
+  const cur = (currency || 'EUR').toUpperCase();
+  const sym = cur === 'AZN' ? '₼' : cur === 'USD' ? '$' : '€';
+  return `${sym}${Number(amount || 0).toFixed(2)} ${cur}`;
 }
 
 interface UserWalletItem {
@@ -76,6 +87,8 @@ export default function AdminFinancials() {
   const [selectedSlip, setSelectedSlip] = useState<BankSlipItem | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [isSubmittingSlip, setIsSubmittingSlip] = useState(false);
+  const [openingSlipId, setOpeningSlipId] = useState<string | null>(null);
+  const [downloadingSlipId, setDownloadingSlipId] = useState<string | null>(null);
 
   // User Wallets State
   const [wallets, setWallets] = useState<UserWalletItem[]>([]);
@@ -136,6 +149,67 @@ export default function AdminFinancials() {
   }, [loadAllData]);
 
   // Bank Slip Actions
+  const handleOpenSlipFile = async (slip: BankSlipItem, e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (!slip) return;
+    setOpeningSlipId(slip.id);
+    try {
+      const token = storage.getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const apiEndpoint = getFileUrl(`/api/v1/admin/bank-slips/${slip.id}/file?inline=true`);
+      let res = await fetch(apiEndpoint, { method: 'GET', headers });
+
+      if (!res.ok && slip.fileUrl) {
+        const fallbackUrl = getFileUrl(slip.fileUrl);
+        if (fallbackUrl) {
+          res = await fetch(fallbackUrl, { method: 'GET', headers });
+        }
+      }
+
+      if (!res.ok) {
+        throw new Error(`Receipt file could not be loaded (Status: ${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const opened = window.open(blobUrl, '_blank');
+      if (!opened) {
+        const a = window.document.createElement('a');
+        a.href = blobUrl;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        window.document.body.appendChild(a);
+        a.click();
+        window.document.body.removeChild(a);
+      }
+    } catch (err: any) {
+      console.error('Failed to open bank receipt file:', err);
+      showError(err.message || 'Failed to open bank receipt file.');
+    } finally {
+      setOpeningSlipId(null);
+    }
+  };
+
+  const handleDownloadSlipFile = async (slip: BankSlipItem, e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (!slip) return;
+    setDownloadingSlipId(slip.id);
+    try {
+      const safeName =
+        slip.fileName && !slip.fileName.includes('placeholder')
+          ? slip.fileName
+          : `bank_voucher_${slip.referenceCode || slip.id.substring(0, 8)}.pdf`;
+      await downloadFileFromApi(`/api/v1/admin/bank-slips/${slip.id}/file`, safeName);
+    } catch (err: any) {
+      console.error('Failed to download bank receipt file:', err);
+      showError(err.message || 'Failed to download bank receipt file.');
+    } finally {
+      setDownloadingSlipId(null);
+    }
+  };
+
   const handleReviewSlip = async (action: 'APPROVED' | 'REJECTED') => {
     if (!selectedSlip) return;
     setIsSubmittingSlip(true);
@@ -244,7 +318,7 @@ export default function AdminFinancials() {
           className={`fin-tab-btn ${activeTab === 'slips' ? 'active' : ''}`}
           onClick={() => setActiveTab('slips')}
         >
-          🧾 Bank Transfer Slips
+          Bank Transfer Slips
           {pendingSlipsCount > 0 && <span className="tab-pill pill-amber">{pendingSlipsCount}</span>}
         </button>
 
@@ -252,14 +326,14 @@ export default function AdminFinancials() {
           className={`fin-tab-btn ${activeTab === 'wallets' ? 'active' : ''}`}
           onClick={() => setActiveTab('wallets')}
         >
-          👛 User Wallets &amp; Balances ({wallets.length})
+          User Wallets &amp; Balances ({wallets.length})
         </button>
 
         <button
           className={`fin-tab-btn ${activeTab === 'payouts' ? 'active' : ''}`}
           onClick={() => setActiveTab('payouts')}
         >
-          💼 Agent Commission Payouts
+          Agent Commission Payouts
           {pendingPayoutsCount > 0 && <span className="tab-pill pill-purple">{pendingPayoutsCount}</span>}
         </button>
 
@@ -267,7 +341,7 @@ export default function AdminFinancials() {
           className={`fin-tab-btn ${activeTab === 'crons' ? 'active' : ''}`}
           onClick={() => setActiveTab('crons')}
         >
-          ⚙️ Cron Background Workers
+          Cron Background Workers
           <span className="tab-pill pill-green">5 Active</span>
         </button>
       </div>
@@ -332,12 +406,19 @@ export default function AdminFinancials() {
                   {filteredSlips.map((slip) => {
                     const isApproved = slip.status === 'APPROVED' || slip.status === 'VERIFIED';
                     const isPending = slip.status === 'PENDING' || slip.status === 'PENDING_REVIEW';
-                    const purposeLabel = slip.purpose || (slip.dossierNumber ? `Dossier ${slip.dossierNumber}` : 'Wallet Top-Up');
+                    const targetCode = slip.dossierNumber || slip.groupBatchCode || 'WALLET';
+                    const purposeLabel = slip.purpose
+                      ? slip.purpose.replace(/_/g, ' ')
+                      : slip.dossierNumber
+                        ? `Dossier ${slip.dossierNumber}`
+                        : slip.groupBatchCode
+                          ? `Group ${slip.groupBatchCode}`
+                          : 'Wallet Top-Up';
 
                     return (
                       <tr key={slip.id}>
                         <td>
-                          <span className="code-badge">{slip.dossierNumber || 'WALLET'}</span>
+                          <span className="code-badge">{targetCode}</span>
                           <span style={{ display: 'block', fontSize: '0.74rem', color: '#64748B', marginTop: 2 }}>
                             {purposeLabel}
                           </span>
@@ -350,25 +431,24 @@ export default function AdminFinancials() {
                         </td>
                         <td>
                           <strong className="amount-cell">
-                            €{Number(slip.amount || 0).toFixed(2)} {slip.currency || 'EUR'}
+                            {formatSlipCurrency(slip.amount, slip.currency)}
                           </strong>
                         </td>
                         <td>
                           <code className="ref-code">{slip.referenceCode || slip.id.substring(0, 8)}</code>
                         </td>
                         <td>
-                          {slip.fileUrl ? (
-                            <a
-                              href={slip.fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="doc-link-btn"
-                            >
-                              📎 {slip.fileName || 'View Receipt'}
-                            </a>
-                          ) : (
-                            <span className="text-muted">No attachment</span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenSlipFile(slip, e)}
+                            disabled={openingSlipId === slip.id}
+                            className="doc-link-btn"
+                            title="Open Official Bank Transfer Receipt in New Tab"
+                          >
+                            {openingSlipId === slip.id
+                              ? 'Opening...'
+                              : `${slip.fileName && !slip.fileName.includes('placeholder') ? slip.fileName : 'View Receipt.pdf'} ↗`}
+                          </button>
                         </td>
                         <td>{slip.createdAt ? new Date(slip.createdAt).toLocaleDateString('en-GB') : '—'}</td>
                         <td>
@@ -530,7 +610,7 @@ export default function AdminFinancials() {
                             }}
                             title="Adjust EuroTech Wallet Balance with Admin Audit Trail"
                           >
-                            ⚙️ Adjust Balance
+                            Adjust Balance
                           </button>
                         </td>
                       </tr>
@@ -631,14 +711,14 @@ export default function AdminFinancials() {
                               disabled={isProcessingPayout}
                               onClick={() => handleUpdatePayout(payout.id, 'PROCESSED')}
                             >
-                              ✓ Approve
+                              Approve
                             </button>
                             <button
                               className="btn-reject-payout"
                               disabled={isProcessingPayout}
                               onClick={() => handleUpdatePayout(payout.id, 'REJECTED')}
                             >
-                              ✕ Reject &amp; Refund
+                              Reject &amp; Refund
                             </button>
                           </div>
                         ) : (
@@ -705,13 +785,13 @@ export default function AdminFinancials() {
           <div className="review-modal-card">
             <div className="modal-header">
               <h3>Examine Bank Transfer Receipt</h3>
-              <button className="btn-close" onClick={() => setSelectedSlip(null)}>✕</button>
+              <button className="btn-close" onClick={() => setSelectedSlip(null)}>&times;</button>
             </div>
             <div className="modal-body">
               <div className="modal-summary-grid">
                 <div>
                   <label>Purpose / Target</label>
-                  <strong>{selectedSlip.purpose || selectedSlip.dossierNumber || 'Wallet Top-Up'}</strong>
+                  <strong>{selectedSlip.dossierNumber || selectedSlip.groupBatchCode || (selectedSlip.purpose ? selectedSlip.purpose.replace(/_/g, ' ') : 'Wallet Top-Up')}</strong>
                 </div>
                 <div>
                   <label>Applicant / Sender</label>
@@ -719,7 +799,7 @@ export default function AdminFinancials() {
                 </div>
                 <div>
                   <label>Transfer Amount</label>
-                  <strong className="text-emerald">€{Number(selectedSlip.amount || 0).toFixed(2)} {selectedSlip.currency || 'EUR'}</strong>
+                  <strong className="text-emerald">{formatSlipCurrency(selectedSlip.amount, selectedSlip.currency)}</strong>
                 </div>
                 <div>
                   <label>Payment Reference Code</label>
@@ -727,22 +807,35 @@ export default function AdminFinancials() {
                 </div>
               </div>
 
-              {selectedSlip.fileUrl && (
-                <div className="receipt-preview-box">
-                  <label>Submitted Receipt Document</label>
-                  <div className="receipt-link-card">
-                    <span>📄 {selectedSlip.fileName || 'Bank Wire Slip'}</span>
-                    <a
-                      href={selectedSlip.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+              <div className="receipt-preview-box">
+                <label>Submitted Receipt Document</label>
+                <div className="receipt-link-card">
+                  <span>
+                    {selectedSlip.fileName && !selectedSlip.fileName.includes('placeholder')
+                      ? selectedSlip.fileName
+                      : `bank_voucher_${selectedSlip.referenceCode || selectedSlip.id.substring(0, 8)}.pdf`}
+                  </span>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenSlipFile(selectedSlip, e)}
+                      disabled={openingSlipId === selectedSlip.id}
                       className="btn-download-slip"
                     >
-                      Open File in New Tab ↗
-                    </a>
+                      {openingSlipId === selectedSlip.id ? 'Opening...' : 'Open File in New Tab ↗'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDownloadSlipFile(selectedSlip, e)}
+                      disabled={downloadingSlipId === selectedSlip.id}
+                      className="btn-download-slip"
+                      style={{ color: '#0F172A' }}
+                    >
+                      {downloadingSlipId === selectedSlip.id ? 'Downloading...' : 'Download ↓'}
+                    </button>
                   </div>
                 </div>
-              )}
+              </div>
 
               <div className="notes-input-box">
                 <label>Consular Officer Notes / Verification Remarks</label>
@@ -765,17 +858,28 @@ export default function AdminFinancials() {
               </button>
               <button
                 className="btn-reject"
-                disabled={isSubmittingSlip}
+                disabled={
+                  isSubmittingSlip ||
+                  selectedSlip.status === 'APPROVED' ||
+                  selectedSlip.status === 'VERIFIED' ||
+                  selectedSlip.status === 'REJECTED'
+                }
                 onClick={() => handleReviewSlip('REJECTED')}
               >
-                ✕ Reject Receipt
+                {selectedSlip.status === 'REJECTED' ? 'Already Rejected' : 'Reject Receipt'}
               </button>
               <button
                 className="btn-approve"
-                disabled={isSubmittingSlip}
+                disabled={
+                  isSubmittingSlip ||
+                  selectedSlip.status === 'APPROVED' ||
+                  selectedSlip.status === 'VERIFIED'
+                }
                 onClick={() => handleReviewSlip('APPROVED')}
               >
-                ✓ Approve &amp; Settle Funds
+                {selectedSlip.status === 'APPROVED' || selectedSlip.status === 'VERIFIED'
+                  ? 'Already Approved'
+                  : 'Approve & Settle Funds'}
               </button>
             </div>
           </div>
@@ -793,7 +897,7 @@ export default function AdminFinancials() {
                   User: <strong>{selectedWalletUser.fullName}</strong> ({selectedWalletUser.email})
                 </span>
               </div>
-              <button className="btn-close" onClick={() => setSelectedWalletUser(null)}>✕</button>
+              <button className="btn-close" onClick={() => setSelectedWalletUser(null)}>&times;</button>
             </div>
 
             <form onSubmit={handleExecuteWalletAdjustment}>

@@ -22,19 +22,18 @@ interface DestinationCountry {
     consularFee: string;
 }
 
-const DEFAULT_COUNTRIES: DestinationCountry[] = [
-    { id: 'cnt-hu', code: 'HU', nameEn: 'Hungary', nameAz: 'Macarıstan', flag: '🇭🇺', processingTime: '15 business days', consularFee: '€80' },
-    { id: 'cnt-at', code: 'AT', nameEn: 'Austria', nameAz: 'Avstriya', flag: '🇦🇹', processingTime: '15 business days', consularFee: '€80' },
-    { id: 'cnt-de', code: 'DE', nameEn: 'Germany', nameAz: 'Almaniya', flag: '🇩🇪', processingTime: '20 business days', consularFee: '€80' },
-    { id: 'cnt-it', code: 'IT', nameEn: 'Italy', nameAz: 'İtaliya', flag: '🇮🇹', processingTime: '15 business days', consularFee: '€80' },
-    { id: 'cnt-fr', code: 'FR', nameEn: 'France', nameAz: 'Fransa', flag: '🇫🇷', processingTime: '18 business days', consularFee: '€80' },
-    { id: 'cnt-pl', code: 'PL', nameEn: 'Poland', nameAz: 'Polşa', flag: '🇵🇱', processingTime: '15 business days', consularFee: '€80' },
-    { id: 'cnt-es', code: 'ES', nameEn: 'Spain', nameAz: 'İspaniya', flag: '🇪🇸', processingTime: '15 business days', consularFee: '€80' },
-];
+function getFlagEmoji(countryCode: string): string {
+    if (!countryCode || countryCode.length !== 2) return '🇪🇺';
+    const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char => 127397 + char.charCodeAt(0));
+    return String.fromCodePoint(...codePoints);
+}
 
 export default function Step1Country({ data, updateData }: Step1Props) {
-    const [countries, setCountries] = useState<DestinationCountry[]>(DEFAULT_COUNTRIES);
-    const [loadingCountries, setLoadingCountries] = useState(false);
+    const [countries, setCountries] = useState<DestinationCountry[]>([]);
+    const [loadingCountries, setLoadingCountries] = useState(true);
 
     useEffect(() => {
         let isMounted = true;
@@ -42,23 +41,27 @@ export default function Step1Country({ data, updateData }: Step1Props) {
         dossierService.getCountries()
             .then(res => {
                 if (isMounted && res.data?.countries && res.data.countries.length > 0) {
-                    const mapped: DestinationCountry[] = res.data.countries.map((c: any) => {
-                        const fallback = DEFAULT_COUNTRIES.find(dc => dc.code === c.code || dc.nameEn.toLowerCase() === c.nameEn?.toLowerCase());
-                        return {
-                            id: c.id,
-                            code: c.code || fallback?.code || 'EU',
-                            nameEn: c.nameEn || fallback?.nameEn || 'Schengen State',
-                            nameAz: c.nameAz || fallback?.nameAz || c.nameEn || 'Şengen Dövləti',
-                            flag: fallback?.flag || '🇪🇺',
-                            processingTime: fallback?.processingTime || '15 business days',
-                            consularFee: fallback?.consularFee || '€80'
-                        };
-                    });
+                    const mapped: DestinationCountry[] = res.data.countries.map((c: any) => ({
+                        id: c.id,
+                        code: c.code || 'EU',
+                        nameEn: c.nameEn || 'Schengen State',
+                        nameAz: c.nameAz || c.nameEn || 'Şengen Dövləti',
+                        flag: getFlagEmoji(c.code),
+                        processingTime: '15 business days',
+                        consularFee: '€80'
+                    }));
                     setCountries(mapped);
+
+                    // If user hasn't selected a country yet, select the first available real country from MySQL
+                    if (!data.countryId && mapped.length > 0) {
+                        const defaultSelection = mapped.find(m => m.code === 'HU') || mapped[0];
+                        updateData('country', defaultSelection.nameEn);
+                        updateData('countryId', defaultSelection.id);
+                    }
                 }
             })
-            .catch(() => {
-                // Keep default countries
+            .catch(err => {
+                console.error('Failed to load countries from database:', err);
             })
             .finally(() => {
                 if (isMounted) setLoadingCountries(false);
@@ -112,49 +115,56 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                     <span style={{ fontSize: '0.85rem', color: '#94A3B8' }}>Select your primary entry country</span>
                 </div>
 
-                <div className="country-cards-grid" style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
-                    gap: '14px',
-                    marginBottom: '16px'
-                }}>
-                    {countries.map(c => {
-                        const isSelected = data.country.toLowerCase() === c.nameEn.toLowerCase();
-                        return (
-                            <div 
-                                key={c.id} 
-                                onClick={() => handleCountrySelect(c)}
-                                style={{
-                                    background: isSelected ? '#EFF6FF' : '#FFFFFF',
-                                    border: isSelected ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
-                                    borderRadius: '12px',
-                                    padding: '16px 14px',
-                                    cursor: 'pointer',
-                                    transition: 'all 0.2s ease',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'center',
-                                    textAlign: 'center',
-                                    boxShadow: isSelected ? '0 4px 14px rgba(37, 99, 235, 0.15)' : '0 2px 6px rgba(15, 23, 42, 0.04)',
-                                }}
-                            >
-                                <span style={{ fontSize: '2.4rem', marginBottom: '8px', lineHeight: 1 }}>{c.flag}</span>
-                                <strong style={{ color: isSelected ? '#1E3A8A' : '#0F1E36', fontSize: '1rem', marginBottom: '4px', fontWeight: 700 }}>{c.nameEn}</strong>
-                                <span style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '8px' }}>{c.nameAz}</span>
-                                <span style={{ 
-                                    fontSize: '0.75rem', 
-                                    padding: '3px 10px', 
-                                    borderRadius: '12px', 
-                                    background: isSelected ? '#2563EB' : '#F1F5F9',
-                                    color: isSelected ? '#FFFFFF' : '#475569',
-                                    fontWeight: 600
-                                }}>
-                                    {c.processingTime}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
+                {loadingCountries ? (
+                    <div style={{ textAlign: 'center', padding: '30px 10px', color: '#64748B' }}>
+                        <div style={{ width: 24, height: 24, border: '2px solid #E2E8F0', borderTopColor: '#2563EB', borderRadius: '50%', margin: '0 auto 8px', animation: 'spin 1s linear infinite' }}></div>
+                        <span>Loading official destination countries from database...</span>
+                    </div>
+                ) : (
+                    <div className="country-cards-grid" style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+                        gap: '14px',
+                        marginBottom: '16px'
+                    }}>
+                        {countries.map(c => {
+                            const isSelected = (data.countryId && data.countryId === c.id) || (!data.countryId && data.country.toLowerCase() === c.nameEn.toLowerCase());
+                            return (
+                                <div 
+                                    key={c.id} 
+                                    onClick={() => handleCountrySelect(c)}
+                                    style={{
+                                        background: isSelected ? '#EFF6FF' : '#FFFFFF',
+                                        border: isSelected ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                                        borderRadius: '12px',
+                                        padding: '16px 14px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s ease',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        textAlign: 'center',
+                                        boxShadow: isSelected ? '0 4px 14px rgba(37, 99, 235, 0.15)' : '0 2px 6px rgba(15, 23, 42, 0.04)',
+                                    }}
+                                >
+                                    <span style={{ fontSize: '2.4rem', marginBottom: '8px', lineHeight: 1 }}>{c.flag}</span>
+                                    <strong style={{ color: isSelected ? '#1E3A8A' : '#0F1E36', fontSize: '1rem', marginBottom: '4px', fontWeight: 700 }}>{c.nameEn}</strong>
+                                    <span style={{ fontSize: '0.8rem', color: '#64748B', marginBottom: '8px' }}>{c.nameAz}</span>
+                                    <span style={{ 
+                                        fontSize: '0.75rem', 
+                                        padding: '3px 10px', 
+                                        borderRadius: '12px', 
+                                        background: isSelected ? '#2563EB' : '#F1F5F9',
+                                        color: isSelected ? '#FFFFFF' : '#475569',
+                                        fontWeight: 600
+                                    }}>
+                                        {c.processingTime}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* --- DURATION OF STAY --- */}

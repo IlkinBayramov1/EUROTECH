@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { agentService, paymentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './AgentFinance.css';
 
 interface Transaction {
@@ -376,7 +377,7 @@ export default function AgentFinance() {
             const res = await agentService.getGroupInvoicePdf(groupId);
             const fileUrl = res.data?.fileUrl;
             if (fileUrl) {
-                const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+                const fullUrl = getFileUrl(fileUrl);
                 const fileRes = await fetch(fullUrl);
                 const blob = await fileRes.blob();
                 const blobUrl = URL.createObjectURL(blob);

@@ -24,6 +24,10 @@ async function generateDelegationLink({ corporateUserId, employeeId, batchId }) 
         },
       });
 
+      const expiryFromApp = applicant.formDataJson?.passportExpiry || applicant.formDataJson?.passportExpiryDate || applicant.formDataJson?.expiryDate;
+      const parsedExpiry = expiryFromApp && !isNaN(new Date(expiryFromApp).getTime()) ? new Date(expiryFromApp) : null;
+      const phoneFromApp = applicant.formDataJson?.phone || applicant.formDataJson?.homePhone || applicant.formDataJson?.contactPhone || null;
+
       if (!employee) {
         const rawTok = generateSecureToken();
         employee = await prisma.corporateEmployee.create({
@@ -32,11 +36,21 @@ async function generateDelegationLink({ corporateUserId, employeeId, batchId }) 
             firstName: applicant.firstName,
             lastName: applicant.lastName,
             passportNumber: applicant.passportNumber,
+            passportExpiry: parsedExpiry,
+            phone: phoneFromApp,
             jobTitle: applicant.formDataJson?.jobTitle || 'Employee',
             department: applicant.formDataJson?.department || 'General',
             nationality: applicant.nationality || 'AZ',
             delegationTokenHash: hashToken(rawTok),
             delegationExpiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000),
+          },
+        });
+      } else if (!employee.passportExpiry && parsedExpiry) {
+        await prisma.corporateEmployee.update({
+          where: { id: employee.id },
+          data: {
+            passportExpiry: parsedExpiry,
+            phone: employee.phone || phoneFromApp,
           },
         });
       }
@@ -95,17 +109,69 @@ async function getDelegationProfile(rawToken) {
     throw error;
   }
 
+  // Find corresponding applicant in company's dossiers to retrieve full consular data (birthDate, etc.)
+  const applicant = await prisma.applicant.findFirst({
+    where: {
+      dossier: { groupBatch: { userId: employee.corporateUserId } },
+      OR: [
+        { passportNumber: employee.passportNumber },
+        {
+          AND: [
+            { firstName: employee.firstName },
+            { lastName: employee.lastName },
+          ],
+        },
+      ],
+    },
+    include: {
+      dossier: {
+        include: {
+          groupBatch: true,
+          country: true,
+        },
+      },
+    },
+    orderBy: { id: 'desc' },
+  });
+
+  const appForm = applicant?.formDataJson && typeof applicant.formDataJson === 'object' ? applicant.formDataJson : {};
+
+  let birthDate = '';
+  if (applicant?.birthDate && !isNaN(new Date(applicant.birthDate).getTime())) {
+    birthDate = new Date(applicant.birthDate).toISOString().split('T')[0];
+  } else if (appForm.birthDate || appForm.dob) {
+    birthDate = String(appForm.birthDate || appForm.dob).split('T')[0];
+  }
+
+  let passportExpiry = '';
+  if (employee.passportExpiry && !isNaN(new Date(employee.passportExpiry).getTime())) {
+    passportExpiry = new Date(employee.passportExpiry).toISOString().split('T')[0];
+  } else {
+    const exp = appForm.passportExpiry || appForm.passportExpiryDate || appForm.expiryDate;
+    if (exp) passportExpiry = String(exp).split('T')[0];
+  }
+
+  const phone = employee.phone || appForm.homePhone || appForm.phone || appForm.contactPhone || '';
+
   return {
     id: employee.id,
-    firstName: employee.firstName,
-    lastName: employee.lastName,
-    jobTitle: employee.jobTitle,
-    department: employee.department,
-    nationality: employee.nationality,
-    passportNumber: employee.passportNumber,
-    passportExpiry: employee.passportExpiry,
-    email: employee.email,
-    companyName: employee.corporateUser?.companyName || 'Corporate Employer',
+    applicantId: applicant?.id || null,
+    dossierId: applicant?.dossierId || null,
+    batchId: applicant?.dossier?.groupBatchId || null,
+    batchName: applicant?.dossier?.groupBatch?.name || '',
+    firstName: employee.firstName || applicant?.firstName || '',
+    lastName: employee.lastName || applicant?.lastName || '',
+    jobTitle: employee.jobTitle || appForm.jobTitle || 'Specialist',
+    department: employee.department || appForm.department || 'General',
+    nationality: employee.nationality || applicant?.nationality || 'AZ',
+    passportNumber: employee.passportNumber || applicant?.passportNumber || '',
+    passportExpiry,
+    dob: birthDate,
+    birthDate,
+    phone,
+    email: employee.email || appForm.homeEmail || appForm.email || '',
+    companyName: employee.corporateUser?.companyName || employee.corporateUser?.fullName || 'Corporate Employer',
+    destination: applicant?.dossier?.country?.nameEn || applicant?.dossier?.groupBatch?.destination || 'Europe / Schengen',
   };
 }
 
@@ -134,17 +200,21 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
     ? new Date(passportExpiry)
     : employee.passportExpiry;
 
+  const targetPassport = (passportNumber || employee.passportNumber || '').trim().toUpperCase();
+  const cleanDobStr = dob ? String(dob).split('T')[0] : '';
+  const cleanExpiryStr = passportExpiry ? String(passportExpiry).split('T')[0] : '';
+  const cleanPhoneStr = phone ? String(phone).trim() : (employee.phone || '');
+
   const updatedEmployee = await prisma.corporateEmployee.update({
     where: { id: employee.id },
     data: {
-      passportNumber: passportNumber || employee.passportNumber,
+      passportNumber: targetPassport || employee.passportNumber,
       passportExpiry: parsedExpiry,
-      phone: phone || employee.phone,
+      phone: cleanPhoneStr || employee.phone,
     },
   });
 
   const parsedDob = dob && !isNaN(new Date(dob).getTime()) ? new Date(dob) : null;
-  const targetPassport = passportNumber || employee.passportNumber;
 
   if (targetPassport) {
     const applicants = await prisma.applicant.findMany({
@@ -176,24 +246,23 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
           birthDate: parsedDob || app.birthDate,
           formDataJson: {
             ...currentForm,
-            phone: phone || currentForm.phone,
-            dob: dob || currentForm.dob,
-            passportExpiry: passportExpiry || currentForm.passportExpiry,
+            // Synchronize all field aliases so every module & form step finds its key:
+            dob: cleanDobStr || currentForm.dob,
+            birthDate: cleanDobStr || currentForm.birthDate,
+            passportExpiry: cleanExpiryStr || currentForm.passportExpiry,
+            passportExpiryDate: cleanExpiryStr || currentForm.passportExpiryDate,
+            expiryDate: cleanExpiryStr || currentForm.expiryDate,
+            phone: cleanPhoneStr || currentForm.phone,
+            homePhone: cleanPhoneStr || currentForm.homePhone,
+            contactPhone: cleanPhoneStr || currentForm.contactPhone,
+            passportNumber: targetPassport,
             formProgress: 100,
+            lastSavedAt: new Date().toISOString(),
           },
         },
       });
     }
   }
-
-  // Token consumption: Invalidate one-time delegation token after successful submission
-  await prisma.corporateEmployee.update({
-    where: { id: employee.id },
-    data: {
-      delegationTokenHash: null,
-      delegationExpiresAt: null,
-    },
-  });
 
   try {
     await prisma.auditLog.create({
@@ -204,6 +273,9 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
           employeeId: employee.id,
           employeeName: `${employee.firstName} ${employee.lastName}`,
           passportNumber: targetPassport,
+          dob: cleanDobStr,
+          passportExpiry: cleanExpiryStr,
+          phone: cleanPhoneStr,
           message: `${employee.firstName} ${employee.lastName} completed corporate delegation consular data`,
         },
       },

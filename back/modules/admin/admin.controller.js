@@ -1,5 +1,6 @@
 const adminService = require('./admin.service');
 const ApiResponse = require('../../core/api.response');
+const { sendDownloadSafely } = require('../../utils/download.util');
 
 async function getDashboardMetrics(req, res, next) {
   try {
@@ -79,8 +80,27 @@ async function getSettings(req, res, next) {
 
 async function updateSettings(req, res, next) {
   try {
-    const data = await adminService.updateSystemSettings(req.body);
+    const data = await adminService.updateSystemSettings(req.body, req.user?.id);
     return ApiResponse.success(res, data, 'System settings updated');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function getPricingCatalog(req, res, next) {
+  try {
+    const catalog = await adminService.getPricingCatalog();
+    return ApiResponse.success(res, { catalog }, 'Pricing catalog retrieved');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, 400);
+  }
+}
+
+async function savePricingCatalog(req, res, next) {
+  try {
+    const payload = req.body.catalog || req.body;
+    const catalog = await adminService.savePricingCatalog(payload, req.user?.id);
+    return ApiResponse.success(res, { catalog }, 'Pricing packages and service catalog saved successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, 400);
   }
@@ -131,12 +151,52 @@ async function getBankSlips(req, res, next) {
   }
 }
 
+async function getBankSlipFile(req, res, next) {
+  try {
+    const { receiptId } = req.params;
+    const { inline } = req.query;
+    const fileData = await adminService.getBankSlipFile(receiptId);
+    const isInline = inline === 'true' || inline === '1';
+
+    return sendDownloadSafely(res, {
+      filePath: fileData.filePath,
+      fileName: fileData.fileName,
+      buffer: fileData.buffer,
+      contentType: fileData.contentType || 'application/pdf',
+      inline: isInline,
+    });
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 async function reviewBankSlip(req, res, next) {
   try {
     const { receiptId } = req.params;
     const { status, notes } = req.body;
     const receipt = await adminService.reviewBankSlip(receiptId, status, notes, req.user.id);
     return ApiResponse.success(res, { receipt }, `Bank payment receipt marked as ${status}`);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getUserWallets(req, res, next) {
+  try {
+    const { role, search } = req.query;
+    const wallets = await adminService.getUserWallets({ role, search });
+    return ApiResponse.success(res, { wallets }, 'User wallets retrieved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function adjustUserWallet(req, res, next) {
+  try {
+    const { userId } = req.params;
+    const { amount, type, reason } = req.body;
+    const result = await adminService.adjustUserWallet(userId, { amount, type, reason }, req.user.id);
+    return ApiResponse.success(res, result, 'Wallet balance adjusted successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
   }
@@ -160,11 +220,16 @@ module.exports = {
   getAuditLogs,
   getSettings,
   updateSettings,
+  getPricingCatalog,
+  savePricingCatalog,
   saveCountry,
   saveVisaCategory,
   saveTimeSlot,
   getIntegrationsHealth,
   getBankSlips,
+  getBankSlipFile,
   reviewBankSlip,
+  getUserWallets,
+  adjustUserWallet,
   getCronMonitorStatus,
 };

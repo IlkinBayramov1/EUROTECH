@@ -3,8 +3,35 @@ const ApiResponse = require('../../core/api.response');
 
 async function getServiceCatalog(req, res) {
   try {
-    const catalog = await serviceService.getServiceCatalog();
-    return ApiResponse.success(res, { catalog }, 'Service catalog retrieved successfully');
+    const result = await serviceService.getServiceCatalog();
+    return ApiResponse.success(
+      res,
+      {
+        catalog: result.catalog,
+        services: result.services,
+        packages: result.packages,
+        baseFees: result.baseFees,
+        exchangeRate: result.exchangeRate,
+        currency: result.currency,
+      },
+      'Service catalog retrieved successfully'
+    );
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function updateDossierPackage(req, res) {
+  try {
+    const { dossierId } = req.params;
+    const { packageId, groupBatchId } = req.body;
+    const result = await serviceService.updateDossierPackage({
+      dossierId: dossierId !== 'batch' ? dossierId : null,
+      groupBatchId: groupBatchId || (dossierId === 'batch' ? req.body.batchId : null),
+      packageId,
+      user: req.user,
+    });
+    return ApiResponse.success(res, result, `Payment package updated to ${result.package?.name || packageId}`);
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
   }
@@ -56,6 +83,7 @@ async function removeService(req, res) {
 
 module.exports = {
   getServiceCatalog,
+  updateDossierPackage,
   addService,
   checkoutServices,
   removeService,

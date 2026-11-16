@@ -5,6 +5,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { ShieldIcon, DownloadIcon, AlertTriangleIcon, CheckCircleIcon } from '@/shared/components/icons/Icons';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientPrivacy.css';
 
 export default function ClientPrivacy() {
@@ -848,10 +849,7 @@ export default function ClientPrivacy() {
       const fileName = res?.data?.fileName || res?.fileName || `EuroTech_GDPR_Dossier_${Date.now()}.pdf`;
 
       if (downloadUrl) {
-        const backendOrigin = import.meta.env.VITE_API_URL
-          ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '')
-          : 'http://localhost:5000';
-        const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `${backendOrigin}${downloadUrl}`;
+        const fullUrl = getFileUrl(downloadUrl);
         const response = await fetch(fullUrl);
         if (!response.ok) throw new Error('PDF faylını serverdən yükləmək mümkün olmadı.');
         const blob = await response.blob();

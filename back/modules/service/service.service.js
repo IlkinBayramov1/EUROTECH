@@ -1,5 +1,7 @@
 const prisma = require('../../config/db');
 const { SERVICE_PRICES, DEFAULT_EUR_TO_AZN_RATE, convertEurToAzn } = require('../../config/constants');
+const { getPricingCatalog } = require('./pricingConfig.service');
+const { calculatePortalFees } = require('../../utils/finance.util');
 
 const CANONICAL_ALIASES = {
   LOUNGE: 'PREMIUM_LOUNGE',
@@ -47,118 +49,36 @@ function resolveServiceType(rawType) {
 }
 
 async function getDynamicPricingSettings(tx = prisma) {
-  const settings = await tx.systemSetting.findMany({
-    where: {
-      key: { in: ['EUR_TO_AZN_RATE', 'EXPRESS_PROCESSING_FEE'] },
-    },
-  });
-  const map = {};
-  for (const s of settings) {
-    map[s.key] = s.value;
+  const fullCatalog = await getPricingCatalog(tx);
+  const eurToAznRate = Number(fullCatalog.baseFees?.eurToAznRate || DEFAULT_EUR_TO_AZN_RATE) || 1.85;
+  const prices = { ...SERVICE_PRICES };
+
+  for (const s of fullCatalog.services || []) {
+    if (s && s.id) {
+      prices[s.id] = Number(s.priceEur ?? s.price ?? 0.0);
+    }
   }
-  const eurToAznRate = Number(map.EUR_TO_AZN_RATE || DEFAULT_EUR_TO_AZN_RATE) || 1.85;
-  const expressFee = Number(map.EXPRESS_PROCESSING_FEE || SERVICE_PRICES.EXPRESS_PROCESSING) || 60.0;
+
   return {
     eurToAznRate,
-    prices: {
-      ...SERVICE_PRICES,
-      EXPRESS_PROCESSING: expressFee,
-    },
+    prices,
+    fullCatalog,
   };
 }
 
 async function getServiceCatalog() {
-  const { eurToAznRate, prices } = await getDynamicPricingSettings();
+  const fullCatalog = await getPricingCatalog();
+  const activeServices = (fullCatalog.services || []).filter((s) => s.isActive !== false);
+  const activePackages = (fullCatalog.packages || []).filter((p) => p.isActive !== false);
 
-  const items = [
-    {
-      id: 'PREMIUM_LOUNGE',
-      title: 'VIP Lounge & Priority Access',
-      price: prices.PREMIUM_LOUNGE,
-      description: 'Dedicated quiet space, prime time slots, refreshments, and personal support throughout the center.',
-      category: 'COMFORT',
-      recommended: true,
-    },
-    {
-      id: 'EXPRESS_PROCESSING',
-      title: 'Express Processing',
-      price: prices.EXPRESS_PROCESSING,
-      description: 'Expedited processing queue and priority document verification before consular submission.',
-      category: 'SPEED',
-      recommended: true,
-    },
-    {
-      id: 'FILE_PREPARATION',
-      title: 'Full File Preparation',
-      price: prices.FILE_PREPARATION,
-      description: 'Verification of documents and consistency check to maximize consular acceptance chances.',
-      category: 'ASSISTANCE',
-    },
-    {
-      id: 'TRANSLATION_APOSTILLE',
-      title: 'Translation & Apostille',
-      price: prices.TRANSLATION_APOSTILLE,
-      description: 'Certified legal translation and official notarization/apostille support for civil documents.',
-      category: 'LEGAL',
-    },
-    {
-      id: 'TRAVEL_INSURANCE',
-      title: 'Travel Medical Insurance (€30,000)',
-      price: prices.TRAVEL_INSURANCE,
-      description: 'Schengen-compliant health coverage up to €30,000 valid across all Member States.',
-      category: 'REQUIRED_COVERAGE',
-      recommended: true,
-    },
-    {
-      id: 'FORM_ASSIST',
-      title: '37-Point Form Completion',
-      price: prices.FORM_ASSIST,
-      description: 'Specialist assistance with filling out and reviewing the official Schengen application form.',
-      category: 'ASSISTANCE',
-    },
-    {
-      id: 'COURIER',
-      title: 'Secure Passport Courier',
-      price: prices.COURIER,
-      description: 'Tracked door-to-door delivery of your processed passport directly to your home or office.',
-      category: 'DELIVERY',
-    },
-    {
-      id: 'HOTEL_BOOKING',
-      title: 'Verifiable Hotel Reservation',
-      price: prices.HOTEL_BOOKING,
-      description: 'Consulate-verifiable accommodation confirmation matching your intended itinerary.',
-      category: 'DOCUMENTATION',
-    },
-    {
-      id: 'FLIGHT_BOOKING',
-      title: 'Flight Itinerary Reservation',
-      price: prices.FLIGHT_BOOKING,
-      description: 'Verifiable round-trip flight reservation without upfront full-fare ticket purchase.',
-      category: 'DOCUMENTATION',
-    },
-    {
-      id: 'BIOMETRIC_PHOTO',
-      title: 'ICAO Biometric Photo',
-      price: prices.BIOMETRIC_PHOTO,
-      description: '100% Schengen and ICAO compliant biometric photos captured on-site.',
-      category: 'BIOMETRICS',
-    },
-    {
-      id: 'SMS_TRACKING',
-      title: 'SMS & WhatsApp Live Alerts',
-      price: prices.SMS_TRACKING,
-      description: 'Instant automated SMS & WhatsApp alerts at every consular milestone.',
-      category: 'DELIVERY',
-    },
-  ];
-
-  return items.map((item) => ({
-    ...item,
+  return {
+    catalog: activeServices,
+    services: activeServices,
+    packages: activePackages,
+    baseFees: fullCatalog.baseFees,
+    exchangeRate: fullCatalog.exchangeRate,
     currency: 'EUR',
-    priceAzn: convertEurToAzn(item.price, eurToAznRate),
-    exchangeRate: eurToAznRate,
-  }));
+  };
 }
 
 function computeDossierTotals(dossier, allServices) {
@@ -397,6 +317,133 @@ async function removeServiceFromDossier(serviceId, user = null) {
   };
 }
 
+async function updateDossierPackage({ dossierId, groupBatchId, packageId, user }) {
+  const fullCatalog = await getPricingCatalog();
+  const normalizedPkgId = String(packageId || 'standard').trim().toLowerCase();
+  const matchedPkg =
+    (fullCatalog.packages || []).find(
+      (p) => String(p.id).toLowerCase() === normalizedPkgId || String(p.code).toLowerCase() === normalizedPkgId
+    ) || fullCatalog.packages[0];
+
+  if (!matchedPkg) {
+    const err = new Error('Selected payment package not found in catalog');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  let targetDossier = null;
+  if (dossierId) {
+    targetDossier = await prisma.dossier.findUnique({
+      where: { id: dossierId },
+      include: { applicants: true, services: true, visaCategory: true, groupBatch: true },
+    });
+  } else if (groupBatchId) {
+    const batch = await prisma.groupBatch.findUnique({
+      where: { id: groupBatchId },
+      include: { dossiers: { include: { applicants: true, services: true, visaCategory: true } } },
+    });
+    if (batch) {
+      targetDossier = batch.dossiers?.[0] || null;
+      if (targetDossier) targetDossier.groupBatch = batch;
+    }
+  }
+
+  if (!targetDossier) {
+    const err = new Error('Target dossier or batch not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  assertDossierAccess(targetDossier, user);
+
+  const paxCount = Math.max(1, (targetDossier.applicants || []).length);
+  const portalType = targetDossier.portalType || 'INDIVIDUAL';
+  const duration = targetDossier.groupBatch?.duration || 'short';
+  const baseConsularFee =
+    targetDossier.visaCategory?.baseFee !== undefined && targetDossier.visaCategory?.baseFee !== null
+      ? Number(targetDossier.visaCategory.baseFee)
+      : null;
+
+  const fees = calculatePortalFees({
+    portalType,
+    paxCount,
+    activePackage: matchedPkg.id,
+    baseConsularFee,
+    duration,
+    catalog: fullCatalog,
+  });
+
+  // Update GroupBatch packageTier if linked
+  const resolvedBatchId = groupBatchId || targetDossier.groupBatchId;
+  if (resolvedBatchId) {
+    await prisma.groupBatch.update({
+      where: { id: resolvedBatchId },
+      data: { packageTier: matchedPkg.id },
+    });
+    // Also update any pending CorporateInvoice
+    if ( prisma.corporateInvoice && typeof prisma.corporateInvoice.updateMany === 'function' ) {
+      await prisma.corporateInvoice.updateMany({
+        where: { groupBatchId: resolvedBatchId, status: 'PENDING' },
+        data: { amount: fees.grandTotalEur },
+      });
+    }
+  }
+
+  // Update each applicant's formDataJson.package
+  for (const app of targetDossier.applicants || []) {
+    const existingJson = app.formDataJson && typeof app.formDataJson === 'object' ? app.formDataJson : {};
+    await prisma.applicant.update({
+      where: { id: app.id },
+      data: {
+        formDataJson: {
+          ...existingJson,
+          package: matchedPkg.id,
+          packageName: matchedPkg.name,
+        },
+      },
+    });
+  }
+
+  // Synchronize AdditionalService rows for INDIVIDUAL dossiers
+  if (portalType === 'INDIVIDUAL') {
+    await prisma.additionalService.deleteMany({
+      where: { dossierId: targetDossier.id },
+    });
+
+    const includedIds = Array.isArray(matchedPkg.includedServiceIds) ? matchedPkg.includedServiceIds : [];
+    for (const srvId of includedIds) {
+      const srvDef = (fullCatalog.services || []).find((s) => s.id === srvId);
+      const srvPrice = Number(srvDef?.priceEur ?? 0);
+      await prisma.additionalService.create({
+        data: {
+          dossierId: targetDossier.id,
+          serviceType: srvId,
+          price: srvPrice,
+          status: 'ACTIVE',
+          metadataJson: { bundledInPackage: matchedPkg.id, packageName: matchedPkg.name },
+        },
+      });
+    }
+  }
+
+  const updatedDossier = await prisma.dossier.update({
+    where: { id: targetDossier.id },
+    data: {
+      governmentFee: fees.govFeePerPax,
+      serviceFee: fees.serviceFeePerPaxForDossier,
+      extraServicesFee: fees.extraServicesTotalForDossier,
+      totalAmount: fees.grandTotalEur,
+    },
+    include: { services: true, applicants: true },
+  });
+
+  return {
+    dossier: updatedDossier,
+    package: matchedPkg,
+    fees,
+  };
+}
+
 module.exports = {
   resolveServiceType,
   getDynamicPricingSettings,
@@ -405,4 +452,5 @@ module.exports = {
   addServiceToDossier,
   checkoutServices,
   removeServiceFromDossier,
+  updateDossierPackage,
 };

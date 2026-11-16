@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './AgentAppointments.css';
 import { agentService, appointmentService, TimeSlot as AvailableSlot } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 
 export interface ApplicantItem {
     id: string;
@@ -199,15 +200,10 @@ export default function AgentAppointments() {
                 groupBatchId: selectedSlot.groupInfo.dbId,
             });
 
-            const data = res?.data || res;
-            if (data && data.fileUrl) {
-                const apiOrigin = import.meta.env.VITE_API_URL 
-                    ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '') 
-                    : 'http://localhost:5000';
-                
-                const fileUrl = data.fileUrl.startsWith('http')
-                    ? data.fileUrl
-                    : `${apiOrigin}${data.fileUrl}`;
+            const data = res?.data?.data || res?.data || res;
+            const downloadUrl = data?.downloadUrl || data?.fileUrl || data?.pdfUrl;
+            if (downloadUrl) {
+                const fileUrl = getFileUrl(downloadUrl);
 
                 const link = document.createElement('a');
                 link.href = fileUrl;

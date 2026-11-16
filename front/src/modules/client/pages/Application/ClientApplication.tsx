@@ -3,6 +3,7 @@ import { useAuth } from '@/shared/context/AuthContext';
 import { dossierService } from '@/shared/api/services/dossier.service';
 import { useToast } from '@/shared/context/ToastContext';
 import { extractMrzFromText } from '@/shared/utils/mrzParser';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientApplication.css';
 
 interface ApplicantData {
@@ -499,9 +500,7 @@ export default function ClientApplication() {
         try {
             const res = await dossierService.getApplicationFormPdf(dossierId || 'demo', app.id, appForm);
             if (res.data?.downloadUrl) {
-                const fullUrl = res.data.downloadUrl.startsWith('http')
-                    ? res.data.downloadUrl
-                    : `http://localhost:5000${res.data.downloadUrl}`;
+                const fullUrl = getFileUrl(res.data.downloadUrl);
                 
                 // Fetch blob directly to ensure clean file download without browser popup-blocking
                 const fileRes = await fetch(fullUrl);
@@ -1380,7 +1379,7 @@ export default function ClientApplication() {
                                         gap: '6px'
                                     }}
                                 >
-                                    <span>⚡</span> Quick Fill via Passport MRZ
+                                    Quick Fill via Passport MRZ
                                 </button>
                             </div>
 
@@ -1388,7 +1387,7 @@ export default function ClientApplication() {
                                 <div style={{ background: '#F8FAFC', border: '1.5px solid #2563EB', borderRadius: '10px', padding: '14px', marginBottom: '18px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                         <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>Machine Readable Zone (MRZ) Parser</strong>
-                                        <button type="button" onClick={() => setIsMrzModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontWeight: 'bold' }}>✕ Close</button>
+                                        <button type="button" onClick={() => setIsMrzModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontWeight: 'bold' }}>Close</button>
                                     </div>
                                     <p style={{ margin: '0 0 8px 0', fontSize: '0.8rem', color: '#64748B' }}>
                                         Paste the 2 ICAO lines from the bottom of your passport photo page:

@@ -1,4 +1,5 @@
 import { storage } from '../utils/storage';
+import { getBackendOrigin, getFileUrl } from './file.util';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -6,13 +7,24 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
  * Universal authenticated file downloader for PDFs, ZIP archives, and documents.
  * Directly streams binary responses to disk and supports nested JSON downloadUrl redirects.
  */
-export async function downloadFileFromApi(urlOrEndpoint: string, fallbackFileName: string): Promise<void> {
+export async function downloadFileFromApi(
+  urlOrEndpoint: string,
+  fallbackFileName: string,
+  redirectDepth = 0
+): Promise<void> {
+  if (redirectDepth > 3) {
+    throw new Error('Too many download redirects');
+  }
+
   const token = storage.getToken();
 
-  let targetUrl = urlOrEndpoint;
+  let targetUrl = (urlOrEndpoint || '').trim();
   if (!targetUrl.startsWith('http')) {
-    if (targetUrl.startsWith('/api') || targetUrl.startsWith('/uploads') || targetUrl.startsWith('/archives')) {
-      targetUrl = targetUrl;
+    if (targetUrl.startsWith('/uploads') || targetUrl.startsWith('/archives')) {
+      targetUrl = getFileUrl(targetUrl);
+    } else if (targetUrl.startsWith('/api')) {
+      const origin = getBackendOrigin();
+      targetUrl = `${origin}${targetUrl}`;
     } else {
       targetUrl = `${API_BASE_URL}${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
     }
@@ -31,8 +43,17 @@ export async function downloadFileFromApi(urlOrEndpoint: string, fallbackFileNam
   if (!response.ok) {
     let errMsg = `Download failed with status ${response.status}`;
     try {
-      const errJson = await response.json();
-      if (errJson.message) errMsg = errJson.message;
+      const rawText = await response.text();
+      if (rawText) {
+        try {
+          const errJson = JSON.parse(rawText);
+          if (errJson.message) errMsg = errJson.message;
+        } catch {
+          if (rawText.length < 200 && !rawText.trim().startsWith('<')) {
+            errMsg = `${errMsg}: ${rawText.trim()}`;
+          }
+        }
+      }
     } catch {
       // ignore
     }
@@ -51,7 +72,7 @@ export async function downloadFileFromApi(urlOrEndpoint: string, fallbackFileNam
       json.data?.checklistPdfUrl;
 
     if (nestedUrl) {
-      return downloadFileFromApi(nestedUrl, fallbackFileName);
+      return downloadFileFromApi(nestedUrl, fallbackFileName, redirectDepth + 1);
     }
     if (json.message) {
       throw new Error(json.message);
@@ -62,7 +83,18 @@ export async function downloadFileFromApi(urlOrEndpoint: string, fallbackFileNam
   const blobUrl = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = blobUrl;
-  a.download = fallbackFileName;
+
+  // Extract filename from Content-Disposition if provided by server
+  let fileNameToUse = fallbackFileName;
+  const contentDisposition = response.headers.get('content-disposition');
+  if (contentDisposition && contentDisposition.includes('filename=')) {
+    const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    if (match && match[1]) {
+      fileNameToUse = match[1].replace(/['"]/g, '').trim();
+    }
+  }
+
+  a.download = fileNameToUse;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

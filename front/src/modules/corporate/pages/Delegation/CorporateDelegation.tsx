@@ -8,6 +8,7 @@ import { Spinner } from '@/shared/components/ui/Spinner';
 import { BuildingIcon, ShieldIcon, CheckCircleIcon } from '@/shared/components/icons/Icons';
 import { apiClient } from '@/shared/api/client';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 
 export default function CorporateDelegation() {
   const [searchParams] = useSearchParams();
@@ -42,6 +43,9 @@ export default function CorporateDelegation() {
           setProfile(prof);
           if (prof.passportNumber) {
             setPassportNumber(prof.passportNumber);
+          }
+          if (prof.dob || prof.birthDate) {
+            setDob(String(prof.dob || prof.birthDate).split('T')[0]);
           }
           if (prof.passportExpiry) {
             setPassportExpiry(String(prof.passportExpiry).split('T')[0]);
@@ -101,9 +105,7 @@ export default function CorporateDelegation() {
       });
 
       if (res.data?.downloadUrl) {
-        const fullUrl = res.data.downloadUrl.startsWith('http')
-          ? res.data.downloadUrl
-          : `http://localhost:5000${res.data.downloadUrl}`;
+        const fullUrl = getFileUrl(res.data.downloadUrl);
         
         const fileRes = await fetch(fullUrl);
         if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);

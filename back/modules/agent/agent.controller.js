@@ -203,12 +203,17 @@ async function uploadCustomerDoc(req, res, next) {
 async function setGroupAppointment(req, res, next) {
   try {
     const { timeSlotId, appointmentDate, appointmentTime, location } = req.body;
-    const appointment = await agentService.setGroupAppointment(req.params.groupId, req.user.id, {
-      timeSlotId,
-      appointmentDate,
-      appointmentTime,
-      location,
-    });
+    const appointment = await agentService.setGroupAppointment(
+      req.params.groupId,
+      req.user.id,
+      {
+        timeSlotId,
+        appointmentDate,
+        appointmentTime,
+        location,
+      },
+      req.user
+    );
     return ApiResponse.success(res, { appointment }, 'Group appointment scheduled successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);

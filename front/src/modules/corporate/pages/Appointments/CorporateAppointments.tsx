@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { corporateService } from '@/shared/api/services/corporate.service';
 import { appointmentService } from '@/shared/api/services/appointment.service';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './CorporateAppointments.css';
 
 interface AppointmentRecord {
@@ -94,21 +95,42 @@ export default function CorporateAppointments() {
         try {
             showSuccess(`Generating official Appointment Manifest (PDF) for ${batchName}...`);
             const res: any = await appointmentService.generateManifestPdf({ groupBatchId: batchId });
-            const downloadUrl = res?.downloadUrl || res?.data?.downloadUrl || res?.pdfUrl;
+            
+            const payload = res?.data?.data || res?.data || res;
+            const downloadUrl = payload?.downloadUrl || payload?.fileUrl || payload?.pdfUrl || res?.downloadUrl || res?.fileUrl || res?.pdfUrl;
+            const fileName = payload?.fileName || res?.fileName || `manifest_${batchId}.pdf`;
+
             if (downloadUrl) {
-                const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `http://localhost:5000${downloadUrl}`;
-                const link = document.createElement('a');
-                link.href = fullUrl;
-                link.target = '_blank';
-                link.download = res?.fileName || `manifest_${batchId}.pdf`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                const fullUrl = getFileUrl(downloadUrl);
+                try {
+                    const fileRes = await fetch(fullUrl);
+                    if (!fileRes.ok) throw new Error(`Download status ${fileRes.status}`);
+                    const blob = await fileRes.blob();
+                    const blobUrl = window.URL.createObjectURL(blob);
+
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 2000);
+                } catch {
+                    const link = document.createElement('a');
+                    link.href = fullUrl;
+                    link.target = '_blank';
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+
                 showSuccess('Biometric Appointment Manifest (PDF) downloaded successfully.');
             } else {
                 showError('Could not obtain Manifest PDF URL.');
             }
         } catch (err: any) {
+            console.error('Manifest download error:', err);
             showError(err.message || 'Failed to generate appointment manifest');
         }
     };

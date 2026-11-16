@@ -86,14 +86,77 @@ async function getAgentAppointments(userId) {
   });
 }
 
-async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDate, appointmentTime, location }) {
+function parseSafeAppointmentDateTime(dateStr, timeStr) {
+  const baseDateStr = dateStr || new Date().toISOString().split('T')[0];
+  const pureDate = String(baseDateStr).split('T')[0].trim();
+
+  let hours = 10;
+  let minutes = 0;
+
+  if (timeStr) {
+    const rawTime = String(timeStr).trim();
+    const match = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (match) {
+      let h = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10);
+      const meridiem = match[3] ? match[3].toUpperCase() : null;
+
+      if (meridiem === 'PM' && h < 12) h += 12;
+      if (meridiem === 'AM' && h === 12) h = 0;
+
+      hours = h;
+      minutes = m;
+    }
+  }
+
+  const d = new Date(`${pureDate}T00:00:00.000Z`);
+  if (isNaN(d.getTime())) {
+    const now = new Date();
+    now.setUTCHours(hours, minutes, 0, 0);
+    return now;
+  }
+  d.setUTCHours(hours, minutes, 0, 0);
+  return d;
+}
+
+function getTimeVariants(timeStr) {
+  if (!timeStr) return ['10:00', '10:00 AM'];
+  const raw = String(timeStr).trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return [raw];
+
+  let h = parseInt(match[1], 10);
+  const m = match[2];
+  const mer = match[3] ? match[3].toUpperCase() : null;
+
+  if (mer === 'PM' && h < 12) h += 12;
+  if (mer === 'AM' && h === 12) h = 0;
+
+  const h24 = String(h).padStart(2, '0');
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12Pad = String(h12).padStart(2, '0');
+
+  return Array.from(new Set([
+    `${h24}:${m}`,
+    `${h12Pad}:${m} ${ampm}`,
+    `${h12}:${m} ${ampm}`,
+    `${h24}:${m} ${ampm}`,
+    raw
+  ]));
+}
+
+async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDate, appointmentTime, location }, currentUser = null) {
+  const isStaff = currentUser && ['ADMIN', 'MANAGER', 'OPERATOR'].includes(currentUser.role);
   const group = await prisma.groupBatch.findFirst({
-    where: { id: groupId, userId },
+    where: isStaff ? { id: groupId } : { id: groupId, userId },
     include: {
       dossiers: {
         include: { applicants: true },
       },
-      appointments: true,
+      appointments: {
+        include: { timeSlot: true },
+      },
     },
   });
   if (!group) {
@@ -109,22 +172,28 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
   });
   if (groupSize === 0) groupSize = 1;
 
+  const existingAppointment = group.appointments && group.appointments.length > 0 ? group.appointments[0] : null;
+  const existingSlotId = existingAppointment?.timeSlotId || null;
+  const existingGroupSize = existingAppointment?.groupSize || 0;
+
   let timeSlot = null;
   if (timeSlotId) {
     timeSlot = await prisma.timeSlot.findUnique({ where: { id: timeSlotId } });
   }
 
-  const apptDateStr = appointmentDate || (timeSlot ? new Date(timeSlot.date).toISOString().split('T')[0] : '2026-11-20');
-  const apptDateTime = new Date(`${apptDateStr}T${appointmentTime || (timeSlot ? timeSlot.startTime : '10:00')}:00.000Z`);
+  const apptDateStr = appointmentDate || (timeSlot ? new Date(timeSlot.date).toISOString().split('T')[0] : (existingAppointment?.timeSlot?.date ? new Date(existingAppointment.timeSlot.date).toISOString().split('T')[0] : '2026-11-20'));
+  const apptTimeStr = appointmentTime || (timeSlot ? timeSlot.startTime : (existingAppointment?.timeSlot?.startTime || '10:00'));
+  const apptDateTime = parseSafeAppointmentDateTime(apptDateStr, apptTimeStr);
 
   if (!timeSlot && appointmentDate) {
     const startOfDay = new Date(`${appointmentDate}T00:00:00.000Z`);
     const endOfDay = new Date(`${appointmentDate}T23:59:59.999Z`);
+    const timeVariants = getTimeVariants(apptTimeStr);
 
     timeSlot = await prisma.timeSlot.findFirst({
       where: {
         date: { gte: startOfDay, lte: endOfDay },
-        startTime: appointmentTime || '10:00',
+        startTime: { in: timeVariants },
         isActive: true,
       },
       orderBy: { date: 'desc' },
@@ -135,32 +204,91 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
     timeSlot = await prisma.timeSlot.create({
       data: {
         date: apptDateTime,
-        startTime: appointmentTime || '10:00',
+        startTime: apptTimeStr || '10:00',
         capacity: Math.max(30, groupSize + 10),
         bookedCount: groupSize,
         isActive: true,
         location: location || 'EuroTech Main Center, Port Baku Towers',
       },
     });
-  } else {
-    // Check capacity for the entire group
-    const remaining = timeSlot.capacity - timeSlot.bookedCount;
-    if (remaining < groupSize) {
-      const error = new Error(`Selected time slot has insufficient capacity (Available: ${remaining}, Group size: ${groupSize})`);
-      error.statusCode = 400;
-      throw error;
-    }
 
-    await prisma.timeSlot.update({
-      where: { id: timeSlot.id },
-      data: { bookedCount: { increment: groupSize } },
-    });
+    // Release old slot if previously booked on a different slot
+    if (existingSlotId) {
+      try {
+        const oldSlot = await prisma.timeSlot.findUnique({ where: { id: existingSlotId } });
+        if (oldSlot) {
+          const decr = Math.min(oldSlot.bookedCount, existingGroupSize);
+          if (decr > 0) {
+            await prisma.timeSlot.update({
+              where: { id: existingSlotId },
+              data: { bookedCount: { decrement: decr } },
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Could not release previous slot:', err.message);
+      }
+    }
+  } else {
+    // Check capacity for the group
+    if (existingSlotId && existingSlotId === timeSlot.id) {
+      // Re-booking or updating details on the same slot
+      const delta = groupSize - existingGroupSize;
+      if (delta > 0) {
+        const remaining = timeSlot.capacity - timeSlot.bookedCount;
+        if (remaining < delta) {
+          const error = new Error(`Selected time slot has insufficient capacity (Available: ${remaining}, Additional needed: ${delta})`);
+          error.statusCode = 400;
+          throw error;
+        }
+        await prisma.timeSlot.update({
+          where: { id: timeSlot.id },
+          data: { bookedCount: { increment: delta } },
+        });
+      } else if (delta < 0) {
+        await prisma.timeSlot.update({
+          where: { id: timeSlot.id },
+          data: { bookedCount: { decrement: Math.abs(delta) } },
+        });
+      }
+    } else {
+      // New or different slot selected
+      const remaining = timeSlot.capacity - timeSlot.bookedCount;
+      if (remaining < groupSize) {
+        const error = new Error(`Selected time slot has insufficient capacity (Available: ${remaining}, Group size: ${groupSize})`);
+        error.statusCode = 400;
+        throw error;
+      }
+
+      await prisma.timeSlot.update({
+        where: { id: timeSlot.id },
+        data: { bookedCount: { increment: groupSize } },
+      });
+
+      // Release old slot if previously booked on another slot
+      if (existingSlotId) {
+        try {
+          const oldSlot = await prisma.timeSlot.findUnique({ where: { id: existingSlotId } });
+          if (oldSlot) {
+            const decr = Math.min(oldSlot.bookedCount, existingGroupSize);
+            if (decr > 0) {
+              await prisma.timeSlot.update({
+                where: { id: existingSlotId },
+                data: { bookedCount: { decrement: decr } },
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Could not release previous slot:', err.message);
+        }
+      }
+    }
   }
 
-  const primaryDossier = group.dossiers[0];
-  if (primaryDossier) {
-    await prisma.dossier.update({
-      where: { id: primaryDossier.id },
+  // Update appointment date & location on all dossiers belonging to this group
+  if (group.dossiers && group.dossiers.length > 0) {
+    await prisma.dossier.updateMany({
+      where: { groupBatchId: group.id },
       data: {
         appointmentDate: apptDateTime,
         appointmentLocation: location || 'EuroTech Main Center, Port Baku Towers',
@@ -168,10 +296,11 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
     });
   }
 
-  if (group.appointments && group.appointments.length > 0) {
-    const existing = group.appointments[0];
+  const primaryDossier = group.dossiers?.[0] || null;
+
+  if (existingAppointment) {
     return await prisma.appointment.update({
-      where: { id: existing.id },
+      where: { id: existingAppointment.id },
       data: {
         timeSlotId: timeSlot.id,
         groupSize,
@@ -185,7 +314,7 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
     return await prisma.appointment.create({
       data: {
         timeSlotId: timeSlot.id,
-        userId,
+        userId: group.userId || userId,
         dossierId: primaryDossier?.id || null,
         groupBatchId: group.id,
         groupSize,

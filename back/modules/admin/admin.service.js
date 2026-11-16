@@ -1,5 +1,8 @@
 const prisma = require('../../config/db');
 const notificationService = require('../notification/notification.service');
+const paymentService = require('../payment/payment.service');
+const walletService = require('../payment/wallet.service');
+const pricingConfigService = require('../service/pricingConfig.service');
 
 async function getDashboardMetrics() {
   const activeDossiers = await prisma.dossier.count({
@@ -61,6 +64,7 @@ async function getAllDossiers({ status, portalType, search, page = 1, limit = 10
         country: true,
         visaCategory: true,
         applicants: true,
+        groupBatch: true,
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -308,11 +312,11 @@ async function getAuditLogs({ page = 1, limit = 20, action, search } = {}) {
 
 async function getSystemSettings() {
   const defaultSettings = {
-    urgentProcessingFee: '50.00',
+    urgentProcessingFee: '60.00',
     premiumLoungeFee: '81.00',
     sessionTimeout: '15',
     eurToAznRate: '1.85',
-    baseSchengenFee: '90.00',
+    baseSchengenFee: '80.00',
     consularCenterLocation: 'Baku Consular Review Office',
   };
 
@@ -322,17 +326,25 @@ async function getSystemSettings() {
     settingsMap[s.key] = s.value;
   });
 
+  const pricingCatalog = await pricingConfigService.getPricingCatalog();
+
   return {
     settings: settingsMap,
     items: dbSettings,
+    pricingCatalog,
   };
 }
 
-async function updateSystemSettings(settingsObj) {
+async function updateSystemSettings(settingsObj, adminUserId = null) {
+  if (settingsObj.pricingCatalog && typeof settingsObj.pricingCatalog === 'object') {
+    await pricingConfigService.savePricingCatalog(settingsObj.pricingCatalog, adminUserId);
+  }
+
   const updates = [];
   for (const [key, val] of Object.entries(settingsObj)) {
+    if (key === 'pricingCatalog') continue;
     if (val !== undefined && val !== null) {
-      const stringVal = String(val);
+      const stringVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
       updates.push(
         prisma.systemSetting.upsert({
           where: { key },
@@ -342,8 +354,18 @@ async function updateSystemSettings(settingsObj) {
       );
     }
   }
-  await prisma.$transaction(updates);
+  if (updates.length > 0) {
+    await prisma.$transaction(updates);
+  }
   return getSystemSettings();
+}
+
+async function getPricingCatalog() {
+  return pricingConfigService.getPricingCatalog();
+}
+
+async function savePricingCatalog(catalogInput, adminUserId = null) {
+  return pricingConfigService.savePricingCatalog(catalogInput, adminUserId);
 }
 
 async function saveCountry(data) {
@@ -371,6 +393,7 @@ async function saveCountry(data) {
 }
 
 async function saveVisaCategory(data) {
+  const baseFeeVal = data.baseFee !== undefined ? Number(data.baseFee) : undefined;
   if (data.id) {
     return prisma.visaCategory.update({
       where: { id: data.id },
@@ -379,6 +402,7 @@ async function saveVisaCategory(data) {
         nameAz: data.nameAz,
         nameEn: data.nameEn,
         nameRu: data.nameRu || data.nameEn,
+        ...(baseFeeVal !== undefined ? { baseFee: baseFeeVal } : {}),
       },
     });
   }
@@ -389,6 +413,7 @@ async function saveVisaCategory(data) {
       nameAz: data.nameAz,
       nameEn: data.nameEn,
       nameRu: data.nameRu || data.nameEn,
+      ...(baseFeeVal !== undefined ? { baseFee: baseFeeVal } : {}),
     },
   });
 }
@@ -459,124 +484,60 @@ async function getIntegrationsHealth() {
 }
 
 async function getBankSlips() {
-  const slips = await prisma.bankPaymentReceipt.findMany({
-    include: {
-      dossier: {
-        include: {
-          user: { select: { id: true, fullName: true, email: true, phone: true } },
-          country: true,
-          visaCategory: true,
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const slips = await paymentService.getBankPaymentSlips();
 
-  return slips.map((s) => ({
-    id: s.id,
-    dossierId: s.dossierId,
-    dossierNumber: s.dossier?.dossierNumber,
-    applicantName: s.dossier?.user?.fullName || 'Client',
-    email: s.dossier?.user?.email,
-    amount: s.amount,
-    currency: s.currency,
-    referenceCode: s.referenceCode,
-    fileUrl: s.fileUrl,
-    fileName: s.fileName,
-    status: s.status === 'PAID' ? 'APPROVED' : s.status === 'REFUNDED' ? 'REJECTED' : s.status,
-    notes: s.adminNotes,
-    metadataJson: s.metadataJson || {},
-    createdAt: s.createdAt,
-    reviewedAt: s.reviewedAt,
-  }));
+  return slips.map((s) => {
+    const meta = s.metadataJson && typeof s.metadataJson === 'object' ? s.metadataJson : {};
+    return {
+      id: s.id,
+      dossierId: s.dossierId || null,
+      groupBatchId: s.groupBatchId || null,
+      dossierNumber: s.dossier?.dossierNumber || null,
+      groupBatchCode: s.groupBatch?.code || null,
+      groupBatchName: s.groupBatch?.name || null,
+      purpose: s.purpose || (s.groupBatchId ? 'GROUP_BATCH_PAYMENT' : s.dossierId ? 'DOSSIER_PAYMENT' : 'WALLET_TOPUP'),
+      applicantName: s.user?.fullName || s.dossier?.user?.fullName || 'Client',
+      senderName: meta.senderName || s.user?.companyName || s.user?.fullName || 'Client',
+      bankName: meta.bankName || null,
+      email: s.user?.email || s.dossier?.user?.email || null,
+      amount: s.amount,
+      currency: s.currency || 'EUR',
+      referenceCode: s.referenceCode,
+      fileUrl: s.fileUrl,
+      fileName: s.fileName,
+      status: s.status === 'PAID' ? 'APPROVED' : s.status === 'REFUNDED' ? 'REJECTED' : s.status,
+      notes: s.adminNotes,
+      metadataJson: meta,
+      createdAt: s.createdAt,
+      reviewedAt: s.reviewedAt,
+    };
+  });
 }
 
 async function reviewBankSlip(receiptId, status, notes, reviewerUserId) {
-  const receipt = await prisma.bankPaymentReceipt.findUnique({
-    where: { id: receiptId },
-    include: { dossier: true },
+  return paymentService.reviewBankPaymentSlip({
+    receiptId,
+    adminUserId: reviewerUserId,
+    action: status,
+    adminNotes: notes,
   });
+}
 
-  if (!receipt) {
-    const error = new Error('Bank payment slip receipt not found');
-    error.statusCode = 404;
-    throw error;
-  }
+async function getBankSlipFile(receiptId) {
+  return paymentService.getBankSlipFile(receiptId);
+}
 
-  const isApproved = status === 'APPROVED' || status === 'PAID';
-  const targetStatus = isApproved ? 'PAID' : 'REFUNDED';
+async function getUserWallets({ role = null, search = null } = {}) {
+  return walletService.adminGetAllWallets({ role, search });
+}
 
-  return await prisma.$transaction(async (tx) => {
-    const updated = await tx.bankPaymentReceipt.update({
-      where: { id: receiptId },
-      data: {
-        status: targetStatus,
-        adminNotes: notes || receipt.adminNotes,
-        reviewedByUserId: reviewerUserId,
-        reviewedAt: new Date(),
-      },
-    });
-
-    if (isApproved) {
-      await tx.dossier.update({
-        where: { id: receipt.dossierId },
-        data: {
-          paymentStatus: 'PAID',
-          status: 'UNDER_REVIEW',
-        },
-      });
-
-      await tx.transaction.create({
-        data: {
-          dossierId: receipt.dossierId,
-          userId: receipt.userId,
-          amount: receipt.amount,
-          currency: receipt.currency,
-          paymentProvider: 'BANK_TRANSFER',
-          orderReference: receipt.referenceCode,
-          receiptUrl: receipt.fileUrl,
-          status: 'PAID',
-          metadataJson: {
-            bankSlipId: receipt.id,
-            referenceCode: receipt.referenceCode,
-            approvedByUserId: reviewerUserId,
-            approvedAt: new Date().toISOString(),
-          },
-        },
-      });
-
-      // Confirm any pending appointment for this dossier
-      await tx.appointment.updateMany({
-        where: { dossierId: receipt.dossierId, status: 'PENDING_PAYMENT' },
-        data: { status: 'CONFIRMED' },
-      });
-    } else {
-      await tx.dossier.update({
-        where: { id: receipt.dossierId },
-        data: {
-          paymentStatus: 'PENDING',
-        },
-      });
-    }
-
-    try {
-      await tx.auditLog.create({
-        data: {
-          userId: reviewerUserId,
-          action: 'BANK_SLIP_REVIEWED',
-          details: {
-            receiptId,
-            dossierId: receipt.dossierId,
-            status,
-            notes,
-          },
-        },
-      });
-    } catch (auditErr) {
-      console.warn('Audit log creation failed for bank slip review:', auditErr);
-    }
-
-    return updated;
+async function adjustUserWallet(targetUserId, { amount, type = 'CREDIT', reason }, adminUserId) {
+  return walletService.adminAdjustWallet({
+    targetUserId,
+    amount,
+    type,
+    reason,
+    adminUserId,
   });
 }
 
@@ -637,11 +598,16 @@ module.exports = {
   getAuditLogs,
   getSystemSettings,
   updateSystemSettings,
+  getPricingCatalog,
+  savePricingCatalog,
   saveCountry,
   saveVisaCategory,
   saveTimeSlot,
   getIntegrationsHealth,
   getBankSlips,
   reviewBankSlip,
+  getBankSlipFile,
+  getUserWallets,
+  adjustUserWallet,
   getCronMonitorStatus,
 };

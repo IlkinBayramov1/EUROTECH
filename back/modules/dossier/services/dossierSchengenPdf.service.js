@@ -32,7 +32,7 @@ async function generateApplicationFormPdf(dossierId, applicantId, customData = {
     try {
       applicant = await prisma.applicant.findFirst({
         where: { id: applicantId },
-        include: { dossier: { include: { country: true, visaCategory: true } } },
+        include: { dossier: { include: { country: true, visaCategory: true, user: true } } },
       });
       if (applicant) dossier = applicant.dossier;
     } catch (e) {
@@ -60,12 +60,12 @@ async function generateApplicationFormPdf(dossierId, applicantId, customData = {
 
   const combinedApplicant = {
     ...(applicant || {}),
-    firstName: customData.firstName || customFormJson.firstName || applicant?.firstName || '',
-    lastName: customData.lastName || customFormJson.lastName || applicant?.lastName || '',
-    passportNumber: customData.passportNumber || customFormJson.passportNumber || applicant?.passportNumber || '',
-    birthDate: customData.birthDate || customFormJson.birthDate || (applicant?.birthDate ? new Date(applicant.birthDate).toISOString().split('T')[0] : ''),
-    nationality: customData.nationality || customFormJson.nationality || applicant?.nationality || '',
-    gender: customData.gender || customFormJson.gender || applicant?.gender || '',
+    firstName: customData.firstName || customData.firstNames || customFormJson.firstName || customFormJson.firstNames || applicant?.firstName || '',
+    lastName: customData.lastName || customData.surname || customFormJson.lastName || customFormJson.surname || applicant?.lastName || '',
+    passportNumber: customData.passportNumber || customData.travelDocumentNumber || customFormJson.passportNumber || customFormJson.travelDocumentNumber || applicant?.passportNumber || '',
+    birthDate: customData.birthDate || customData.dateOfBirth || customData.dob || customFormJson.birthDate || customFormJson.dateOfBirth || customFormJson.dob || (applicant?.birthDate ? new Date(applicant.birthDate).toISOString().split('T')[0] : ''),
+    nationality: customData.nationality || customData.currentNationality || customFormJson.nationality || customFormJson.currentNationality || applicant?.nationality || '',
+    gender: customData.gender || customData.sex || customFormJson.gender || customFormJson.sex || applicant?.gender || '',
     formDataJson: {
       ...(applicant?.formDataJson && typeof applicant.formDataJson === 'object' ? applicant.formDataJson : {}),
       ...(customData || {}),
@@ -342,8 +342,14 @@ async function generateApplicationFormPdf(dossierId, applicantId, customData = {
     color: rgb(0.2, 0.35, 0.55),
   });
 
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
   const pdfBytes = await pdfDoc.save();
-  const fileName = `Application_Form_${firstName}_${lastName}_${Date.now()}.pdf`;
+  const safeFirst = (firstName || 'Applicant').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeLast = (lastName || 'Dossier').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `Application_Form_${safeFirst}_${safeLast}_${Date.now()}.pdf`;
   const filePath = path.join(uploadDir, fileName);
   fs.writeFileSync(filePath, pdfBytes);
 

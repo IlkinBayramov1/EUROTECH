@@ -1,6 +1,7 @@
 const prisma = require('../../../config/db');
 const { parseSafeDate, calculatePortalFees, getAgentCommissionRate } = require('../../../utils/finance.util');
 const walletService = require('../../payment/wallet.service');
+const { getPricingCatalog } = require('../../service/pricingConfig.service');
 
 function generateGroupCode() {
   const digits = Math.floor(100000 + Math.random() * 900000);
@@ -44,23 +45,26 @@ async function syncGroupFinancialsInTx(groupId, userId, tx = prisma) {
   if (!group) return null;
 
   const ownerId = userId || group.userId;
+  const catalog = await getPricingCatalog(tx);
   const user = await tx.user.findUnique({
     where: { id: ownerId },
     select: { agentTier: true },
   });
   const tier = user?.agentTier || 'BRONZE';
-  const ratePerPax = getAgentCommissionRate(tier);
+  const ratePerPax = getAgentCommissionRate(tier, catalog);
 
   const allApplicants = group.dossiers.flatMap((d) => d.applicants || []);
   const totalApplicants = allApplicants.length;
   const paxForPricing = Math.max(1, totalApplicants);
-  const pkg = allApplicants[0]?.formDataJson?.package || 'standard';
+  const pkg = group.packageTier || allApplicants[0]?.formDataJson?.package || 'standard';
 
   const primaryDossier = group.dossiers[0] || null;
   const fees = calculatePortalFees({
     portalType: 'GROUP_AGENT',
     paxCount: paxForPricing,
     activePackage: pkg,
+    duration: group.duration || 'short',
+    catalog,
   });
 
   if (primaryDossier && primaryDossier.paymentStatus !== 'PAID') {
@@ -149,6 +153,7 @@ async function createGroup({
   package: pkg,
   appointmentDate,
   appointmentTime,
+  paymentMethod,
 }) {
   const code = generateGroupCode();
   const appList = Array.isArray(applicants) ? applicants : [];
@@ -160,10 +165,13 @@ async function createGroup({
     ? parseAppointmentDateTime(appointmentDate, appointmentTime || '10:00', 'Appointment Date')
     : null;
 
+  const catalog = await getPricingCatalog();
   const fees = calculatePortalFees({
     portalType: 'GROUP_AGENT',
     paxCount,
     activePackage: selectedPackage,
+    duration: duration || 'short',
+    catalog,
   });
 
   return await prisma.$transaction(async (tx) => {
@@ -177,6 +185,7 @@ async function createGroup({
         travelDate: safeTravelDate,
         duration: duration || 'short',
         projectReason: projectReason || 'Tourism',
+        packageTier: selectedPackage,
         status: 'DRAFT',
       },
     });
@@ -308,6 +317,40 @@ async function createGroup({
 
     // Create Pending Commission entry immediately so Agent sees exact Pending Clearing balance
     await syncGroupFinancialsInTx(group.id, userId, tx);
+
+    if (String(paymentMethod || '').toUpperCase() === 'WALLET') {
+      try {
+        const wallet = await walletService.getOrCreateWallet(userId, tx);
+        const summary = await walletService.recalculateWalletBalances(wallet.id, tx);
+        const totalDueEur = fees.totalAmount || 0;
+        if (summary.balance >= totalDueEur && totalDueEur > 0) {
+          const ref = `WLT-${group.code}-${Date.now().toString().slice(-5)}`;
+          await tx.walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              amount: -totalDueEur,
+              type: 'DEBIT',
+              referenceType: 'VISA_PAYMENT',
+              referenceId: group.code,
+              description: `Tour Group Visa Fees: ${group.name} (${group.code})`,
+              status: 'PAID',
+            },
+          });
+
+          await walletService.settleGroupBatchInTx(tx, {
+            groupBatchId: group.id,
+            payerUserId: userId,
+            paymentProvider: 'WALLET',
+            referenceCode: ref,
+            explicitAmountEur: totalDueEur,
+          });
+
+          await walletService.recalculateWalletBalances(wallet.id, tx);
+        }
+      } catch (agentWalletErr) {
+        console.warn('Agent group auto-settle from wallet failed:', agentWalletErr);
+      }
+    }
 
     return await tx.groupBatch.findUnique({
       where: { id: group.id },
@@ -506,11 +549,20 @@ async function updateGroup(groupId, userId, data = {}, isStaff = false) {
     updateData.travelDate = parseSafeDate(data.travelDate, 'Travel Date');
   }
   if (data.destination !== undefined) updateData.destination = data.destination;
+  if (data.packageTier !== undefined || data.package !== undefined) {
+    updateData.packageTier = String(data.packageTier || data.package || 'standard').toLowerCase();
+  }
 
-  return prisma.groupBatch.update({
+  const updated = await prisma.groupBatch.update({
     where: { id: groupId },
     data: updateData,
   });
+
+  if (updateData.packageTier) {
+    await syncGroupFinancialsInTx(groupId, group.userId, prisma);
+  }
+
+  return updated;
 }
 
 async function deleteGroup(groupId, userId) {

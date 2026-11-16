@@ -4,6 +4,7 @@ import { useAuth } from '@/shared/context/AuthContext';
 import { dossierService, paymentService } from '@/shared/api/services';
 import { storage } from '@/shared/utils/storage';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientDashboard.css';
 
 export default function ClientDashboard() {
@@ -116,8 +117,8 @@ export default function ClientDashboard() {
     // Dynamic Real Documents & Readiness
     const documentsList = dossier?.documents || [];
     const uploadedDocsCount = documentsList.length;
-    const totalRequiredDocs = dossier?.visaCategory?.requiredDocTypes?.length || 4;
-    const docsReadinessPct = totalRequiredDocs > 0 ? Math.min(100, Math.round((uploadedDocsCount / totalRequiredDocs) * 100)) : 0;
+    const totalRequiredDocs = dossier?.visaCategory?.requiredDocTypes?.length ?? documentsList.length;
+    const docsReadinessPct = totalRequiredDocs > 0 ? Math.min(100, Math.round((uploadedDocsCount / totalRequiredDocs) * 100)) : (uploadedDocsCount > 0 ? 100 : 0);
 
     // Dynamic Compliance Tasks & Real Pending Items Calculation
     const missingDocsCount = Math.max(0, totalRequiredDocs - uploadedDocsCount);
@@ -375,10 +376,7 @@ export default function ClientDashboard() {
             const res = await dossierService.getDossierSummaryPdf(dossier.id);
             const downloadUrl = res.data?.downloadUrl;
             if (downloadUrl) {
-                const backendOrigin = import.meta.env.VITE_API_URL
-                    ? import.meta.env.VITE_API_URL.replace(/\/api\/v1\/?$/, '')
-                    : 'http://localhost:5000';
-                const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `${backendOrigin}${downloadUrl}`;
+                const fullUrl = getFileUrl(downloadUrl);
                 const response = await fetch(fullUrl);
                 if (!response.ok) throw new Error('PDF faylını serverdən oxumaq mümkün olmadı.');
                 const blob = await response.blob();

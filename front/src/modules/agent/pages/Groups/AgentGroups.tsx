@@ -2,7 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { agentService, appointmentService, documentService, dossierService, paymentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
+import { getFileUrl } from '@/shared/utils/file.util';
 import { downloadRosterTemplate } from '@/shared/utils/excelParser';
+import SchengenQuestionnaire from '@/modules/applicant/components/SchengenQuestionnaire/SchengenQuestionnaire';
+import { DEFAULT_SCHENGEN_FORM_DATA } from '@/modules/applicant/types/applicant.types';
+import { usePricingCatalog } from '@/shared/hooks/usePricingCatalog';
 import './AgentGroups.css';
 
 // --- Tiplər ---
@@ -42,6 +46,7 @@ export interface Group {
     projectReason: string;
     createdDate: string;
     status: 'draft' | 'processing';
+    packageTier?: string;
     applicants: Applicant[];
     dossierId?: string;
     paymentStatus?: 'PENDING' | 'PAID' | 'REFUNDED';
@@ -68,6 +73,8 @@ const REQUIRED_DOC_TYPES = [
 export default function AgentGroups() {
     const navigate = useNavigate();
     const { showSuccess, showError } = useToast();
+    const { packages: adminPackages, calculateLiveFees } = usePricingCatalog();
+    const activeAdminPackages = (adminPackages || []).filter(p => p.isActive !== false);
 
     // --- State-lər ---
     const [view, setView] = useState<'list' | 'manage'>('list');
@@ -77,27 +84,14 @@ export default function AgentGroups() {
     const [loading, setLoading] = useState(true);
 
     // Manage View State-ləri
-    const [manageTab, setManageTab] = useState<'form' | 'docs'>('form');
+    const [manageTab, setManageTab] = useState<'form' | 'docs' | 'packages'>('form');
     const [currentFormStep, setCurrentFormStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
     const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
 
-    // Applicant Form Edit State
-    const [applicantFormData, setApplicantFormData] = useState({
-        firstName: '',
-        lastName: '',
-        passportNumber: '',
-        dob: '',
-        issueDate: '',
-        expiryDate: '',
-        prevVisas: '',
-        fingerprints: '',
-        stayDuration: '',
-        accommodation: '',
-        costCoveredBy: '',
-        contactEmail: '',
-        contactPhone: '',
-        notes: '',
+    // Applicant Form Edit State (Official 37-Point Schengen Questionnaire)
+    const [applicantFormData, setApplicantFormData] = useState<Record<string, any>>({
+        ...DEFAULT_SCHENGEN_FORM_DATA,
     });
 
     // Filter & Search State-ləri
@@ -109,6 +103,7 @@ export default function AgentGroups() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [groupForSettings, setGroupForSettings] = useState<Group | null>(null);
     const [editGroupName, setEditGroupName] = useState('');
+    const [editGroupPackage, setEditGroupPackage] = useState('standard');
 
     // Add Traveler Modal
     const [isAddTravelerOpen, setIsAddTravelerOpen] = useState(false);
@@ -208,6 +203,7 @@ export default function AgentGroups() {
                         projectReason: g.projectReason || 'Tourism',
                         createdDate: new Date(g.createdAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
                         status: (g.status === 'COMPLETED' || g.status === 'PROCESSING') ? 'processing' : 'draft',
+                        packageTier: String(g.packageTier || mappedApplicants[0]?.formDataJson?.package || 'standard').toLowerCase(),
                         applicants: mappedApplicants,
                         dossierId: primaryDossierId,
                         paymentStatus: primaryDossier.paymentStatus || 'PENDING',
@@ -287,21 +283,17 @@ export default function AgentGroups() {
     const handleManageApplicant = (group: Group, applicant: Applicant) => {
         setActiveGroup(group);
         setActiveApplicant(applicant);
+        const savedForm = (applicant.formDataJson && typeof applicant.formDataJson === 'object') ? applicant.formDataJson : {};
+        const nameParts = (applicant.fullName || '').trim().split(' ');
         setApplicantFormData({
-            firstName: applicant.firstName || applicant.fullName.split(' ')[0] || '',
-            lastName: applicant.lastName || applicant.fullName.split(' ').slice(1).join(' ') || '',
-            passportNumber: applicant.passport || '',
-            dob: applicant.dob || '',
-            issueDate: applicant.issueDate || '',
-            expiryDate: applicant.expiryDate || '',
-            prevVisas: applicant.formDataJson?.prevVisas || '',
-            fingerprints: applicant.formDataJson?.fingerprints || '',
-            stayDuration: applicant.formDataJson?.stayDuration || '',
-            accommodation: applicant.formDataJson?.accommodation || '',
-            costCoveredBy: applicant.formDataJson?.costCoveredBy || '',
-            contactEmail: applicant.formDataJson?.contactEmail || '',
-            contactPhone: applicant.formDataJson?.contactPhone || '',
-            notes: applicant.formDataJson?.notes || '',
+            ...DEFAULT_SCHENGEN_FORM_DATA,
+            ...savedForm,
+            firstName: applicant.firstName || savedForm.firstName || nameParts[0] || '',
+            lastName: applicant.lastName || savedForm.lastName || nameParts.slice(1).join(' ') || '',
+            passportNumber: applicant.passport || savedForm.passportNumber || '',
+            birthDate: applicant.dob || savedForm.birthDate || '',
+            passportExpiry: applicant.expiryDate || savedForm.passportExpiry || '',
+            destination: group.destination || savedForm.destination || 'Hungary',
         });
         setManageTab('form');
         setCurrentFormStep(1);
@@ -353,7 +345,7 @@ export default function AgentGroups() {
 
             const downloadUrl = res.data?.fileUrl || (res.data?.fileName ? `/uploads/${res.data.fileName}` : null);
             if (downloadUrl) {
-                const fullUrl = downloadUrl.startsWith('http') ? downloadUrl : `http://localhost:5000${downloadUrl}`;
+                const fullUrl = getFileUrl(downloadUrl);
                 const fileRes = await fetch(fullUrl);
                 const blob = await fileRes.blob();
                 const blobUrl = window.URL.createObjectURL(blob);
@@ -389,9 +381,7 @@ export default function AgentGroups() {
             });
 
             if (res.data?.downloadUrl) {
-                const fullUrl = res.data.downloadUrl.startsWith('http')
-                    ? res.data.downloadUrl
-                    : `http://localhost:5000${res.data.downloadUrl}`;
+                const fullUrl = getFileUrl(res.data.downloadUrl);
                 
                 const fileRes = await fetch(fullUrl);
                 if (!fileRes.ok) throw new Error(`Status ${fileRes.status}`);
@@ -413,31 +403,13 @@ export default function AgentGroups() {
     };
 
     // Sərnişin Anket Məlumatlarının Saxlanması (Real DB Update)
-    const handleSaveForm = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSaveForm = async (e?: React.FormEvent) => {
+        if (e && e.preventDefault) e.preventDefault();
         if (!activeGroup || !activeApplicant) return;
 
         setIsSaving(true);
         try {
-            const payload = {
-                firstName: applicantFormData.firstName,
-                lastName: applicantFormData.lastName,
-                passportNumber: applicantFormData.passportNumber,
-                dob: applicantFormData.dob,
-                issueDate: applicantFormData.issueDate,
-                expiryDate: applicantFormData.expiryDate,
-                prevVisas: applicantFormData.prevVisas,
-                fingerprints: applicantFormData.fingerprints,
-                stayDuration: applicantFormData.stayDuration,
-                accommodation: applicantFormData.accommodation,
-                costCoveredBy: applicantFormData.costCoveredBy,
-                contactEmail: applicantFormData.contactEmail,
-                contactPhone: applicantFormData.contactPhone,
-                notes: applicantFormData.notes,
-                formProgress: Math.min(100, currentFormStep * 20),
-            };
-
-            await agentService.saveApplicantForm(activeGroup.id, activeApplicant.id, payload);
+            await agentService.saveApplicantForm(activeGroup.id, activeApplicant.id, applicantFormData);
 
             // Update local state
             setActiveApplicant(prev => prev ? {
@@ -446,18 +418,13 @@ export default function AgentGroups() {
                 lastName: applicantFormData.lastName,
                 fullName: `${applicantFormData.firstName} ${applicantFormData.lastName}`.trim(),
                 passport: applicantFormData.passportNumber,
-                dob: applicantFormData.dob,
-                issueDate: applicantFormData.issueDate,
-                expiryDate: applicantFormData.expiryDate,
-                formDataJson: { ...prev.formDataJson, ...payload },
+                dob: applicantFormData.birthDate || applicantFormData.dob,
+                expiryDate: applicantFormData.passportExpiry || applicantFormData.expiryDate,
+                formDataJson: { ...prev.formDataJson, ...applicantFormData },
+                formProgress: 100,
             } : null);
 
-            if (currentFormStep < 5) {
-                setCurrentFormStep(prev => prev + 1);
-                showSuccess(`Addım ${currentFormStep} məlumatları bazada saxlandı! Növbəti addıma keçilir.`);
-            } else {
-                showSuccess('Ərizəçinin bütün anket məlumatları bazada uğurla saxlanıldı!');
-            }
+            showSuccess('Traveler Schengen application (37 points) saved successfully!');
             await fetchGroups();
         } catch (e: any) {
             showError(e.message || 'Anket məlumatlarını saxlamaq mümkün olmadı.');
@@ -535,7 +502,7 @@ export default function AgentGroups() {
             showError('Sənəd faylı tapılmadı.');
             return;
         }
-        const fullUrl = doc.fileUrl.startsWith('http') ? doc.fileUrl : `http://localhost:5000${doc.fileUrl.startsWith('/') ? '' : '/'}${doc.fileUrl}`;
+        const fullUrl = getFileUrl(doc.fileUrl);
         window.open(fullUrl, '_blank');
     };
 
@@ -591,7 +558,7 @@ export default function AgentGroups() {
 
         setIsSaving(true);
         try {
-            await agentService.addApplicant(targetGroupForTraveler.id, {
+            const res: any = await agentService.addApplicant(targetGroupForTraveler.id, {
                 firstName: newTravelerData.firstName.trim(),
                 lastName: newTravelerData.lastName.trim(),
                 passportNumber: newTravelerData.passportNumber.trim().toUpperCase(),
@@ -602,8 +569,13 @@ export default function AgentGroups() {
                     contactEmail: newTravelerData.contactEmail,
                 },
             });
+            const createdApplicant = res.data?.data?.applicant || res.data?.applicant;
+            const targetDossierId = createdApplicant?.dossierId || targetGroupForTraveler.dossierId || targetGroupForTraveler.id;
+            const groupId = targetGroupForTraveler.id;
+
             showSuccess(`${newTravelerData.firstName} ${newTravelerData.lastName} qrupa uğurla əlavə edildi!`);
             setIsAddTravelerOpen(false);
+            setTargetGroupForTraveler(null);
             await fetchGroups();
         } catch (err: any) {
             console.error('Add traveler error:', err);
@@ -617,7 +589,23 @@ export default function AgentGroups() {
     const openAppointmentModal = (group: Group) => {
         setSelectedGroupForAction(group);
         setNewAppointmentDate(group.appointment?.date && group.appointment.date !== 'TBD' ? group.appointment.date : '');
-        setNewAppointmentTime(group.appointment?.startTime || '10:00');
+
+        let timeVal = '10:00';
+        if (group.appointment?.startTime) {
+            const raw = group.appointment.startTime.trim();
+            const m = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+            if (m) {
+                let h = parseInt(m[1], 10);
+                const min = m[2];
+                const mer = m[3]?.toUpperCase();
+                if (mer === 'PM' && h < 12) h += 12;
+                if (mer === 'AM' && h === 12) h = 0;
+                timeVal = `${String(h).padStart(2, '0')}:${min}`;
+            } else {
+                timeVal = raw;
+            }
+        }
+        setNewAppointmentTime(timeVal);
         setNewAppointmentLocation(group.appointment?.location || 'EuroTech Main Center, Port Baku Towers');
         setIsAppointmentModalOpen(true);
     };
@@ -745,6 +733,7 @@ export default function AgentGroups() {
     const openSettings = (group: Group) => {
         setGroupForSettings(group);
         setEditGroupName(group.name);
+        setEditGroupPackage(group.packageTier || 'standard');
         setIsSettingsOpen(true);
     };
 
@@ -756,19 +745,39 @@ export default function AgentGroups() {
         }, 300);
     };
 
-    // Qrup Adının Yenilənməsi (Real DB Update)
+    // Qrup Adının və Ödəniş Paketinin Yenilənməsi (Real DB Update)
     const handleSaveSettings = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!groupForSettings) return;
 
         setIsSaving(true);
         try {
-            await agentService.updateGroup(groupForSettings.id, { name: editGroupName });
-            showSuccess('Qrup parametrləri və adı verilənlər bazasında uğurla yeniləndi!');
+            await agentService.updateGroup(groupForSettings.id, {
+                name: editGroupName,
+                packageTier: editGroupPackage,
+            } as any);
+            showSuccess('Qrup parametrləri, adı və ödəniş paketi verilənlər bazasında uğurla yeniləndi!');
             closeSettings();
             await fetchGroups();
         } catch (e: any) {
             showError(e.message || 'Qrupu yeniləmək mümkün olmadı.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleChangeGroupPackageDirect = async (group: Group, pkgId: string) => {
+        setIsSaving(true);
+        try {
+            await agentService.updateGroup(group.id, { packageTier: pkgId } as any);
+            const pkgName = activeAdminPackages.find(p => p.id === pkgId)?.name || pkgId.toUpperCase();
+            showSuccess(`"${group.name}" qrupunun ödəniş paketi "${pkgName}" olaraq yeniləndi!`);
+            await fetchGroups();
+            if (activeGroup && activeGroup.id === group.id) {
+                setActiveGroup(prev => prev ? { ...prev, packageTier: pkgId } : null);
+            }
+        } catch (e: any) {
+            showError(e.message || 'Ödəniş paketini yeniləmək mümkün olmadı.');
         } finally {
             setIsSaving(false);
         }
@@ -798,7 +807,7 @@ export default function AgentGroups() {
             const res = await agentService.getGroupInvoicePdf(group.id);
             const fileUrl = res.data?.fileUrl;
             if (fileUrl) {
-                const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+                const fullUrl = getFileUrl(fileUrl);
                 const fileRes = await fetch(fullUrl);
                 const blob = await fileRes.blob();
                 const blobUrl = URL.createObjectURL(blob);
@@ -1041,7 +1050,7 @@ export default function AgentGroups() {
                                                         title="Qrupun görüş tarixini təyin et və ya dəyiş"
                                                     >
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                                        📅 Görüş: <strong>{group.appointment?.date && group.appointment.date !== 'TBD' ? `${group.appointment.date} ${group.appointment.startTime || ''}` : 'Təyin et'}</strong> ✎
+                                                        Görüş: <strong>{group.appointment?.date && group.appointment.date !== 'TBD' ? `${group.appointment.date} ${group.appointment.startTime || ''}` : 'Təyin et'}</strong>
                                                     </span>
                                                     <span 
                                                         className={`meta-chip chip-payment ${group.paymentStatus?.toLowerCase() || 'pending'}`} 
@@ -1049,7 +1058,19 @@ export default function AgentGroups() {
                                                         title="Qrupun ödəniş statusunu dəyiş"
                                                     >
                                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                                                        💳 Ödəniş: <strong>{group.paymentStatus || 'PENDING'}</strong> ✎
+                                                        Ödəniş: <strong>{group.paymentStatus || 'PENDING'} (€{(group.totalFee || 145).toFixed(0)})</strong>
+                                                    </span>
+                                                    <span
+                                                        className="meta-chip"
+                                                        onClick={() => openSettings(group)}
+                                                        style={{ cursor: 'pointer', background: '#EFF6FF', color: '#1D4ED8', borderColor: '#BFDBFE' }}
+                                                        title="Qrupun Ödəniş Paketini dəyiş"
+                                                    >
+                                                        📦 Paket:{' '}
+                                                        <strong>
+                                                            {activeAdminPackages.find(p => p.id === (group.packageTier || 'standard'))?.name ||
+                                                                (group.packageTier || 'standard').toUpperCase()}
+                                                        </strong>
                                                     </span>
                                                 </div>
                                             </div>
@@ -1235,6 +1256,36 @@ export default function AgentGroups() {
                                                 <label>Creation Date</label>
                                                 <input type="text" className="client-input" defaultValue={groupForSettings.createdDate} disabled />
                                             </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="settings-section">
+                                        <h3>Payment Package &amp; Service Tier</h3>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                                            {activeAdminPackages.map(pkg => {
+                                                const isSel = editGroupPackage === pkg.id;
+                                                return (
+                                                    <div
+                                                        key={pkg.id}
+                                                        onClick={() => setEditGroupPackage(pkg.id)}
+                                                        style={{
+                                                            padding: '12px',
+                                                            borderRadius: '10px',
+                                                            border: isSel ? '2px solid #2563EB' : '1.5px solid #CBD5E1',
+                                                            background: isSel ? '#EFF6FF' : '#FFFFFF',
+                                                            cursor: 'pointer',
+                                                        }}
+                                                    >
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <strong style={{ fontSize: '0.88rem', color: '#0F172A' }}>{pkg.name}</strong>
+                                                            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#2563EB' }}>
+                                                                {Number(pkg.priceEur) > 0 ? `+€${Number(pkg.priceEur).toFixed(0)}` : '€0'}
+                                                            </span>
+                                                        </div>
+                                                        <p style={{ margin: '4px 0 0 0', fontSize: '0.74rem', color: '#64748B' }}>{pkg.description}</p>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
 
@@ -1427,6 +1478,11 @@ export default function AgentGroups() {
                                                     <option value="14:30">14:30 - 15:00</option>
                                                     <option value="15:00">15:00 - 15:30</option>
                                                     <option value="15:30">15:30 - 16:00</option>
+                                                    <option value="16:00">16:00 - 16:30</option>
+                                                    <option value="16:30">16:30 - 17:00</option>
+                                                    {newAppointmentTime && !['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'].includes(newAppointmentTime) && (
+                                                        <option value={newAppointmentTime}>{newAppointmentTime}</option>
+                                                    )}
                                                 </select>
                                             </div>
                                             <div className="client-input-group full-width">
@@ -1505,7 +1561,7 @@ export default function AgentGroups() {
                                                     cursor: 'pointer'
                                                 }}
                                             >
-                                                👛 Agency Wallet
+                                                Agency Wallet
                                                 <div style={{ fontSize: '0.72rem', marginTop: '2px', color: walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#059669' : '#DC2626' }}>
                                                     € {walletBalance.toFixed(2)} avail.
                                                 </div>
@@ -1524,7 +1580,7 @@ export default function AgentGroups() {
                                                     cursor: 'pointer'
                                                 }}
                                             >
-                                                💳 B2B Card
+                                                B2B Card
                                                 <div style={{ fontSize: '0.72rem', marginTop: '2px', color: '#64748B' }}>Instant</div>
                                             </button>
                                             <button
@@ -1541,7 +1597,7 @@ export default function AgentGroups() {
                                                     cursor: 'pointer'
                                                 }}
                                             >
-                                                🏦 Bank Slip
+                                                Bank Slip
                                                 <div style={{ fontSize: '0.72rem', marginTop: '2px', color: '#64748B' }}>Wire Transfer</div>
                                             </button>
                                         </div>
@@ -1641,7 +1697,7 @@ export default function AgentGroups() {
     }
 
     // ==========================================
-    // RENDER: VİEW 2 - Sərnişin İdarəetmə Paneli (Form & Docs)
+    // RENDER: VIEW 2 - Sərnişin İdarəetmə Paneli (Form & Docs)
     // ==========================================
     const formSteps = [
         { id: 1, title: 'Your plans' }, 
@@ -1683,7 +1739,7 @@ export default function AgentGroups() {
                             onClick={() => handleDownloadApplicantSchengenPdf(activeGroup, activeApplicant)}
                         >
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                            📄 Şengen Forması (PDF)
+                            Download Schengen PDF
                         </button>
                         <button 
                             type="button" 
@@ -1702,229 +1758,114 @@ export default function AgentGroups() {
             {/* Premium Tabs */}
             <div className="manage-tabs-container">
                 <button className={`premium-tab ${manageTab === 'form' ? 'active' : ''}`} onClick={() => setManageTab('form')}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                    1. Application Form
+                    1. Application Form (37 Points)
                 </button>
                 <button className={`premium-tab ${manageTab === 'docs' ? 'active' : ''}`} onClick={() => setManageTab('docs')}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                     2. Required Documents ({activeApplicant?.documents.length || 0})
+                </button>
+                <button className={`premium-tab ${manageTab === 'packages' ? 'active' : ''}`} onClick={() => setManageTab('packages')}>
+                    3. Payment Packages ({activeAdminPackages.find(p => p.id === (activeGroup?.packageTier || 'standard'))?.name || 'Standard'})
                 </button>
             </div>
 
-            {/* --- TAB 1: APPLICATION FORM --- */}
+            {/* --- TAB 3: PAYMENT PACKAGES --- */}
+            {manageTab === 'packages' && activeGroup && (
+                <div className="fade-in" style={{ background: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0', padding: '24px', marginTop: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                                Group Service &amp; Payment Package ({activeGroup.name})
+                            </h3>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748B' }}>
+                                Select or upgrade the payment package applied to all {activeGroup.applicants.length} traveler(s) in this group.
+                            </p>
+                        </div>
+                        <span style={{ background: '#EFF6FF', color: '#1D4ED8', padding: '8px 14px', borderRadius: '10px', fontWeight: 800, fontSize: '0.88rem' }}>
+                            Total Group Fee: €{(activeGroup.totalFee || 145).toFixed(2)}
+                        </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+                        {activeAdminPackages.map(pkg => {
+                            const isCur = (activeGroup.packageTier || 'standard') === pkg.id;
+                            const liveCalc = calculateLiveFees({
+                                portalType: 'GROUP_AGENT',
+                                paxCount: Math.max(1, activeGroup.applicants.length),
+                                activePackage: pkg.id,
+                                duration: activeGroup.duration || 'short',
+                            });
+                            return (
+                                <div
+                                    key={pkg.id}
+                                    style={{
+                                        border: isCur ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                                        background: isCur ? '#EFF6FF' : '#F8FAFC',
+                                        borderRadius: '12px',
+                                        padding: '20px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'space-between',
+                                    }}
+                                >
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                            <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#0F172A' }}>{pkg.name}</h4>
+                                            {pkg.badge && (
+                                                <span style={{ fontSize: '0.72rem', fontWeight: 800, background: isCur ? '#2563EB' : '#E2E8F0', color: isCur ? '#FFFFFF' : '#334155', padding: '3px 8px', borderRadius: '8px' }}>
+                                                    {pkg.badge}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#1D4ED8', marginBottom: '6px' }}>
+                                            {Number(pkg.priceEur) > 0 ? `+€${Number(pkg.priceEur).toFixed(2)}` : '€0.00'} <span style={{ fontSize: '0.78rem', color: '#64748B' }}>/ pax</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0F172A', marginBottom: '10px' }}>
+                                            Group Total ({activeGroup.applicants.length} Pax): €{liveCalc.grandTotalEur.toFixed(2)}
+                                        </div>
+                                        <p style={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.45, marginBottom: '12px' }}>{pkg.description}</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={isCur || isSaving}
+                                        onClick={() => handleChangeGroupPackageDirect(activeGroup, pkg.id)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            borderRadius: '8px',
+                                            border: isCur ? '1.5px solid #2563EB' : 'none',
+                                            background: isCur ? '#DBEAFE' : '#2563EB',
+                                            color: isCur ? '#1E40AF' : '#FFFFFF',
+                                            fontWeight: 700,
+                                            cursor: isCur ? 'default' : 'pointer',
+                                        }}
+                                    >
+                                        {isCur ? '✓ Active Group Package' : `Switch Group to ${pkg.name}`}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* --- TAB 1: 37-POINT SCHENGEN FORM --- */}
             {manageTab === 'form' && (
                 <div className="fade-in">
-                    <div className="horizontal-stepper-wrapper">
-                        {formSteps.map(step => (
-                            <div key={step.id} className={`stepper-item-horiz ${currentFormStep === step.id ? 'active' : ''} ${currentFormStep > step.id ? 'completed' : ''}`} onClick={() => setCurrentFormStep(step.id)}>
-                                <span className="stepper-label">{step.title}</span>
-                                <div className="stepper-line"></div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="form-centered-container">
-                        <form className="step-form-card" onSubmit={handleSaveForm}>
-                            <div className="step-content-block">
-                                <h2>{formSteps.find(s => s.id === currentFormStep)?.title}</h2>
-                                <p className="step-desc">Complete the official consular details for {activeApplicant?.fullName}. All updates are persisted directly to the database.</p>
-                                
-                                <div className="client-form-grid">
-                                    {currentFormStep === 1 && (
-                                        <>
-                                            <div className="client-input-group">
-                                                <label>Destination Country</label>
-                                                <input type="text" className="client-input" value={activeGroup?.destination || 'Hungary'} disabled />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Main Purpose of Travel</label>
-                                                <input type="text" className="client-input" value={activeGroup?.projectReason || 'Tourism'} disabled />
-                                            </div>
-                                            <div className="client-input-group full-width">
-                                                <label>Intended Departure Date</label>
-                                                <input type="date" className="client-input" value={activeGroup?.travelDate || ''} disabled />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 2 && (
-                                        <>
-                                            <div className="client-input-group">
-                                                <label>First Name</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.firstName} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, firstName: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Last Name</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.lastName} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, lastName: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Passport Number</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.passportNumber} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, passportNumber: e.target.value })}
-                                                    required 
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Date of Birth</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.dob} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, dob: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Passport Issue Date</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.issueDate} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, issueDate: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Passport Expiry Date</label>
-                                                <input 
-                                                    type="date" 
-                                                    className="client-input" 
-                                                    value={applicantFormData.expiryDate} 
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, expiryDate: e.target.value })}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 3 && (
-                                        <>
-                                            <div className="client-input-group full-width">
-                                                <label>Previous Schengen Visas in Past 3 Years</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. Hungary 2024 (Valid: 2024-06 to 2024-09)" 
-                                                    value={applicantFormData.prevVisas}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, prevVisas: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group full-width">
-                                                <label>Biometric Fingerprints Collected Previously</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. Yes - VFS Global Baku (2024) or No"
-                                                    value={applicantFormData.fingerprints}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, fingerprints: e.target.value })}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 4 && (
-                                        <>
-                                            <div className="client-input-group">
-                                                <label>Duration of Stay (Days)</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. 14 days"
-                                                    value={applicantFormData.stayDuration}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, stayDuration: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Accommodation / Hotel</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. Grand Hotel Budapest"
-                                                    value={applicantFormData.accommodation}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, accommodation: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group full-width">
-                                                <label>Travel Cost Covered By</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. Applicant personally / Company Sponsor"
-                                                    value={applicantFormData.costCoveredBy}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, costCoveredBy: e.target.value })}
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {currentFormStep === 5 && (
-                                        <>
-                                            <div className="client-input-group">
-                                                <label>Contact Email</label>
-                                                <input 
-                                                    type="email" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. traveler@domain.com"
-                                                    value={applicantFormData.contactEmail}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, contactEmail: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group">
-                                                <label>Contact Phone</label>
-                                                <input 
-                                                    type="text" 
-                                                    className="client-input" 
-                                                    placeholder="e.g. +994 50 123 45 67"
-                                                    value={applicantFormData.contactPhone}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, contactPhone: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="client-input-group full-width">
-                                                <label>Consular Notes & Special Requests</label>
-                                                <textarea 
-                                                    className="client-input" 
-                                                    rows={3} 
-                                                    value={applicantFormData.notes}
-                                                    onChange={(e) => setApplicantFormData({ ...applicantFormData, notes: e.target.value })}
-                                                    placeholder="Optional notes for consular officers..."
-                                                />
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="step-form-footer">
-                                <button type="button" className="btn-modal-secondary" onClick={() => setCurrentFormStep(prev => prev - 1)} disabled={currentFormStep === 1}>Previous</button>
-                                <div style={{ display: 'flex', gap: '10px' }}>
-                                    <button 
-                                        type="button" 
-                                        className="btn-danger-outline" 
-                                        onClick={() => activeApplicant && handleDeleteApplicant(activeApplicant.id)} 
-                                        disabled={!activeApplicant || isSaving}
-                                        style={{ padding: '8px 14px', fontSize: '0.85rem' }}
-                                    >
-                                        Remove Traveler
-                                    </button>
-                                    <button type="submit" className="btn-primary-gradient" disabled={isSaving}>
-                                        {isSaving ? 'Saving to Database...' : currentFormStep === 5 ? 'Save & Complete' : 'Next Step →'}
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
+                    <SchengenQuestionnaire
+                        formData={applicantFormData}
+                        onFieldChange={(field, value) => setApplicantFormData(prev => ({ ...prev, [field]: value }))}
+                        dossier={activeGroup ? {
+                            id: activeGroup.dossierId || activeGroup.id,
+                            dossierNumber: activeGroup.code || activeGroup.id,
+                            portalType: 'GROUP_AGENT',
+                            status: activeGroup.status,
+                            currentStep: 1,
+                            country: { id: '', code: '', nameEn: activeGroup.destination, nameAz: activeGroup.destination },
+                        } : null}
+                        onOpenMrzModal={() => {}}
+                        onSaveForm={handleSaveForm}
+                        isCorporateMode={false}
+                    />
                 </div>
             )}
 

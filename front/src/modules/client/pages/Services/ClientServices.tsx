@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService } from '@/shared/api/services/dossier.service';
 import { serviceService } from '@/shared/api/services/service.service';
 import { paymentService } from '@/shared/api/services/payment.service';
 import { storage } from '@/shared/utils/storage';
+import { DEFAULT_FRONTEND_CATALOG, type PricingPackageItem } from '@/shared/hooks/usePricingCatalog';
 import './ClientServices.css';
 
 interface ServiceItem {
@@ -219,6 +221,7 @@ const BASE_AVAILABLE_SERVICES: ServiceItem[] = [
 ];
 
 export default function ClientServices() {
+    const navigate = useNavigate();
     const { showSuccess, showError } = useToast();
 
     const [dossierId, setDossierId] = useState<string | null>(null);
@@ -227,6 +230,10 @@ export default function ClientServices() {
     const [selectedApplicant, setSelectedApplicant] = useState<string>('');
     const [purchasedServices, setPurchasedServices] = useState<PurchasedService[]>([]);
     const [availableServices, setAvailableServices] = useState<ServiceItem[]>(BASE_AVAILABLE_SERVICES);
+    const [availablePackages, setAvailablePackages] = useState<PricingPackageItem[]>(DEFAULT_FRONTEND_CATALOG.packages);
+    const [activeDossierPackage, setActiveDossierPackage] = useState<string>('standard');
+    const [updatingPkgId, setUpdatingPkgId] = useState<string | null>(null);
+    const [exchangeRate, setExchangeRate] = useState<number>(1.85);
 
     const [cart, setCart] = useState<CartItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -252,23 +259,58 @@ export default function ClientServices() {
 
     const loadDossierData = useCallback(async () => {
         try {
-            // Load dynamic catalog from backend system settings
+            // Load dynamic catalog (packages & services) from backend Admin pricing config
             try {
-                const catalogRes = await serviceService.getCatalog();
-                if (catalogRes?.data?.services && Array.isArray(catalogRes.data.services)) {
-                    const dynamicCatalog = catalogRes.data.services;
-                    setAvailableServices(prev => prev.map(item => {
-                        const matched = dynamicCatalog.find((c: any) => c.code === item.id || normalizeServiceType(c.code) === item.id);
-                        if (matched) {
-                            return {
-                                ...item,
-                                price: matched.priceAzn || item.price,
-                                priceEur: matched.priceEur || item.priceEur,
-                                title: matched.name || item.title,
-                            };
-                        }
-                        return item;
-                    }));
+                const catalogRes: any = await serviceService.getCatalog();
+                const rawData = catalogRes?.data?.data || catalogRes?.data || catalogRes;
+                const rate = Number(rawData?.exchangeRate || rawData?.baseFees?.eurToAznRate || 1.85);
+                setExchangeRate(rate);
+
+                if (Array.isArray(rawData?.packages) && rawData.packages.length > 0) {
+                    setAvailablePackages(rawData.packages.filter((p: any) => p.isActive !== false));
+                }
+
+                const dynamicCatalog = rawData?.catalog || rawData?.services;
+                if (Array.isArray(dynamicCatalog) && dynamicCatalog.length > 0) {
+                    setAvailableServices(prev => {
+                        const updatedExisting = prev.map(item => {
+                            const matched = dynamicCatalog.find(
+                                (c: any) => (c.id || c.code) === item.id || normalizeServiceType(c.id || c.code) === item.id
+                            );
+                            if (matched) {
+                                const pEur = Number(matched.priceEur ?? matched.price ?? item.priceEur ?? 0);
+                                const pAzn = Number(matched.priceAzn ?? (pEur * rate));
+                                return {
+                                    ...item,
+                                    price: pAzn,
+                                    priceEur: pEur,
+                                    title: matched.title || matched.name || item.title,
+                                    description: matched.description || item.description,
+                                    category: matched.category || item.category,
+                                };
+                            }
+                            return item;
+                        });
+
+                        // Append any custom services created by Admin
+                        const existingIds = new Set(updatedExisting.map(s => s.id));
+                        const customOnes: ServiceItem[] = dynamicCatalog
+                            .filter((c: any) => c.isActive !== false && !existingIds.has(normalizeServiceType(c.id || c.code)))
+                            .map((c: any) => {
+                                const pEur = Number(c.priceEur ?? c.price ?? 0);
+                                return {
+                                    id: c.id || c.code,
+                                    title: c.title || c.name || c.id,
+                                    category: c.category || 'ASSISTANCE',
+                                    description: c.description || '',
+                                    priceEur: pEur,
+                                    price: Number(c.priceAzn ?? (pEur * rate)),
+                                    icon: BASE_AVAILABLE_SERVICES[0].icon,
+                                };
+                            });
+
+                        return [...updatedExisting, ...customOnes];
+                    });
                 }
             } catch (catErr) {
                 console.warn('Dynamic catalog load notice, using standard catalog:', catErr);
@@ -296,6 +338,8 @@ export default function ClientServices() {
                     (s: any) => s.status === 'ACTIVE'
                 );
                 setPurchasedServices(activeServices);
+                const pkgFromApplicant = active.applicants?.[0]?.formDataJson?.package || active.groupBatch?.packageTier || 'standard';
+                setActiveDossierPackage(String(pkgFromApplicant).toLowerCase());
 
                 // Applicants
                 if (active.applicants && active.applicants.length > 0) {
@@ -307,14 +351,15 @@ export default function ClientServices() {
                     setApplicants(mapped);
                     setSelectedApplicant(prev => (!prev || !mapped.some(m => m.id === prev) ? mapped[0].id : prev));
                 } else {
-                    const fallbackApplicant: Applicant = {
-                        id: 'primary-applicant',
-                        name: 'Primary Applicant',
-                        isPrimary: true
-                    };
-                    setApplicants([fallbackApplicant]);
-                    setSelectedApplicant(prev => prev || fallbackApplicant.id);
+                    setApplicants([]);
+                    setSelectedApplicant('');
                 }
+            } else {
+                setDossierId(null);
+                setDossierNumber('');
+                setApplicants([]);
+                setSelectedApplicant('');
+                setPurchasedServices([]);
             }
         } catch (err) {
             console.error('Failed to load active dossier for services:', err);
@@ -327,6 +372,21 @@ export default function ClientServices() {
     useEffect(() => {
         loadDossierData();
     }, [loadDossierData]);
+
+    const handleSelectDossierPackage = async (pkg: PricingPackageItem) => {
+        if (!dossierId) return;
+        setUpdatingPkgId(pkg.id);
+        try {
+            await serviceService.updateDossierPackage(dossierId, { packageId: pkg.id });
+            setActiveDossierPackage(pkg.id);
+            showSuccess(`Payment package updated to "${pkg.name}" (€${Number(pkg.priceEur).toFixed(2)} / person)!`);
+            await loadDossierData();
+        } catch (err: any) {
+            showError(err.response?.data?.message || err.message || 'Failed to update payment package.');
+        } finally {
+            setUpdatingPkgId(null);
+        }
+    };
 
     const getPurchasedItem = (serviceId: string, applicantId: string) => {
         const canonical = normalizeServiceType(serviceId);
@@ -493,6 +553,43 @@ export default function ClientServices() {
         return found ? found.name.split(' (')[0] : 'Applicant';
     };
 
+    if (!isLoading && !dossierId) {
+        return (
+            <div className="services-page-content fade-in">
+                <div className="services-header-premium">
+                    <div className="header-titles">
+                        <h1 className="docs-title">Value-Added Services</h1>
+                        <p className="docs-subtitle">
+                            Enhance your visa appointment and application journey with official VIP and convenience services.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="dash-card-premium onboarding-banner-card" style={{ marginTop: '24px', padding: '48px 32px', textAlign: 'center', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(37, 99, 235, 0.08)', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '32px', height: '32px' }}>
+                                <circle cx="9" cy="21" r="1"/>
+                                <circle cx="20" cy="21" r="1"/>
+                                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                            </svg>
+                        </div>
+                        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F1E36', marginBottom: '10px' }}>
+                            No Active Application Dossier Found
+                        </h2>
+                        <p style={{ color: '#64748B', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '24px' }}>
+                            To select VIP Lounge access, travel insurance, or consular courier services, please start your visa application first.
+                        </p>
+                        <button className="btn-hero-primary pulse-btn" onClick={() => navigate('/individual/wizard')} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Start New Application
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="services-page-content fade-in">
             {/* Header & Applicant Selector */}
@@ -521,6 +618,94 @@ export default function ClientServices() {
                             ))}
                         </select>
                     </div>
+                </div>
+            </div>
+
+            {/* Payment Packages (Bundles) Section */}
+            <div style={{ marginBottom: '32px', background: '#FFFFFF', border: '1.5px solid #E2E8F0', borderRadius: '16px', padding: '24px', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            All-Inclusive Consular Bundles
+                        </span>
+                        <h2 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 800, color: '#0F172A' }}>
+                            Payment Packages
+                        </h2>
+                    </div>
+                    <span style={{ fontSize: '0.85rem', color: '#475569', background: '#EFF6FF', padding: '6px 14px', borderRadius: '20px', fontWeight: 700 }}>
+                        Active Package: <strong style={{ color: '#1D4ED8' }}>{activeDossierPackage.toUpperCase()}</strong>
+                    </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '18px' }}>
+                    {availablePackages.map((pkg) => {
+                        const isCurrent = activeDossierPackage === String(pkg.id).toLowerCase();
+                        const pEur = Number(pkg.priceEur || 0);
+                        const pAzn = Number(pkg.priceAzn ?? (pEur * exchangeRate));
+                        return (
+                            <div
+                                key={pkg.id}
+                                style={{
+                                    border: isCurrent ? '2px solid #2563EB' : '1.5px solid #E2E8F0',
+                                    background: isCurrent ? '#EFF6FF' : '#F8FAFC',
+                                    borderRadius: '14px',
+                                    padding: '20px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'space-between',
+                                    position: 'relative',
+                                }}
+                            >
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#0F172A' }}>{pkg.name}</h3>
+                                        {pkg.badge && (
+                                            <span style={{ fontSize: '0.72rem', fontWeight: 800, background: isCurrent ? '#2563EB' : '#E2E8F0', color: isCurrent ? '#FFFFFF' : '#334155', padding: '3px 9px', borderRadius: '10px' }}>
+                                                {pkg.badge}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#1D4ED8', marginBottom: '8px' }}>
+                                        {pEur > 0 ? `+€${pEur.toFixed(2)}` : '€0.00'}{' '}
+                                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#64748B' }}>
+                                            ({pAzn.toFixed(2)} AZN / person)
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: '0.84rem', color: '#475569', lineHeight: 1.45, marginBottom: '12px' }}>
+                                        {pkg.description}
+                                    </p>
+                                    {Array.isArray(pkg.features) && pkg.features.length > 0 && (
+                                        <ul style={{ margin: '0 0 16px 0', paddingLeft: '18px', fontSize: '0.8rem', color: '#334155' }}>
+                                            {pkg.features.map((f, i) => (
+                                                <li key={i} style={{ marginBottom: '4px' }}>{f}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    disabled={isCurrent || updatingPkgId === pkg.id}
+                                    onClick={() => handleSelectDossierPackage(pkg)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        border: isCurrent ? '1.5px solid #2563EB' : 'none',
+                                        background: isCurrent ? '#DBEAFE' : '#2563EB',
+                                        color: isCurrent ? '#1E40AF' : '#FFFFFF',
+                                        fontWeight: 700,
+                                        cursor: isCurrent ? 'default' : 'pointer',
+                                    }}
+                                >
+                                    {updatingPkgId === pkg.id
+                                        ? 'Updating Package...'
+                                        : isCurrent
+                                        ? '✓ Active Package on Dossier'
+                                        : `Select ${pkg.name}`}
+                                </button>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 

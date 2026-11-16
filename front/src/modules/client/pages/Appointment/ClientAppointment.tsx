@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService, appointmentService, TimeSlot } from '@/shared/api/services';
 import { createGoogleCalendarUrl, downloadIcsFile } from '@/shared/utils/calendar.util';
+import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientAppointment.css';
 
 export default function ClientAppointment() {
+    const navigate = useNavigate();
     const { showSuccess, showError } = useToast();
     const [status, setStatus] = useState<'loading' | 'not_scheduled' | 'confirmed' | 'rescheduled' | 'cancelled'>('loading');
     const [appointment, setAppointment] = useState<any>(null);
@@ -220,7 +223,7 @@ export default function ClientAppointment() {
             });
             const fileUrl = res.data?.fileUrl || (res.data?.fileName ? `/uploads/${res.data.fileName}` : null);
             if (fileUrl) {
-                const fullUrl = fileUrl.startsWith('http') ? fileUrl : `http://localhost:5000${fileUrl}`;
+                const fullUrl = getFileUrl(fileUrl);
                 const fileRes = await fetch(fullUrl);
                 if (!fileRes.ok) throw new Error(`Download failed with status ${fileRes.status}`);
                 const blob = await fileRes.blob();
@@ -325,6 +328,42 @@ export default function ClientAppointment() {
         : '10:30 AM (Local Time)';
 
     const venueLocation = appointment?.timeSlot?.location || appointment?.location || dossier?.appointmentLocation || 'EuroTech Visa Application Center';
+
+    if (status !== 'loading' && !dossier) {
+        return (
+            <div className="appointment-page-content fade-in">
+                <div className="appt-header">
+                    <div>
+                        <h1 className="docs-title">Appointment Management</h1>
+                        <p className="docs-subtitle">View your scheduled biometric data submission and document handover details.</p>
+                    </div>
+                </div>
+
+                <div className="dash-card-premium onboarding-banner-card" style={{ marginTop: '24px', padding: '48px 32px', textAlign: 'center', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(37, 99, 235, 0.08)', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: '32px', height: '32px' }}>
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                <line x1="16" y1="2" x2="16" y2="6" />
+                                <line x1="8" y1="2" x2="8" y2="6" />
+                                <line x1="3" y1="10" x2="21" y2="10" />
+                            </svg>
+                        </div>
+                        <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#0F1E36', marginBottom: '10px' }}>
+                            No Active Application Dossier Found
+                        </h2>
+                        <p style={{ color: '#64748B', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '24px' }}>
+                            You do not have an active European visa dossier yet. To schedule your biometric appointment and consular submission, please start your application first.
+                        </p>
+                        <button className="btn-hero-primary pulse-btn" onClick={() => navigate('/individual/wizard')} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '1rem' }}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ width: '18px', height: '18px' }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Start New Application
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="appointment-page-content fade-in">

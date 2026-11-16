@@ -15,10 +15,18 @@ function parseBool(val, defaultVal = false) {
 }
 
 async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, requiredDocumentType, isMandatory, isSharedWithFamily, file }) {
+  let resolvedApplicantId = applicantId;
   if (dossierId) {
     const dossier = await prisma.dossier.findUnique({ where: { id: dossierId } });
     if (!dossier) {
       throw new Error('Dossier not found');
+    }
+    if (!resolvedApplicantId || ['primary', 'app-1', 'primary-applicant'].includes(resolvedApplicantId)) {
+      const pApp = await prisma.applicant.findFirst({
+        where: { dossierId },
+        orderBy: { id: 'asc' },
+      });
+      if (pApp) resolvedApplicantId = pApp.id;
     }
   }
 
@@ -44,7 +52,7 @@ async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, req
     existingDoc = await prisma.applicantDocument.findFirst({
       where: {
         dossierId: dossierId || undefined,
-        applicantId: applicantId || undefined,
+        applicantId: resolvedApplicantId || undefined,
         corporateEmployeeId: corporateEmployeeId || undefined,
         requiredDocumentType,
       },
@@ -70,7 +78,7 @@ async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, req
     document = await prisma.applicantDocument.create({
       data: {
         dossierId: dossierId || null,
-        applicantId: applicantId || null,
+        applicantId: resolvedApplicantId || null,
         corporateEmployeeId: corporateEmployeeId || null,
         requiredDocumentType,
         fileUrl: `/uploads/${file.filename}`,

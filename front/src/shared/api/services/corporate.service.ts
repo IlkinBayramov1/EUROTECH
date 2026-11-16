@@ -12,6 +12,7 @@ export interface CreateBatchPayload {
   appointmentTime?: string;
   employees?: any[];
   totalAmount?: number;
+  paymentMethod?: string;
 }
 
 export interface EmployeePayload {

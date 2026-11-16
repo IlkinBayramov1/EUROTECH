@@ -75,9 +75,11 @@ export const adminService = {
     return apiClient.get(`/admin/audit-logs${qs ? `?${qs}` : ''}`);
   },
 
-  // 13. System Settings Configuration
+  // 13. System Settings Configuration & Pricing Catalog
   getSettings: () => apiClient.get('/admin/settings'),
   updateSettings: (payload: Record<string, any>) => apiClient.patch('/admin/settings', payload),
+  getPricingCatalog: () => apiClient.get('/admin/pricing-catalog'),
+  savePricingCatalog: (catalog: Record<string, any>) => apiClient.patch('/admin/pricing-catalog', { catalog }),
 
   // 14. Master Data CRUD
   saveCountry: (payload: any) => apiClient.post('/admin/countries', payload),
