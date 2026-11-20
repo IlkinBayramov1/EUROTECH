@@ -255,12 +255,9 @@ async function updateAgentPayoutStatus(payoutId, status) {
           data: { status: 'REFUNDED' },
         });
       }
-      // Refund back to agent balance
-      await tx.wallet.update({
-        where: { id: payout.walletId },
-        data: { balance: { increment: payout.amount } },
-      });
     }
+
+    await walletService.recalculateWalletBalances(payout.walletId, tx);
 
     return updated;
   });

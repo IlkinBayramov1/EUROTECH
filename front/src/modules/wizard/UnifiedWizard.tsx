@@ -47,6 +47,7 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
   const [currentStep, setCurrentStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [agentCommissionRate, setAgentCommissionRate] = useState<number>(20);
   const { catalog, packages, calculateLiveFees } = usePricingCatalog();
   const activePackages = (packages || []).filter((p) => p.isActive !== false);
 
@@ -109,12 +110,12 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
   });
 
   // Fetch Wallet Balance for settlement across all portals
-  useEffect(() => {
+  const refreshWalletBalance = React.useCallback(() => {
     if (isCorporate) {
       corporateService
         .getWallet()
         .then((res: any) => {
-          const bal = Number(res?.data?.wallet?.balance ?? res?.wallet?.balance ?? 0);
+          const bal = Number(res?.data?.wallet?.balance ?? res?.wallet?.balance ?? res?.data?.balance ?? 0);
           setWalletBalance(bal);
         })
         .catch(() => setWalletBalance(0));
@@ -122,20 +123,31 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
       agentService
         .getWallet()
         .then((res: any) => {
-          const bal = Number(res?.data?.wallet?.balance ?? res?.wallet?.balance ?? 0);
+          const w = res?.data?.wallet || res?.wallet || res?.data || {};
+          const bal = Number(w?.balance ?? w?.balanceEur ?? res?.data?.balance ?? 0);
           setWalletBalance(bal);
+          if (w?.ratePerPax) {
+            setAgentCommissionRate(Number(w.ratePerPax));
+          }
         })
         .catch(() => setWalletBalance(0));
     } else {
       paymentService
         .getUserWallet()
         .then((res: any) => {
-          const bal = Number(res?.data?.wallet?.balanceEur ?? res?.data?.balance ?? 0);
+          const raw = res?.data?.data || res?.data || res;
+          const bal = Number(
+            raw?.wallet?.balance ?? raw?.wallet?.balanceEur ?? raw?.balance ?? raw?.balanceEur ?? 0
+          );
           setWalletBalance(bal);
         })
         .catch(() => setWalletBalance(0));
     }
   }, [isCorporate, isAgent]);
+
+  useEffect(() => {
+    refreshWalletBalance();
+  }, [refreshWalletBalance]);
 
   const updateFormData = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -218,6 +230,13 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
     }
 
     // Final Submission (Step 5)
+    if (formData.paymentMethod === 'WALLET' && walletBalance < liveFees.grandTotalEur) {
+      showError(
+        `Insufficient wallet balance (€${walletBalance.toFixed(2)} < €${liveFees.grandTotalEur.toFixed(2)}). Please click "+ Top Up Wallet" below or switch to Online Card / Bank Wire.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       // 1. Resolve real Country & VisaCategory ID
@@ -287,30 +306,6 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
             }).catch(() => {});
           }
 
-          // Add additional services from Admin-managed package & custom selections
-          const s = formData.services;
-          const selectedPkgObj = activePackages.find(
-            (p) => String(p.id).toLowerCase() === String(s.activePackage || 'standard').toLowerCase()
-          );
-          const servicesToAdd = new Set<string>(selectedPkgObj?.includedServiceIds || []);
-          if (s.lounge) servicesToAdd.add('PREMIUM_LOUNGE');
-          if (s.insurance) servicesToAdd.add('TRAVEL_INSURANCE');
-          if (s.filePrep) servicesToAdd.add('FILE_PREPARATION');
-          if (s.courier) servicesToAdd.add('COURIER');
-          if (s.photo) servicesToAdd.add('BIOMETRIC_PHOTO');
-          if (s.formAssist) servicesToAdd.add('FORM_ASSIST');
-          if (s.express) servicesToAdd.add('EXPRESS_PROCESSING');
-          if (s.translation) servicesToAdd.add('TRANSLATION_APOSTILLE');
-          if (s.sms) servicesToAdd.add('SMS_TRACKING');
-          if (s.hotelFlight) {
-            servicesToAdd.add('HOTEL_BOOKING');
-            servicesToAdd.add('FLIGHT_BOOKING');
-          }
-
-          for (const srvCode of Array.from(servicesToAdd)) {
-            await additionalService.addService({ dossierId, serviceType: srvCode }).catch(() => {});
-          }
-
           // Book Appointment
           if (formData.appointmentDate) {
             try {
@@ -331,14 +326,37 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
             }
           }
 
-          // Settle directly from Individual Wallet if selected
+          // Settle payment according to selected Step 5 method
           if (formData.paymentMethod === 'WALLET') {
-            await paymentService.payWithWallet({ dossierId }).catch((payErr: any) => {
-              console.warn('Individual wallet auto-settle failed:', payErr);
-            });
+            await paymentService.payWithWallet({ dossierId });
+            showSuccess(`Application registered & €${liveFees.grandTotalEur.toFixed(2)} settled from your EuroTech Wallet!`);
+          } else if (formData.paymentMethod === 'CARD') {
+            try {
+              const intent = await paymentService.createPaymentIntent({
+                dossierId,
+                amount: liveFees.grandTotalEur,
+                currency: 'EUR',
+                purpose: 'DOSSIER_PAYMENT',
+              });
+              await paymentService.confirmPaymentMock({
+                paymentIntentId: intent.paymentIntentId,
+                bankReference: `WIZ-CARD-${Date.now().toString().slice(-6)}`,
+              });
+              showSuccess(`Application registered & €${liveFees.grandTotalEur.toFixed(2)} paid via Online Card!`);
+            } catch {
+              await paymentService.topupWallet({
+                amount: liveFees.grandTotalEur,
+                currency: 'EUR',
+                method: 'CARD',
+                reference: `WIZ-CARD-${Date.now().toString().slice(-6)}`,
+              });
+              await paymentService.payWithWallet({ dossierId });
+              showSuccess(`Application registered & €${liveFees.grandTotalEur.toFixed(2)} paid via Online Card!`);
+            }
+          } else {
+            showSuccess('Application dossier registered! You can settle the proforma invoice in Wallet & Invoices.');
           }
 
-          showSuccess('Application dossier registered successfully!');
           navigate(`/application/${dossierId}`);
         } else {
           showSuccess('Application registered successfully!');
@@ -346,15 +364,17 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
         }
       } else if (isAgent) {
         // --- TOUR OPERATOR (AGENT) CREATION ---
-        await agentService.createGroup({
+        const groupRes: any = await agentService.createGroup({
           name: formData.groupName || 'Tour Group',
           destination: formData.country || 'Hungary',
           travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
           duration: formData.duration || 'short',
           projectReason: formData.projectReason || 'Tourism',
           package: formData.services.activePackage || 'standard',
+          services: formData.services,
           appointmentDate: formData.appointmentDate || undefined,
           appointmentTime: formData.appointmentTime || undefined,
+          paymentMethod: formData.paymentMethod || 'WALLET',
           applicants: formData.applicants.map((a) => ({
             firstName: a.firstName.trim(),
             lastName: a.lastName.trim(),
@@ -363,10 +383,41 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
             issueDate: a.issueDate || undefined,
             expiryDate: a.expiryDate || undefined,
           })),
-        });
+        } as any);
 
-        showSuccess('Tour Group registered successfully with all travelers!');
-        navigate('/agent/groups');
+        const createdGroup = groupRes?.data?.group || groupRes?.group || groupRes?.data;
+        const estComm = (formData.applicants.length * agentCommissionRate).toFixed(2);
+
+        if (formData.paymentMethod === 'WALLET') {
+          showSuccess(
+            `Tour Group registered! €${liveFees.grandTotalEur.toFixed(2)} settled from Agency Wallet & +€${estComm} commission credited!`
+          );
+          navigate('/agent/groups');
+        } else if (formData.paymentMethod === 'CARD' && createdGroup?.id) {
+          try {
+            const intent = await paymentService.createPaymentIntent({
+              groupBatchId: createdGroup.id,
+              amount: liveFees.grandTotalEur,
+              currency: 'EUR',
+              purpose: 'GROUP_BATCH_PAYMENT',
+            });
+            await paymentService.confirmPaymentMock({
+              paymentIntentId: intent.paymentIntentId,
+              bankReference: `AG-WIZ-CARD-${Date.now().toString().slice(-6)}`,
+            });
+            showSuccess(
+              `Tour Group registered! €${liveFees.grandTotalEur.toFixed(2)} paid via Card & +€${estComm} commission credited!`
+            );
+          } catch {
+            showSuccess('Tour Group registered! You can complete payment in Finance & Commissions.');
+          }
+          navigate('/agent/groups');
+        } else {
+          showSuccess(
+            `Tour Group registered! Settle the €${liveFees.grandTotalEur.toFixed(2)} proforma invoice in Finance & Commissions to unlock +€${estComm} commission.`
+          );
+          navigate('/agent/finance?tab=invoices');
+        }
       } else if (isCorporate) {
         // --- CORPORATE MOBILITY CREATION ---
         await corporateService.createBatch({
@@ -576,6 +627,11 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
                 walletBalance={walletBalance}
                 updateData={updateFormData}
                 catalog={catalog}
+                agentCommissionRate={agentCommissionRate}
+                onWalletBalanceUpdated={(newBal) => {
+                  if (typeof newBal === 'number') setWalletBalance(newBal);
+                  refreshWalletBalance();
+                }}
               />
             )}
           </div>

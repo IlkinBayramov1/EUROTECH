@@ -8,6 +8,8 @@ export interface CreateGroupPayload {
   duration?: string;
   projectReason?: string;
   package?: string;
+  services?: any;
+  paymentMethod?: string;
   appointmentDate?: string;
   appointmentTime?: string;
   applicants?: Array<{
@@ -23,9 +25,11 @@ export interface CreateGroupPayload {
 
 export interface PayoutPayload {
   amount: number;
+  currency?: string;
   bankName: string;
   iban: string;
   swiftBic: string;
+  accountHolder?: string;
 }
 
 const getAuthToken = (): string | null => {

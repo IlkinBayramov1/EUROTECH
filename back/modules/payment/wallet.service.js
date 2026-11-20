@@ -1,6 +1,7 @@
 const prisma = require('../../config/db');
 const { DEFAULT_EUR_TO_AZN_RATE, convertEurToAzn, convertToEur } = require('../../config/constants');
-const { getAgentCommissionRate } = require('../../utils/finance.util');
+const { getAgentCommissionRate, calculatePortalFees } = require('../../utils/finance.util');
+const { getPricingCatalog } = require('../service/pricingConfig.service');
 
 async function getEurToAznRate(tx = prisma) {
   try {
@@ -105,7 +106,108 @@ async function getDossierNetPaidEur(dossierId, tx = prisma, eurToAznRate = DEFAU
 }
 
 /**
- * Atomically settles a GroupBatch (Tour Agent group OR Corporate batch) inside an active transaction:
+ * Finds an already-settled PAID transaction belonging to a GroupBatch
+ */
+async function findPaidGroupBatchTransaction(tx, batch) {
+  const paidTxs = await tx.transaction.findMany({
+    where: { userId: batch.userId, status: 'PAID' },
+    select: { id: true, amount: true, metadataJson: true, dossierId: true, paymentProvider: true },
+  });
+  return (
+    paidTxs.find((t) => {
+      const meta = t.metadataJson && typeof t.metadataJson === 'object' ? t.metadataJson : {};
+      return meta.groupBatchId === batch.id || (batch.code && meta.batchCode === batch.code);
+    }) || null
+  );
+}
+
+async function ensureGroupBatchPrimaryDossierInTx(tx, batch, catalog = null, { skipPaidCheck = false } = {}) {
+  if (batch.dossiers && batch.dossiers.length > 0) {
+    return batch.dossiers[0];
+  }
+
+  const dest = String(batch.destination || '').trim();
+  let country = null;
+  if (dest) {
+    country = await tx.country.findFirst({
+      where: {
+        OR: [
+          { code: dest.toUpperCase() },
+          { nameEn: { equals: dest } },
+          { nameAz: { equals: dest } },
+          { nameEn: { contains: dest } },
+        ],
+      },
+    });
+  }
+  if (!country) {
+    country = (await tx.country.findFirst({ where: { code: 'HU' } })) || (await tx.country.findFirst());
+  }
+  if (!country) {
+    country = await tx.country.create({
+      data: { code: 'HU', nameAz: 'Macarıstan', nameEn: 'Hungary', nameRu: 'Vengriya' },
+    });
+  }
+
+  let category = await tx.visaCategory.findFirst({ where: { countryId: country.id } });
+  if (!category) {
+    category = await tx.visaCategory.create({
+      data: {
+        countryId: country.id,
+        code: 'SCHENGEN_TOURIST',
+        nameAz: 'Şengen Turist',
+        nameEn: 'Schengen Tourist',
+        nameRu: 'Schengen Tourist',
+      },
+    });
+  }
+
+  const resolvedCatalog = catalog || (await getPricingCatalog(tx));
+  const fees = calculatePortalFees({
+    portalType: batch.portalType || 'GROUP_AGENT',
+    paxCount: 1,
+    activePackage: batch.packageTier || 'standard',
+    duration: batch.duration || 'short',
+    catalog: resolvedCatalog,
+  });
+
+  const matchingPaidTx = skipPaidCheck ? null : await findPaidGroupBatchTransaction(tx, batch);
+  const paidInv = !skipPaidCheck && Array.isArray(batch.invoices) ? batch.invoices.find((i) => i.status === 'PAID') : null;
+  const isAlreadyPaid = !!(matchingPaidTx || paidInv);
+  const resolvedTotal = Number(matchingPaidTx?.amount || paidInv?.amount || fees.grandTotalEur || 145);
+
+  const createdDossier = await tx.dossier.create({
+    data: {
+      dossierNumber: `${batch.code}-${Date.now().toString().slice(-4)}`,
+      portalType: batch.portalType || 'GROUP_AGENT',
+      userId: batch.userId,
+      groupBatchId: batch.id,
+      countryId: country.id,
+      visaCategoryId: category.id,
+      status: isAlreadyPaid ? 'UNDER_REVIEW' : 'RECEIVED',
+      currentStep: isAlreadyPaid ? 6 : 1,
+      governmentFee: fees.govFeePerPax,
+      serviceFee: fees.serviceFeePerPaxForDossier,
+      extraServicesFee: fees.extraServicesTotalForDossier,
+      totalAmount: resolvedTotal,
+      paymentStatus: isAlreadyPaid ? 'PAID' : 'PENDING',
+    },
+    include: { applicants: true, country: true, visaCategory: true },
+  });
+
+  if (matchingPaidTx && !matchingPaidTx.dossierId) {
+    await tx.transaction.update({
+      where: { id: matchingPaidTx.id },
+      data: { dossierId: createdDossier.id },
+    }).catch(() => {});
+  }
+
+  batch.dossiers = [createdDossier];
+  return createdDossier;
+}
+
+/**
+ * Atomically settles a GroupBatch (Tour Agent or Corporate) inside an active transaction
  * - Marks all linked Dossiers PAID & UNDER_REVIEW
  * - Marks CorporateInvoice PAID (if exists) and updates CorporateDepartment spentBudget
  * - Marks GroupBatch PROCESSING & confirms Appointments
@@ -128,6 +230,10 @@ async function settleGroupBatchInTx(
     const err = new Error('Group / Batch not found');
     err.statusCode = 404;
     throw err;
+  }
+
+  if (!batch.dossiers || batch.dossiers.length === 0) {
+    await ensureGroupBatchPrimaryDossierInTx(tx, batch, null, { skipPaidCheck: true });
   }
 
   const primaryDossier = batch.dossiers[0] || null;
@@ -238,13 +344,18 @@ async function settleGroupBatchInTx(
 
   // 5. Tour Agent Commission Settlement (PENDING -> PAID)
   let commissionSettledEur = 0.0;
-  if (batch.portalType === 'GROUP_AGENT' || batch.user?.role === 'AGENT_TUR_OPERATOR') {
+  if (
+    batch.portalType === 'GROUP_AGENT' ||
+    batch.user?.role === 'AGENT_TUR_OPERATOR' ||
+    batch.user?.role === 'AGENT'
+  ) {
+    const catalog = await getPricingCatalog(tx);
     const paxCount = Math.max(
       1,
       batch.dossiers.reduce((sum, d) => sum + (d.applicants ? d.applicants.length : 0), 0)
     );
     const tier = batch.user?.agentTier || 'BRONZE';
-    const ratePerPax = getAgentCommissionRate(tier);
+    const ratePerPax = getAgentCommissionRate(tier, catalog);
     commissionSettledEur = Number((paxCount * ratePerPax).toFixed(2));
 
     const agentWallet = await getOrCreateWallet(batch.userId, tx);
@@ -437,11 +548,177 @@ async function topupWallet({ userId, amount, currency = 'EUR', method = 'CARD', 
       },
     });
 
+    const balanceAzn = convertEurToAzn(summary.balance, eurToAznRate);
     return {
-      wallet: summary.wallet,
+      wallet: {
+        ...summary.wallet,
+        balance: summary.balance,
+        balanceEur: summary.balance,
+        balanceAzn,
+      },
       balance: summary.balance,
-      balanceAzn: convertEurToAzn(summary.balance, eurToAznRate),
+      balanceEur: summary.balance,
+      balanceAzn,
       transaction: walletTx,
+    };
+  });
+}
+
+/**
+ * Save or update a user's withdrawal / payout bank coordinates on their Wallet
+ */
+async function saveWalletBankDetails(userId, { bankName, iban, swiftBic, accountHolder }) {
+  const wallet = await getOrCreateWallet(userId);
+  const updated = await prisma.wallet.update({
+    where: { id: wallet.id },
+    data: {
+      bankName: bankName ? String(bankName).trim() : wallet.bankName,
+      iban: iban ? String(iban).trim().toUpperCase() : wallet.iban,
+      swiftBic: swiftBic ? String(swiftBic).trim().toUpperCase() : wallet.swiftBic,
+      accountHolder: accountHolder ? String(accountHolder).trim() : wallet.accountHolder,
+    },
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'WALLET_BANK_DETAILS_UPDATED',
+        details: {
+          bankName: updated.bankName,
+          iban: updated.iban ? `***${updated.iban.slice(-4)}` : null,
+          swiftBic: updated.swiftBic,
+          accountHolder: updated.accountHolder,
+        },
+      },
+    });
+  } catch {}
+
+  return {
+    wallet: updated,
+    bankName: updated.bankName,
+    iban: updated.iban,
+    swiftBic: updated.swiftBic,
+    accountHolder: updated.accountHolder,
+  };
+}
+
+/**
+ * Request a withdrawal / payout from any user's Wallet (Individual, Agent, or Corporate)
+ */
+async function requestWalletPayout({
+  userId,
+  amount,
+  currency = 'EUR',
+  bankName,
+  iban,
+  swiftBic,
+  accountHolder,
+}) {
+  const rawAmt = Number(amount);
+  if (!rawAmt || isNaN(rawAmt) || rawAmt <= 0) {
+    const err = new Error('Please enter a valid withdrawal amount greater than 0.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    const eurToAznRate = await getEurToAznRate(tx);
+    const amountEur = convertToEur(rawAmt, currency, eurToAznRate);
+    const wallet = await getOrCreateWallet(userId, tx);
+    const currentSummary = await recalculateWalletBalances(wallet.id, tx);
+
+    if (currentSummary.balance < amountEur) {
+      const err = new Error(
+        `Insufficient wallet balance for this withdrawal. Available: €${currentSummary.balance.toFixed(2)}, Requested: €${amountEur.toFixed(2)}.`
+      );
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const finalBankName = (bankName || wallet.bankName || 'International Bank of Azerbaijan (ABB)').trim();
+    const finalIban = (iban || wallet.iban || '').trim().toUpperCase();
+    const finalSwift = (swiftBic || wallet.swiftBic || 'IBAZAZ2X').trim().toUpperCase();
+    const finalHolder = (accountHolder || wallet.accountHolder || 'Account Holder').trim();
+
+    if (!finalIban) {
+      const err = new Error('Please provide a valid IBAN or card number for withdrawal.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Persist bank coordinates on wallet for convenience
+    await tx.wallet.update({
+      where: { id: wallet.id },
+      data: {
+        bankName: finalBankName,
+        iban: finalIban,
+        swiftBic: finalSwift,
+        accountHolder: finalHolder,
+      },
+    });
+
+    const payout = await tx.payoutRequest.create({
+      data: {
+        walletId: wallet.id,
+        amount: amountEur,
+        bankName: finalBankName,
+        iban: finalIban,
+        swiftBic: finalSwift,
+        status: 'PENDING',
+      },
+    });
+
+    await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: -amountEur,
+        type: 'DEBIT',
+        referenceType: 'PAYOUT',
+        referenceId: payout.id,
+        description:
+          String(currency).toUpperCase() === 'AZN'
+            ? `Wallet Withdrawal Request to ${finalBankName} (${rawAmt.toFixed(2)} AZN ≈ €${amountEur.toFixed(2)})`
+            : `Wallet Withdrawal Request to ${finalBankName} (${finalIban.slice(-4)})`,
+        status: 'PENDING',
+      },
+    });
+
+    const updatedSummary = await recalculateWalletBalances(wallet.id, tx);
+
+    try {
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'WALLET_WITHDRAWAL_REQUESTED',
+          details: {
+            payoutId: payout.id,
+            amountEur,
+            originalAmount: rawAmt,
+            currency,
+            bankName: finalBankName,
+            iban: `***${finalIban.slice(-4)}`,
+            newBalance: updatedSummary.balance,
+          },
+        },
+      });
+    } catch {}
+
+    const newBalanceAzn = Number((updatedSummary.balance * eurToAznRate).toFixed(2));
+    return {
+      payout,
+      wallet: {
+        ...updatedSummary.wallet,
+        balance: updatedSummary.balance,
+        balanceEur: updatedSummary.balance,
+        balanceAzn: newBalanceAzn,
+      },
+      balance: updatedSummary.balance,
+      balanceEur: updatedSummary.balance,
+      balanceAzn: newBalanceAzn,
+      newBalance: updatedSummary.balance,
+      newBalanceEur: updatedSummary.balance,
+      newBalanceAzn: convertEurToAzn(updatedSummary.balance, eurToAznRate),
     };
   });
 }
@@ -484,7 +761,7 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
     if (resolvedGroupBatchId) {
       const batch = await tx.groupBatch.findUnique({
         where: { id: resolvedGroupBatchId },
-        include: { dossiers: true, invoices: true },
+        include: { dossiers: { include: { applicants: true } }, invoices: true },
       });
       if (!batch) {
         const err = new Error('Group or Corporate Batch not found');
@@ -498,19 +775,34 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
       }
 
       const inv = targetInvoice || batch.invoices.find((i) => i.status !== 'PAID') || null;
-      const requiredEur = inv
-        ? Number(Number(inv.amount).toFixed(2))
-        : Number(batch.dossiers.reduce((s, d) => s + Number(d.totalAmount || 0), 0).toFixed(2));
+      const allDossiersPaid = batch.dossiers.length > 0 && batch.dossiers.every((d) => d.paymentStatus === 'PAID');
+      const existingBatchPaidTx = batch.dossiers.length === 0 ? await findPaidGroupBatchTransaction(tx, batch) : null;
 
-      if (requiredEur <= 0) {
-        const err = new Error('No payable amount found for this group/batch.');
+      if ((allDossiersPaid && (!inv || inv.status === 'PAID')) || existingBatchPaidTx) {
+        const err = new Error('This group/batch has already been settled.');
         err.statusCode = 400;
         throw err;
       }
 
-      const allDossiersPaid = batch.dossiers.length > 0 && batch.dossiers.every((d) => d.paymentStatus === 'PAID');
-      if (allDossiersPaid && (!inv || inv.status === 'PAID')) {
-        const err = new Error('This group/batch has already been settled.');
+      const catalog = await getPricingCatalog(tx);
+      const totalAppsCount = batch.dossiers.reduce((sum, d) => sum + (d.applicants ? d.applicants.length : 0), 0);
+      let requiredEur = inv
+        ? Number(Number(inv.amount || 0).toFixed(2))
+        : Number(batch.dossiers.reduce((s, d) => s + Number(d.totalAmount || 0), 0).toFixed(2));
+
+      if (requiredEur <= 0) {
+        const dynamicFees = calculatePortalFees({
+          portalType: batch.portalType || 'GROUP_AGENT',
+          paxCount: Math.max(1, totalAppsCount),
+          activePackage: batch.packageTier || 'standard',
+          duration: batch.duration || 'short',
+          catalog,
+        });
+        requiredEur = Number(dynamicFees.grandTotalEur || 0);
+      }
+
+      if (requiredEur <= 0) {
+        const err = new Error('No payable amount found for this group/batch.');
         err.statusCode = 400;
         throw err;
       }
@@ -612,7 +904,7 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
         },
       });
 
-      await settleDossierInTx(tx, {
+      const settled = await settleDossierInTx(tx, {
         dossierId: dossier.id,
         payerUserId: userId,
         paymentProvider: 'WALLET',
@@ -630,10 +922,23 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
         },
       });
 
+      // Trigger non-blocking Schengen PDF & ZIP archive fulfillment after transaction commits
+      if (settled && settled.transaction && settled.transaction.dossierId) {
+        setImmediate(async () => {
+          try {
+            const paymentSvc = require('./payment.service');
+            if (typeof paymentSvc.fulfillDossierPayment === 'function') {
+              await paymentSvc.fulfillDossierPayment(settled.transaction);
+            }
+          } catch {}
+        });
+      }
+
       return {
         paidAmountEur: payableEur,
         paidAmountAzn: convertEurToAzn(payableEur, eurToAznRate),
         newBalance: finalSummary.balance,
+        newBalanceEur: finalSummary.balance,
         newBalanceAzn: convertEurToAzn(finalSummary.balance, eurToAznRate),
         reference: ref,
       };
@@ -741,25 +1046,64 @@ async function getUserWalletOverview(userId) {
     });
   }
 
+  const balanceAzn = convertEurToAzn(summary.balance, eurToAznRate);
+  const pendingBalanceAzn = convertEurToAzn(summary.pendingBalance, eurToAznRate);
+  const totalDepositedAzn = convertEurToAzn(summary.totalTopups, eurToAznRate);
+  const totalSpentAzn = convertEurToAzn(summary.totalSpent, eurToAznRate);
+  const totalUnpaidEurFixed = Number(totalUnpaidEur.toFixed(2));
+  const totalUnpaidAzn = convertEurToAzn(totalUnpaidEurFixed, eurToAznRate);
+
+  const normalizedSlips = (pendingBankSlips || []).map((s) => {
+    const meta = s.metadataJson && typeof s.metadataJson === 'object' ? s.metadataJson : {};
+    return {
+      ...s,
+      bankName: meta.bankName || s.bankName || 'Bank Wire Transfer',
+      senderName: meta.senderName || s.senderName || user?.fullName || 'Applicant',
+      displayStatus: s.status === 'PAID' ? 'VERIFIED' : s.status === 'REFUNDED' ? 'REJECTED' : s.status,
+    };
+  });
+
   return {
     user,
+    balance: summary.balance,
+    balanceEur: summary.balance,
+    balanceAzn,
+    pendingBalance: summary.pendingBalance,
+    pendingBalanceAzn,
+    totalTopups: summary.totalTopups,
+    totalDepositedEur: summary.totalTopups,
+    totalDepositedAzn,
+    totalSpent: summary.totalSpent,
+    totalSpentEur: summary.totalSpent,
+    totalSpentAzn,
+    totalUnpaidEur: totalUnpaidEurFixed,
+    totalUnpaidAzn,
+    eurToAznRate,
+    transactions: summary.transactions,
+    payoutRequests,
+    bankSlips: normalizedSlips,
+    pendingBankSlips: normalizedSlips,
+    dossierInvoices,
     wallet: {
       ...summary.wallet,
       balance: summary.balance,
-      balanceAzn: convertEurToAzn(summary.balance, eurToAznRate),
+      balanceEur: summary.balance,
+      balanceAzn,
       pendingBalance: summary.pendingBalance,
-      pendingBalanceAzn: convertEurToAzn(summary.pendingBalance, eurToAznRate),
+      pendingBalanceAzn,
       totalEarnedCommissions: summary.totalEarnedCommissions,
       totalTopups: summary.totalTopups,
+      totalDepositedEur: summary.totalTopups,
+      totalDepositedAzn,
       totalSpent: summary.totalSpent,
-      totalUnpaidEur: Number(totalUnpaidEur.toFixed(2)),
-      totalUnpaidAzn: convertEurToAzn(totalUnpaidEur, eurToAznRate),
+      totalSpentEur: summary.totalSpent,
+      totalSpentAzn,
+      totalUnpaidEur: totalUnpaidEurFixed,
+      totalUnpaidAzn,
       eurToAznRate,
       transactions: summary.transactions,
       payoutRequests,
     },
-    pendingBankSlips,
-    dossierInvoices,
   };
 }
 
@@ -888,9 +1232,13 @@ module.exports = {
   getOrCreateWallet,
   recalculateWalletBalances,
   getDossierNetPaidEur,
+  findPaidGroupBatchTransaction,
+  ensureGroupBatchPrimaryDossierInTx,
   settleGroupBatchInTx,
   settleDossierInTx,
   topupWallet,
+  saveWalletBankDetails,
+  requestWalletPayout,
   payWithWallet,
   refundToWallet,
   getUserWalletOverview,

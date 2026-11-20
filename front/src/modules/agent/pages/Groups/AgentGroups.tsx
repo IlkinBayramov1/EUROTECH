@@ -685,6 +685,7 @@ export default function AgentGroups() {
                 fd.append('currency', 'EUR');
                 fd.append('bankName', slipBankName);
                 fd.append('senderName', slipSenderName || 'Turizm Agentliyi');
+                fd.append('referenceCode', slipReceiptNumber || `GRP-SLIP-${Date.now()}`);
                 fd.append('receiptNumber', slipReceiptNumber || `GRP-SLIP-${Date.now()}`);
                 fd.append('purpose', `GROUP_BATCH_PAYMENT (${selectedGroupForAction.code})`);
                 if (slipFile) {
@@ -714,7 +715,14 @@ export default function AgentGroups() {
             }
         } catch (err: any) {
             console.error('B2B payment processing error:', err);
-            showError(err.message || 'Ödəniş qeydə alınarkən xəta baş verdi.');
+            const msg = err?.response?.data?.message || err.message || 'Ödəniş qeydə alınarkən xəta baş verdi.';
+            if (/already.*settled|already.*paid/i.test(msg)) {
+                setIsPaymentModalOpen(false);
+                showSuccess('Bu qrup artıq ödənilib! Siyahı yenilənir...');
+                await fetchGroups();
+            } else {
+                showError(msg);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -1608,11 +1616,26 @@ export default function AgentGroups() {
                                             <p style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: '#0F1E36', fontWeight: 700 }}>
                                                 Pay Directly from Prepaid Agency Wallet (Available: € {walletBalance.toFixed(2)})
                                             </p>
-                                            <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569' }}>
-                                                {walletBalance >= (selectedGroupForAction.totalFee || 145)
-                                                    ? 'Instant consular settlement with automatic commission credit back to your Agency Wallet.'
-                                                    : 'Insufficient wallet balance. Top up your wallet in Commission Wallet or choose B2B Card / Bank Slip.'}
-                                            </p>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                                <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569' }}>
+                                                    {walletBalance >= (selectedGroupForAction.totalFee || 145)
+                                                        ? 'Instant consular settlement with automatic commission credit back to your Agency Wallet.'
+                                                        : 'Insufficient wallet balance. Top up your wallet in Finance & Commissions or choose B2B Card / Bank Slip.'}
+                                                </p>
+                                                {walletBalance < (selectedGroupForAction.totalFee || 145) && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-primary"
+                                                        style={{ padding: '6px 12px', fontSize: '0.76rem' }}
+                                                        onClick={() => {
+                                                            setIsPaymentModalOpen(false);
+                                                            navigate('/agent/finance');
+                                                        }}
+                                                    >
+                                                        + Top Up Wallet
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     ) : b2bPaymentMethod === 'BANK_SLIP' ? (
                                         <div className="client-form-grid" style={{ gap: '12px' }}>

@@ -106,4 +106,26 @@ export const paymentService = {
     const res = await apiClient.post<any>('/payments/wallet/pay', data);
     return res;
   },
+
+  withdrawFromWallet: async (data: {
+    amount: number;
+    currency?: string;
+    bankName: string;
+    iban: string;
+    swiftBic?: string;
+    accountHolder?: string;
+  }): Promise<any> => {
+    const res = await apiClient.post<any>('/payments/wallet/withdraw', data);
+    return res;
+  },
+
+  saveWalletBankDetails: async (data: {
+    bankName: string;
+    iban: string;
+    swiftBic?: string;
+    accountHolder?: string;
+  }): Promise<any> => {
+    const res = await apiClient.patch<any>('/payments/wallet/bank-details', data);
+    return res;
+  },
 };

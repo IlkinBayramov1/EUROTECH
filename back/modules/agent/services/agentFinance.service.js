@@ -2,36 +2,28 @@ const prisma = require('../../../config/db');
 const pdfUtil = require('../../../utils/pdf.util');
 const { calculatePortalFees, getAgentCommissionRate } = require('../../../utils/finance.util');
 const { getPricingCatalog } = require('../../service/pricingConfig.service');
+const walletService = require('../../payment/wallet.service');
+
+const TIER_RANK = {
+  BRONZE: 1,
+  SILVER: 2,
+  GOLD: 3,
+  PLATINUM: 4,
+};
 
 async function getAgentWallet(userId) {
-  const catalog = await getPricingCatalog();
-  let wallet = await prisma.wallet.findUnique({
-    where: { userId },
-    include: {
-      transactions: {
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      },
-      payoutRequests: {
-        orderBy: { createdAt: 'desc' },
-        take: 50,
-      },
-    },
+  const [catalog, eurToAznRate] = await Promise.all([
+    getPricingCatalog(),
+    walletService.getEurToAznRate(),
+  ]);
+
+  let wallet = await walletService.getOrCreateWallet(userId);
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { agentTier: true, fullName: true, companyName: true },
   });
-
-  if (!wallet) {
-    wallet = await prisma.wallet.create({
-      data: { userId, balance: 0.0, pendingBalance: 0.0, currency: 'EUR' },
-      include: {
-        transactions: true,
-        payoutRequests: true,
-      },
-    });
-  }
-
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } });
-  const tier = user?.agentTier || 'BRONZE';
-  const ratePerPax = getAgentCommissionRate(tier, catalog);
+  let tier = String(user?.agentTier || 'BRONZE').toUpperCase();
 
   // Retrieve all groups for this agent with dossiers and applicants
   const allGroups = await prisma.groupBatch.findMany({
@@ -48,28 +40,92 @@ async function getAgentWallet(userId) {
     orderBy: { createdAt: 'desc' },
   });
 
+  // Auto-heal any legacy GroupBatch that has 0 linked dossiers so paymentStatus & fees match DB
+  for (const group of allGroups) {
+    if (!group.dossiers || group.dossiers.length === 0) {
+      await walletService.ensureGroupBatchPrimaryDossierInTx(prisma, group, catalog);
+    }
+  }
+
+  const paidBatchIds = new Set();
+  try {
+    const paidTxs = await prisma.transaction.findMany({
+      where: { userId, status: 'PAID' },
+      select: { metadataJson: true, dossierId: true },
+    });
+    paidTxs.forEach((t) => {
+      const meta = t.metadataJson && typeof t.metadataJson === 'object' ? t.metadataJson : {};
+      if (meta.groupBatchId) paidBatchIds.add(meta.groupBatchId);
+    });
+  } catch {}
+
   let totalPaxLifetime = 0;
   let totalPaxDraft = 0;
 
-  // Synchronize / ensure commission records exist for every group
+  // First pass: calculate lifetime paid pax and auto-advance paid DRAFT groups to PROCESSING
   for (const group of allGroups) {
     let paxCount = 0;
     group.dossiers.forEach((d) => {
-      paxCount += (d.applicants ? d.applicants.length : 0);
+      paxCount += d.applicants ? d.applicants.length : 0;
     });
 
-    const isPaid = group.dossiers.some((d) => d.paymentStatus === 'PAID');
-    const isProcessed = isPaid && (group.status === 'PROCESSING' || group.status === 'READY' || group.status === 'COMPLETED');
+    const isPaid =
+      (group.dossiers.length > 0 && group.dossiers.every((d) => d.paymentStatus === 'PAID')) ||
+      paidBatchIds.has(group.id);
+    if (isPaid && group.status === 'DRAFT') {
+      await prisma.groupBatch.update({
+        where: { id: group.id },
+        data: { status: 'PROCESSING' },
+      });
+      group.status = 'PROCESSING';
+    }
+
+    const isProcessed =
+      isPaid && ['PROCESSING', 'READY', 'COMPLETED'].includes(String(group.status || '').toUpperCase());
 
     if (isProcessed) {
       totalPaxLifetime += paxCount;
     } else {
       totalPaxDraft += paxCount;
     }
+  }
+
+  // Auto-upgrade agentTier based on lifetime paid pax (never downgrade if Admin promoted higher)
+  let computedTier = 'BRONZE';
+  if (totalPaxLifetime >= 120) computedTier = 'PLATINUM';
+  else if (totalPaxLifetime >= 60) computedTier = 'GOLD';
+  else if (totalPaxLifetime >= 25) computedTier = 'SILVER';
+
+  if ((TIER_RANK[computedTier] || 1) > (TIER_RANK[tier] || 1)) {
+    tier = computedTier;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { agentTier: tier },
+    }).catch(() => {});
+  }
+
+  const ratePerPax = getAgentCommissionRate(tier, catalog);
+
+  // Second pass: synchronize commission transactions for every group
+  for (const group of allGroups) {
+    let paxCount = 0;
+    group.dossiers.forEach((d) => {
+      paxCount += d.applicants ? d.applicants.length : 0;
+    });
+
+    const isPaid =
+      (group.dossiers.length > 0 && group.dossiers.every((d) => d.paymentStatus === 'PAID')) ||
+      paidBatchIds.has(group.id);
+    const isProcessed =
+      isPaid && ['PROCESSING', 'READY', 'COMPLETED'].includes(String(group.status || '').toUpperCase());
 
     if (paxCount > 0) {
-      const commissionAmount = paxCount * ratePerPax;
+      const commissionAmount = Number((paxCount * ratePerPax).toFixed(2));
       const expectedStatus = isProcessed ? 'PAID' : 'PENDING';
+      const expectedDesc =
+        expectedStatus === 'PENDING'
+          ? `Pending Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax.toFixed(2)} [${tier}])`
+          : `Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax.toFixed(2)} [${tier}])`;
 
       const existingTx = await prisma.walletTransaction.findFirst({
         where: {
@@ -87,88 +143,77 @@ async function getAgentWallet(userId) {
             type: 'CREDIT',
             referenceType: 'COMMISSION',
             referenceId: group.code,
-            description: expectedStatus === 'PENDING'
-              ? `Pending Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`
-              : `Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`,
+            description: expectedDesc,
             status: expectedStatus,
           },
         });
-      } else {
-        // Keep status, amount and description up to date
-        if (existingTx.status !== expectedStatus || Math.abs(existingTx.amount - commissionAmount) > 0.01) {
-          await prisma.walletTransaction.update({
-            where: { id: existingTx.id },
-            data: {
-              amount: commissionAmount,
-              status: expectedStatus,
-              description: expectedStatus === 'PENDING'
-                ? `Pending Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`
-                : `Commission: ${group.name} (${paxCount} Pax @ €${ratePerPax} [${tier}])`,
-            },
-          });
-        }
+      } else if (
+        existingTx.status !== expectedStatus ||
+        Math.abs(Number(existingTx.amount) - commissionAmount) > 0.01 ||
+        existingTx.description !== expectedDesc
+      ) {
+        await prisma.walletTransaction.update({
+          where: { id: existingTx.id },
+          data: {
+            amount: commissionAmount,
+            status: expectedStatus,
+            description: expectedDesc,
+          },
+        });
       }
     }
   }
 
-  // Auto-upgrade agentTier based on lifetime paid pax
-  let newTier = 'BRONZE';
-  if (totalPaxLifetime >= 50) newTier = 'GOLD';
-  else if (totalPaxLifetime >= 20) newTier = 'SILVER';
+  // Deterministically recalculate wallet balances using unified wallet engine
+  const summary = await walletService.recalculateWalletBalances(wallet.id);
+  wallet = summary.wallet;
 
-  if (newTier !== tier) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { agentTier: newTier },
-    });
-  }
-
-  // Refetch transactions after synchronization
-  const updatedTransactions = await prisma.walletTransaction.findMany({
-    where: { walletId: wallet.id },
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  });
-
-  // Calculate real balances (subtracting DEBIT payouts in both PENDING and PAID state)
-  let computedBalance = 0;
-  let computedPending = 0;
-  let totalEarnedYtd = 0;
-
-  updatedTransactions.forEach((tx) => {
-    if (tx.type === 'DEBIT') {
-      if (tx.status === 'PAID' || tx.status === 'PENDING') {
-        computedBalance -= Math.abs(tx.amount);
-      }
-    } else if (tx.type === 'CREDIT') {
-      if (tx.status === 'PAID') {
-        computedBalance += tx.amount;
-        totalEarnedYtd += tx.amount;
-      } else if (tx.status === 'PENDING') {
-        computedPending += tx.amount;
-      }
-    }
-  });
-
-  computedBalance = Math.max(0, computedBalance);
-  computedPending = Math.max(0, computedPending);
-
-  // Update wallet record in DB if values differ
-  if (Math.abs(wallet.balance - computedBalance) > 0.001 || Math.abs(wallet.pendingBalance - computedPending) > 0.001) {
-    wallet = await prisma.wallet.update({
-      where: { id: wallet.id },
-      data: {
-        balance: computedBalance,
-        pendingBalance: computedPending,
-      },
+  const [updatedTransactions, payoutRequests, rawBankSlips] = await Promise.all([
+    prisma.walletTransaction.findMany({
+      where: { walletId: wallet.id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    }),
+    prisma.payoutRequest.findMany({
+      where: { walletId: wallet.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+    prisma.bankPaymentReceipt.findMany({
+      where: { userId },
       include: {
-        payoutRequests: { orderBy: { createdAt: 'desc' }, take: 50 },
+        groupBatch: { select: { id: true, code: true, name: true } },
+        dossier: { select: { id: true, dossierNumber: true } },
       },
-    });
-  }
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+  ]);
+
+  let totalEarnedYtd = 0;
+  updatedTransactions.forEach((tx) => {
+    if (tx.type === 'CREDIT' && tx.status === 'PAID' && tx.referenceType === 'COMMISSION') {
+      totalEarnedYtd += Number(tx.amount || 0);
+    }
+  });
+  totalEarnedYtd = Number(totalEarnedYtd.toFixed(2));
+
+  const bankSlips = rawBankSlips.map((s) => {
+    const meta = s.metadataJson && typeof s.metadataJson === 'object' ? s.metadataJson : {};
+    return {
+      ...s,
+      bankName: meta.bankName || s.bankName || 'Bank Wire Transfer',
+      senderName: meta.senderName || user?.companyName || user?.fullName || 'Travel Agency Partner',
+      groupCode: s.groupBatch?.code || null,
+      groupName: s.groupBatch?.name || null,
+      displayStatus: s.status === 'PAID' ? 'APPROVED' : s.status === 'REFUNDED' ? 'REJECTED' : s.status,
+    };
+  });
+  const pendingBankSlips = bankSlips.filter((s) => s.status === 'PENDING');
 
   // Build group invoices & consular payments list using dynamic Admin catalog
-  const groupInvoices = allGroups.map((g) => {
+  const groupInvoices = [];
+  for (const g of allGroups) {
     const primaryDossier = g.dossiers?.[0];
     const allApps = g.dossiers.flatMap((d) => d.applicants || []);
     const paxCount = Math.max(1, allApps.length);
@@ -181,12 +226,21 @@ async function getAgentWallet(userId) {
       catalog,
     });
     const govFee = primaryDossier?.governmentFee ? Number(primaryDossier.governmentFee) * paxCount : fees.totalGovFee;
-    const srvFee = primaryDossier?.serviceFee ? Number(primaryDossier.serviceFee) * paxCount : fees.totalBaseServiceFee + fees.totalPackageAddOnFee;
-    const totalAmount = primaryDossier?.totalAmount && Number(primaryDossier.totalAmount) > 0
-      ? Number(primaryDossier.totalAmount)
-      : fees.grandTotalEur;
+    const srvFee = primaryDossier?.serviceFee
+      ? Number(primaryDossier.serviceFee) * paxCount
+      : fees.totalBaseServiceFee + fees.totalPackageAddOnFee;
+    const totalAmount =
+      primaryDossier?.totalAmount && Number(primaryDossier.totalAmount) > 0
+        ? Number(primaryDossier.totalAmount)
+        : fees.grandTotalEur;
 
-    return {
+    const isPaid =
+      (g.dossiers.length > 0 && g.dossiers.every((d) => d.paymentStatus === 'PAID')) ||
+      paidBatchIds.has(g.id);
+    const paidAmountEur = isPaid ? totalAmount : 0;
+    const dueAmountEur = isPaid ? 0 : totalAmount;
+
+    groupInvoices.push({
       groupId: g.id,
       dossierId: primaryDossier?.id || null,
       groupCode: g.code,
@@ -197,32 +251,95 @@ async function getAgentWallet(userId) {
       governmentFee: govFee,
       serviceFee: srvFee,
       totalAmount,
+      paidAmountEur,
+      dueAmountEur,
       estimatedCommissionEur: Number((allApps.length * ratePerPax).toFixed(2)),
       currency: 'EUR',
-      paymentStatus: primaryDossier?.paymentStatus || 'PENDING',
+      paymentStatus: isPaid ? 'PAID' : primaryDossier?.paymentStatus || 'PENDING',
       groupStatus: g.status,
       createdDate: g.createdAt ? new Date(g.createdAt).toISOString().split('T')[0] : 'Recent',
       travelDate: g.travelDate ? new Date(g.travelDate).toISOString().split('T')[0] : 'Flexible',
-    };
-  });
+    });
+  }
+
+  const unpaidGroupFeesTotal = Number(
+    groupInvoices
+      .filter((i) => i.paymentStatus !== 'PAID')
+      .reduce((acc, i) => acc + Number(i.dueAmountEur ?? i.totalAmount ?? 0), 0)
+      .toFixed(2)
+  );
+
+  const balanceEur = Number(summary.balance || 0);
+  const balanceAzn = Number((balanceEur * eurToAznRate).toFixed(2));
+  const pendingBalanceEur = Number(summary.pendingBalance || 0);
+  const pendingBalanceAzn = Number((pendingBalanceEur * eurToAznRate).toFixed(2));
+
+  const commissionRates = {
+    BRONZE: getAgentCommissionRate('BRONZE', catalog),
+    SILVER: getAgentCommissionRate('SILVER', catalog),
+    GOLD: getAgentCommissionRate('GOLD', catalog),
+    PLATINUM: getAgentCommissionRate('PLATINUM', catalog),
+  };
 
   return {
     ...wallet,
-    balance: computedBalance,
-    pendingBalance: computedPending,
+    balance: balanceEur,
+    balanceEur,
+    balanceAzn,
+    pendingBalance: pendingBalanceEur,
+    pendingBalanceAzn,
     totalEarnedYtd,
+    totalTopups: summary.totalTopups,
+    totalDepositedEur: summary.totalTopups,
+    totalSpent: summary.totalSpent,
+    totalSpentEur: summary.totalSpent,
+    unpaidGroupFeesTotal,
+    exchangeRate: eurToAznRate,
     agentTier: tier,
     ratePerPax,
+    commissionRates,
     totalPaxLifetime,
     totalPaxDraft,
     transactions: updatedTransactions,
+    payoutRequests,
+    bankSlips,
+    pendingBankSlips,
     groupInvoices,
   };
 }
 
-async function generateGroupInvoicePdf(groupId, userId) {
+async function topupAgentWallet(userId, payload = {}) {
+  const { amount, currency, method, paymentMethod, reference, referenceCode } = payload;
+  const topupResult = await walletService.topupWallet({
+    userId,
+    amount,
+    currency: currency || 'EUR',
+    method: method || paymentMethod || 'CARD',
+    reference: reference || referenceCode || `AG-TOPUP-${Date.now().toString().slice(-6)}`,
+  });
+  const updatedWallet = await getAgentWallet(userId);
+  return {
+    ...topupResult,
+    wallet: updatedWallet,
+  };
+}
+
+async function payGroupWithWallet(groupId, userId, userRole = 'AGENT') {
+  const settlement = await walletService.payWithWallet({
+    userId,
+    userRole,
+    groupBatchId: groupId,
+  });
+  const updatedWallet = await getAgentWallet(userId);
+  return {
+    ...settlement,
+    wallet: updatedWallet,
+  };
+}
+
+async function generateGroupInvoicePdf(groupId, userId, isStaff = false) {
   const group = await prisma.groupBatch.findFirst({
-    where: { id: groupId, userId },
+    where: { id: groupId, ...(isStaff ? {} : { userId }) },
     include: {
       dossiers: {
         include: {
@@ -235,138 +352,87 @@ async function generateGroupInvoicePdf(groupId, userId) {
   });
 
   if (!group) {
-    throw new Error('Group not found');
+    const err = new Error('Group not found');
+    err.statusCode = 404;
+    throw err;
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await prisma.user.findUnique({ where: { id: group.userId } });
   const primaryDossier = group.dossiers[0] || {
     dossierNumber: group.code,
     applicants: [],
     governmentFee: 80.0,
-    serviceFee: 90.0,
+    serviceFee: 35.0,
     extraServicesFee: 0.0,
+    totalAmount: 115.0,
   };
 
-  const pdfResult = await pdfUtil.generateGroupInvoicePdf(primaryDossier, user);
-  return pdfResult;
+  return pdfUtil.generateGroupInvoicePdf(primaryDossier, user);
 }
 
-async function requestPayout({ userId, amount, bankName, iban, swiftBic }) {
-  const payoutAmount = Number(amount);
-  if (!payoutAmount || payoutAmount <= 0) {
-    const error = new Error('Invalid payout amount');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return await prisma.$transaction(async (tx) => {
-    const wallet = await tx.wallet.findUnique({ where: { userId } });
-    if (!wallet || wallet.balance < payoutAmount) {
-      const error = new Error('Insufficient wallet balance for this payout');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await tx.wallet.update({
-      where: { id: wallet.id },
-      data: { balance: { decrement: payoutAmount } },
-    });
-
-    const payout = await tx.payoutRequest.create({
-      data: {
-        walletId: wallet.id,
-        amount: payoutAmount,
-        bankName,
-        iban,
-        swiftBic: swiftBic || 'N/A',
-        status: 'PENDING',
-      },
-    });
-
-    await tx.walletTransaction.create({
-      data: {
-        walletId: wallet.id,
-        amount: -payoutAmount,
-        type: 'DEBIT',
-        referenceType: 'PAYOUT',
-        referenceId: payout.id,
-        description: `Payout to ${bankName} (${iban.slice(-4)})`,
-        status: 'PENDING',
-      },
-    });
-
-    return payout;
+async function requestPayout({ userId, amount, currency = 'EUR', bankName, iban, swiftBic, accountHolder }) {
+  const result = await walletService.requestWalletPayout({
+    userId,
+    amount,
+    currency: currency || 'EUR',
+    bankName,
+    iban,
+    swiftBic,
+    accountHolder,
   });
+  return result.payout;
 }
 
 async function exportTransactionsCsv(userId) {
-  const wallet = await prisma.wallet.findUnique({
-    where: { userId },
-    include: {
-      transactions: {
-        orderBy: { createdAt: 'desc' },
-      },
-    },
+  const walletData = await getAgentWallet(userId);
+  const rows = ['Category,Reference ID,Type,Description,Amount (EUR),Status,Date'];
+
+  (walletData.transactions || []).forEach((tx) => {
+    const dateStr = tx.createdAt ? new Date(tx.createdAt).toISOString().split('T')[0] : '';
+    const desc = (tx.description || '').replace(/"/g, '""');
+    const isCredit = tx.type === 'CREDIT' || (tx.type !== 'DEBIT' && Number(tx.amount) > 0);
+    const amtStr = `${isCredit ? '+' : '-'}${Math.abs(Number(tx.amount || 0)).toFixed(2)}`;
+    rows.push(
+      `"WALLET_TX","${tx.referenceId || tx.id}","${tx.referenceType || tx.type}","${desc}","${amtStr}","${tx.status}","${dateStr}"`
+    );
   });
 
-  const rows = ['Transaction ID,Date,Reference,Description,Amount,Status'];
-  if (wallet && wallet.transactions) {
-    wallet.transactions.forEach((tx) => {
-      const dateStr = tx.createdAt ? new Date(tx.createdAt).toISOString().split('T')[0] : '';
-      const desc = (tx.description || '').replace(/"/g, '""');
-      rows.push(`"${tx.id}","${dateStr}","${tx.referenceId || ''}","${desc}","${tx.amount}","${tx.status}"`);
-    });
-  }
+  (walletData.bankSlips || []).forEach((s) => {
+    const dateStr = s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '';
+    const desc = `${s.bankName || 'Bank Wire'} - ${s.purpose || 'Payment'}`.replace(/"/g, '""');
+    rows.push(
+      `"BANK_SLIP","${s.referenceCode || s.id}","WIRE_SLIP","${desc}","${Number(s.amount || 0).toFixed(2)}","${s.displayStatus || s.status}","${dateStr}"`
+    );
+  });
+
+  (walletData.payoutRequests || []).forEach((p) => {
+    const dateStr = p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : '';
+    const desc = `${p.bankName || 'Bank'} (${p.iban || ''})`.replace(/"/g, '""');
+    rows.push(
+      `"PAYOUT","PO-${String(p.id).substring(0, 8).toUpperCase()}","WITHDRAWAL","${desc}","-${Number(p.amount || 0).toFixed(2)}","${p.status}","${dateStr}"`
+    );
+  });
 
   return rows.join('\n');
 }
 
 async function saveBankDetails(userId, { bankName, iban, swiftBic, accountHolder }) {
-  let wallet = await prisma.wallet.findUnique({ where: { userId } });
-  if (!wallet) {
-    wallet = await prisma.wallet.create({
-      data: {
-        userId,
-        balance: 0.0,
-        pendingBalance: 0.0,
-        currency: 'EUR',
-        bankName,
-        iban,
-        swiftBic,
-        accountHolder,
-      },
-    });
-  } else {
-    wallet = await prisma.wallet.update({
-      where: { id: wallet.id },
-      data: {
-        bankName,
-        iban,
-        swiftBic,
-        accountHolder,
-      },
-    });
-  }
-
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'UPDATE_BANK_DETAILS',
-      details: { bankName, iban: iban ? `***${iban.slice(-4)}` : '', swiftBic, accountHolder },
-    },
+  const updated = await walletService.saveWalletBankDetails(userId, {
+    bankName,
+    iban,
+    swiftBic,
+    accountHolder,
   });
-
   return {
     success: true,
-    bankName: wallet.bankName,
-    iban: wallet.iban,
-    swiftBic: wallet.swiftBic,
-    accountHolder: wallet.accountHolder,
+    ...updated,
   };
 }
 
 module.exports = {
   getAgentWallet,
+  topupAgentWallet,
+  payGroupWithWallet,
   generateGroupInvoicePdf,
   requestPayout,
   exportTransactionsCsv,

@@ -2,6 +2,7 @@ const paymentService = require('./payment.service');
 const walletService = require('./wallet.service');
 const ApiResponse = require('../../core/api.response');
 const { getText } = require('../../i18n');
+const { sendDownloadSafely } = require('../../utils/download.util');
 
 async function createPaymentIntent(req, res) {
   try {
@@ -59,6 +60,58 @@ async function payWithWallet(req, res) {
       invoiceId: invoiceId || null,
     });
     return ApiResponse.success(res, result, 'Payment settled from wallet');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function withdrawFromWallet(req, res) {
+  try {
+    const { amount, currency, bankName, iban, swiftBic, accountHolder } = req.body || {};
+    const result = await walletService.requestWalletPayout({
+      userId: req.user.id,
+      amount,
+      currency: currency || 'EUR',
+      bankName,
+      iban,
+      swiftBic,
+      accountHolder,
+    });
+    return ApiResponse.success(res, result, 'Wallet withdrawal request submitted successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function saveWalletBankDetails(req, res) {
+  try {
+    const { bankName, iban, swiftBic, accountHolder } = req.body || {};
+    const result = await walletService.saveWalletBankDetails(req.user.id, {
+      bankName,
+      iban,
+      swiftBic,
+      accountHolder,
+    });
+    return ApiResponse.success(res, result, 'Wallet payout bank coordinates saved successfully');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function getBankSlipFile(req, res) {
+  try {
+    const { receiptId } = req.params;
+    const { inline } = req.query;
+    const fileData = await paymentService.getBankSlipFile(receiptId);
+    const isInline = inline === 'true' || inline === '1';
+
+    return sendDownloadSafely(res, {
+      filePath: fileData.filePath,
+      fileName: fileData.fileName,
+      buffer: fileData.buffer,
+      contentType: fileData.contentType || 'application/pdf',
+      inline: isInline,
+    });
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
   }
@@ -166,6 +219,9 @@ module.exports = {
   getWalletOverview,
   topupWallet,
   payWithWallet,
+  withdrawFromWallet,
+  saveWalletBankDetails,
+  getBankSlipFile,
   handleStripeWebhook,
   createLocalBankOrder,
   confirmLocalBankPayment,

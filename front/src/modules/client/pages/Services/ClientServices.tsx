@@ -317,8 +317,11 @@ export default function ClientServices() {
             }
 
             try {
-                const walletRes = await paymentService.getUserWallet();
-                const bal = Number(walletRes?.data?.wallet?.balanceEur ?? walletRes?.data?.balance ?? 0);
+                const walletRes: any = await paymentService.getUserWallet();
+                const rawW = walletRes?.data?.data || walletRes?.data || walletRes;
+                const bal = Number(
+                    rawW?.wallet?.balance ?? rawW?.wallet?.balanceEur ?? rawW?.balance ?? rawW?.balanceEur ?? 0
+                );
                 setWalletBalanceEur(bal);
             } catch (wErr) {
                 console.warn('Wallet load note:', wErr);

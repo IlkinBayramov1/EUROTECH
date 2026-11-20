@@ -89,6 +89,13 @@ async function syncGroupFinancialsInTx(groupId, userId, tx = prisma) {
   });
 
   const isPaid = group.dossiers.length > 0 && group.dossiers.every((d) => d.paymentStatus === 'PAID');
+  if (isPaid && group.status === 'DRAFT') {
+    await tx.groupBatch.update({
+      where: { id: group.id },
+      data: { status: 'PROCESSING' },
+    });
+    group.status = 'PROCESSING';
+  }
   const isSettled = isPaid && ['PROCESSING', 'READY', 'COMPLETED'].includes(group.status);
 
   if (totalApplicants > 0) {
@@ -151,6 +158,7 @@ async function createGroup({
   projectReason,
   applicants,
   package: pkg,
+  services,
   appointmentDate,
   appointmentTime,
   paymentMethod,
@@ -158,7 +166,7 @@ async function createGroup({
   const code = generateGroupCode();
   const appList = Array.isArray(applicants) ? applicants : [];
   const paxCount = Math.max(1, appList.length);
-  const selectedPackage = String(pkg || 'standard').toLowerCase();
+  const selectedPackage = String(pkg || services?.activePackage || 'standard').toLowerCase();
 
   const safeTravelDate = parseSafeDate(travelDate, 'Travel Date');
   const safeApptDateTime = appointmentDate
@@ -170,6 +178,7 @@ async function createGroup({
     portalType: 'GROUP_AGENT',
     paxCount,
     activePackage: selectedPackage,
+    services,
     duration: duration || 'short',
     catalog,
   });
@@ -319,36 +328,39 @@ async function createGroup({
     await syncGroupFinancialsInTx(group.id, userId, tx);
 
     if (String(paymentMethod || '').toUpperCase() === 'WALLET') {
-      try {
-        const wallet = await walletService.getOrCreateWallet(userId, tx);
-        const summary = await walletService.recalculateWalletBalances(wallet.id, tx);
-        const totalDueEur = fees.totalAmount || 0;
-        if (summary.balance >= totalDueEur && totalDueEur > 0) {
-          const ref = `WLT-${group.code}-${Date.now().toString().slice(-5)}`;
-          await tx.walletTransaction.create({
-            data: {
-              walletId: wallet.id,
-              amount: -totalDueEur,
-              type: 'DEBIT',
-              referenceType: 'VISA_PAYMENT',
-              referenceId: group.code,
-              description: `Tour Group Visa Fees: ${group.name} (${group.code})`,
-              status: 'PAID',
-            },
-          });
-
-          await walletService.settleGroupBatchInTx(tx, {
-            groupBatchId: group.id,
-            payerUserId: userId,
-            paymentProvider: 'WALLET',
-            referenceCode: ref,
-            explicitAmountEur: totalDueEur,
-          });
-
-          await walletService.recalculateWalletBalances(wallet.id, tx);
+      const wallet = await walletService.getOrCreateWallet(userId, tx);
+      const summary = await walletService.recalculateWalletBalances(wallet.id, tx);
+      const totalDueEur = Number(fees.grandTotalEur || fees.totalAmount || 0);
+      if (totalDueEur > 0) {
+        if (summary.balance + 0.005 < totalDueEur) {
+          const err = new Error(
+            `Insufficient Agency Wallet balance. Available: €${summary.balance.toFixed(2)}, Required: €${totalDueEur.toFixed(2)}.`
+          );
+          err.statusCode = 400;
+          throw err;
         }
-      } catch (agentWalletErr) {
-        console.warn('Agent group auto-settle from wallet failed:', agentWalletErr);
+        const ref = `WLT-${group.code}-${Date.now().toString().slice(-5)}`;
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            amount: -totalDueEur,
+            type: 'DEBIT',
+            referenceType: 'VISA_PAYMENT',
+            referenceId: group.code,
+            description: `Tour Group Visa Fees: ${group.name} (${group.code})`,
+            status: 'PAID',
+          },
+        });
+
+        await walletService.settleGroupBatchInTx(tx, {
+          groupBatchId: group.id,
+          payerUserId: userId,
+          paymentProvider: 'WALLET',
+          referenceCode: ref,
+          explicitAmountEur: totalDueEur,
+        });
+
+        await walletService.recalculateWalletBalances(wallet.id, tx);
       }
     }
 
@@ -388,12 +400,19 @@ async function getAgentGroups(userId) {
     orderBy: { createdAt: 'desc' },
   });
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } });
+  const [user, catalog] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { agentTier: true } }),
+    getPricingCatalog(),
+  ]);
   const tier = user?.agentTier || 'BRONZE';
-  const ratePerPax = getAgentCommissionRate(tier);
+  const ratePerPax = getAgentCommissionRate(tier, catalog);
 
   const results = [];
   for (const g of groups) {
+    if (!g.dossiers || g.dossiers.length === 0) {
+      await walletService.ensureGroupBatchPrimaryDossierInTx(prisma, g, catalog);
+    }
+
     let allApplicants = [];
     g.dossiers.forEach((d) => {
       if (d.applicants) allApplicants.push(...d.applicants);
@@ -410,11 +429,12 @@ async function getAgentGroups(userId) {
     const primaryDossier = g.dossiers[0] || null;
     let totalAmount = primaryDossier ? Number(primaryDossier.totalAmount || 0) : 0;
     if (primaryDossier && totalAmount <= 0) {
-      const pkg = allApplicants[0]?.formDataJson?.package || 'standard';
+      const pkg = g.packageTier || allApplicants[0]?.formDataJson?.package || 'standard';
       const fees = calculatePortalFees({
         portalType: 'GROUP_AGENT',
         paxCount: Math.max(1, totalApplicants),
         activePackage: pkg,
+        catalog,
       });
       totalAmount = fees.grandTotalEur;
       await prisma.dossier.update({

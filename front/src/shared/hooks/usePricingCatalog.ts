@@ -396,7 +396,7 @@ export function usePricingCatalog() {
       } else {
         packageAddOnPP = Number(matchedPkg?.priceEur ?? 0.0);
         const includedFlags = matchedPkg?.wizardFlags || {};
-        if (portalType === 'INDIVIDUAL' && services) {
+        if (services) {
           ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo', 'express', 'translation', 'sms'].forEach(
             (k) => {
               if (services[k] && !includedFlags[k]) {

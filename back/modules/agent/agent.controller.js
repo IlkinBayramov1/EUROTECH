@@ -1,6 +1,7 @@
 const agentService = require('./agent.service');
 const ApiResponse = require('../../core/api.response');
 const documentService = require('../document/document.service');
+const { sendDownloadSafely } = require('../../utils/download.util');
 
 async function createGroup(req, res, next) {
   try {
@@ -54,7 +55,26 @@ async function submitGroup(req, res, next) {
 async function getWallet(req, res, next) {
   try {
     const wallet = await agentService.getAgentWallet(req.user.id);
-    return ApiResponse.success(res, { wallet }, 'Agent wallet information retrieved');
+    return ApiResponse.success(res, { ...wallet, wallet }, 'Agent wallet information retrieved');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function topupWallet(req, res, next) {
+  try {
+    const result = await agentService.topupAgentWallet(req.user.id, req.body || {});
+    return ApiResponse.success(res, result, 'Agency wallet topped up successfully', 201);
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
+async function payGroupWithWallet(req, res, next) {
+  try {
+    const { groupId } = req.params;
+    const result = await agentService.payGroupWithWallet(groupId, req.user.id, req.user.role);
+    return ApiResponse.success(res, result, 'Group consular fees settled from Agency Wallet and commission credited');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
   }
@@ -62,13 +82,15 @@ async function getWallet(req, res, next) {
 
 async function requestPayout(req, res, next) {
   try {
-    const { amount, bankName, iban, swiftBic } = req.body;
+    const { amount, currency, bankName, iban, swiftBic, accountHolder } = req.body || {};
     const payout = await agentService.requestPayout({
       userId: req.user.id,
       amount,
+      currency: currency || 'EUR',
       bankName,
       iban,
       swiftBic,
+      accountHolder,
     });
     return ApiResponse.success(res, { payout }, 'Payout request submitted successfully', 201);
   } catch (error) {
@@ -150,9 +172,14 @@ async function deleteGroup(req, res, next) {
 async function getGroupInvoicePdf(req, res, next) {
   try {
     const { groupId } = req.params;
-    const result = await agentService.generateGroupInvoicePdf(groupId, req.user.id);
+    const isStaff = ['ADMIN', 'MANAGER', 'OPERATOR'].includes(req.user.role);
+    const result = await agentService.generateGroupInvoicePdf(groupId, req.user.id, isStaff);
     if (req.query.download === 'true' || req.query.download === '1') {
-      return res.download(result.filePath, result.fileName);
+      return sendDownloadSafely(res, {
+        filePath: result.filePath,
+        fileName: result.fileName,
+        contentType: 'application/pdf',
+      });
     }
     return ApiResponse.success(res, result, 'Group invoice PDF generated');
   } catch (error) {
@@ -229,6 +256,8 @@ module.exports = {
   deleteGroup,
   submitGroup,
   getWallet,
+  topupWallet,
+  payGroupWithWallet,
   requestPayout,
   exportCsv,
   saveBankDetails,

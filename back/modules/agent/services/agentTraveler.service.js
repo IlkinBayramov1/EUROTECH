@@ -1,4 +1,5 @@
 const prisma = require('../../../config/db');
+const { syncGroupFinancialsInTx } = require('./agentGroup.service');
 
 async function addApplicantToGroup(groupId, userId, applicantData) {
   const group = await prisma.groupBatch.findFirst({
@@ -49,6 +50,8 @@ async function addApplicantToGroup(groupId, userId, applicantData) {
     },
   });
 
+  await syncGroupFinancialsInTx(groupId, userId);
+
   return applicant;
 }
 
@@ -71,9 +74,13 @@ async function removeApplicantFromGroup(groupId, applicantId, userId) {
     throw error;
   }
 
-  return prisma.applicant.delete({
+  const deleted = await prisma.applicant.delete({
     where: { id: applicantId },
   });
+
+  await syncGroupFinancialsInTx(groupId, userId);
+
+  return deleted;
 }
 
 async function saveApplicantFormInGroup(groupId, applicantId, formData, userId) {

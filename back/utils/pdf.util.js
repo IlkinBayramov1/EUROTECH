@@ -20,8 +20,9 @@ function sanitizeTextForPdf(text) {
     'ö': 'o', 'Ö': 'O',
     'ü': 'u', 'Ü': 'U',
     '—': '-', '–': '-',
+    '€': 'EUR ', '₼': 'AZN ',
   };
-  return String(text).replace(/[əƏıİşŞçÇğĞöÖüÜ—–]/g, (m) => charMap[m] || m).replace(/[^\x20-\x7E]/g, ' ');
+  return String(text).replace(/[əƏıİşŞçÇğĞöÖüÜ—–€₼]/g, (m) => charMap[m] || m).replace(/[^\x20-\x7E]/g, ' ');
 }
 
 async function generateApplicationPdf(dossier, applicant) {

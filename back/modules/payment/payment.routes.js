@@ -22,6 +22,7 @@ router.post('/local-bank/create-order', paymentController.createLocalBankOrder);
 
 // Bank Wire / Slip Upload & Reconciliation
 router.post('/bank-slip', upload.single('slip'), paymentController.submitBankPaymentSlip);
+router.get('/bank-slip/:receiptId/file', paymentController.getBankSlipFile);
 router.get('/bank-slips', requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), paymentController.getBankPaymentSlips);
 router.patch('/bank-slip/:receiptId/review', requireRoles(['ADMIN', 'MANAGER', 'OPERATOR']), paymentController.reviewBankPaymentSlip);
 
@@ -29,6 +30,10 @@ router.patch('/bank-slip/:receiptId/review', requireRoles(['ADMIN', 'MANAGER', '
 router.get('/wallet/overview', paymentController.getWalletOverview);
 router.post('/wallet/topup', paymentController.topupWallet);
 router.post('/wallet/pay', paymentController.payWithWallet);
+router.post('/wallet/withdraw', paymentController.withdrawFromWallet);
+router.post('/wallet/payout', paymentController.withdrawFromWallet);
+router.put('/wallet/bank-details', paymentController.saveWalletBankDetails);
+router.patch('/wallet/bank-details', paymentController.saveWalletBankDetails);
 
 // Corporate Subscriptions
 router.post('/subscribe-saas', paymentController.createSaaSSubscription);

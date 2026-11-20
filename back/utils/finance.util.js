@@ -197,7 +197,7 @@ function calculatePortalFees({
     packageAddOnPerPax = pkgPrices[pkgKey] ?? 0.0;
     const matchedPkg = cat?.packages?.find((p) => String(p.id).toLowerCase() === pkgKey);
     const includedFlags = matchedPkg?.wizardFlags || {};
-    if (portalType === 'INDIVIDUAL' && services && typeof services === 'object') {
+    if (services && typeof services === 'object') {
       ['lounge', 'filePrep', 'insurance', 'hotelFlight', 'formAssist', 'courier', 'photo', 'express', 'translation', 'sms'].forEach((k) => {
         if (services[k] && !includedFlags[k]) {
           packageAddOnPerPax += addonPrices[k] || 0;

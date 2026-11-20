@@ -51,7 +51,10 @@ export default function ClientDashboard() {
                         setSelectedDossierId(active);
                         storage.setActiveDossierId(active);
                     }
-                    const bal = Number(walletRes?.data?.wallet?.balanceEur ?? walletRes?.data?.balance ?? 0);
+                    const rawW = (walletRes as any)?.data?.data || (walletRes as any)?.data || walletRes;
+                    const bal = Number(
+                        rawW?.wallet?.balance ?? rawW?.wallet?.balanceEur ?? rawW?.balance ?? rawW?.balanceEur ?? 0
+                    );
                     setWalletBalanceEur(bal);
                 }
             })

@@ -88,6 +88,7 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
           gender,
           destination: country.nameEn,
           purpose: 'Tourism',
+          package: resolvedPkg,
           ...(pApp.formDataJson || {}),
         },
       },
@@ -115,8 +116,46 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
               passportNumber: coApp.passportNumber || '',
               nationality: coApp.nationality || 'Azerbaijan',
               destination: country.nameEn,
+              package: resolvedPkg,
               ...(coApp.formDataJson || {}),
             },
+          },
+        });
+      }
+    }
+
+    // Atomically create AdditionalService records for bundled package services & custom add-ons
+    if (portalType === 'INDIVIDUAL') {
+      const pkgObj = (catalog.packages || []).find(
+        (p) => String(p.id).toLowerCase() === String(resolvedPkg).toLowerCase()
+      );
+      const serviceCodes = new Set(Array.isArray(pkgObj?.includedServiceIds) ? pkgObj.includedServiceIds : []);
+      if (services && typeof services === 'object') {
+        if (services.lounge) serviceCodes.add('PREMIUM_LOUNGE');
+        if (services.insurance) serviceCodes.add('TRAVEL_INSURANCE');
+        if (services.filePrep) serviceCodes.add('FILE_PREPARATION');
+        if (services.courier) serviceCodes.add('COURIER');
+        if (services.photo) serviceCodes.add('BIOMETRIC_PHOTO');
+        if (services.formAssist) serviceCodes.add('FORM_ASSIST');
+        if (services.express) serviceCodes.add('EXPRESS_PROCESSING');
+        if (services.translation) serviceCodes.add('TRANSLATION_APOSTILLE');
+        if (services.sms) serviceCodes.add('SMS_TRACKING');
+        if (services.hotelFlight) {
+          serviceCodes.add('HOTEL_BOOKING');
+          serviceCodes.add('FLIGHT_BOOKING');
+        }
+      }
+
+      for (const srvCode of Array.from(serviceCodes)) {
+        const srvDef = (catalog.services || []).find((s) => s.id === srvCode);
+        const srvPrice = Number(srvDef?.priceEur ?? 0);
+        await prisma.additionalService.create({
+          data: {
+            dossierId: dossier.id,
+            serviceType: srvCode,
+            price: srvPrice,
+            status: 'ACTIVE',
+            metadataJson: { package: resolvedPkg },
           },
         });
       }

@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { agentService, paymentService } from '@/shared/api/services';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
+import { downloadFileFromApi } from '@/shared/utils/download.util';
+import { storage } from '@/shared/utils/storage';
 import './AgentFinance.css';
 
 interface Transaction {
@@ -12,7 +14,7 @@ interface Transaction {
     referenceType: string;
     description: string;
     amount: number;
-    status: 'paid' | 'pending' | 'processing';
+    status: 'paid' | 'pending' | 'rejected' | 'processing';
 }
 
 interface GroupInvoice {
@@ -26,6 +28,8 @@ interface GroupInvoice {
     governmentFee: number;
     serviceFee: number;
     totalAmount: number;
+    paidAmountEur?: number;
+    dueAmountEur?: number;
     estimatedCommissionEur?: number;
     currency: string;
     paymentStatus: string;
@@ -38,20 +42,23 @@ export default function AgentFinance() {
     const { showSuccess, showError } = useToast();
     const [searchParams, setSearchParams] = useSearchParams();
 
-    // Tab State (supports ?tab=invoices deep-link from AgentWizard Step 5)
-    const initialTab = searchParams.get('tab') === 'invoices' ? 'invoices' : 'commissions';
-    const [activeTab, setActiveTab] = useState<'commissions' | 'invoices'>(initialTab);
+    // Tab State (supports ?tab=invoices deep-link from Wizard Step 5)
+    const rawTab = searchParams.get('tab');
+    const initialTab: 'commissions' | 'invoices' | 'slips' | 'payouts' =
+        rawTab === 'invoices' ? 'invoices' : rawTab === 'slips' ? 'slips' : rawTab === 'payouts' ? 'payouts' : 'commissions';
+    const [activeTab, setActiveTab] = useState<'commissions' | 'invoices' | 'slips' | 'payouts'>(initialTab);
 
     useEffect(() => {
-        if (searchParams.get('tab') === 'invoices' && activeTab !== 'invoices') {
-            setActiveTab('invoices');
+        const t = searchParams.get('tab');
+        if (t === 'invoices' || t === 'slips' || t === 'payouts' || t === 'commissions') {
+            if (activeTab !== t) setActiveTab(t);
         }
     }, [searchParams]);
 
-    const handleSwitchTab = (tab: 'commissions' | 'invoices') => {
+    const handleSwitchTab = (tab: 'commissions' | 'invoices' | 'slips' | 'payouts') => {
         setActiveTab(tab);
-        if (tab === 'invoices') setSearchParams({ tab: 'invoices' }, { replace: true });
-        else setSearchParams({}, { replace: true });
+        if (tab === 'commissions') setSearchParams({}, { replace: true });
+        else setSearchParams({ tab }, { replace: true });
     };
 
     // Modal State
@@ -72,6 +79,7 @@ export default function AgentFinance() {
 
     // Top-Up Modal State
     const [topupAmount, setTopupAmount] = useState<number>(500);
+    const [topupCurrency, setTopupCurrency] = useState<'EUR' | 'AZN'>('EUR');
     const [topupMethod, setTopupMethod] = useState<'CARD' | 'BANK_SLIP'>('CARD');
     const [topupBankName, setTopupBankName] = useState('ABB (International Bank of Azerbaijan)');
     const [topupReference, setTopupReference] = useState('');
@@ -86,18 +94,23 @@ export default function AgentFinance() {
 
     // Filter & Payout Amount
     const [filterType, setFilterType] = useState<'all' | 'commissions' | 'topups' | 'payouts'>('all');
+    const [payoutCurrency, setPayoutCurrency] = useState<'EUR' | 'AZN'>('EUR');
     const [payoutAmount, setPayoutAmount] = useState<number>(50);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [groupInvoices, setGroupInvoices] = useState<GroupInvoice[]>([]);
+    const [bankSlips, setBankSlips] = useState<any[]>([]);
     const [pendingBankSlips, setPendingBankSlips] = useState<any[]>([]);
+    const [payoutRequests, setPayoutRequests] = useState<any[]>([]);
     const [isExporting, setIsExporting] = useState<boolean>(false);
     const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+    const [openingSlipId, setOpeningSlipId] = useState<string | null>(null);
 
     const loadWalletData = async () => {
         setLoading(true);
         try {
             const res: any = await agentService.getWallet();
-            const w = res?.data?.wallet || res?.wallet || res?.data;
+            const raw = res?.data?.data || res?.data || res || {};
+            const w = raw?.wallet || raw;
             if (w) {
                 setWallet(w);
 
@@ -107,21 +120,35 @@ export default function AgentFinance() {
                 if (w.accountHolder) setAccountHolder(w.accountHolder);
 
                 const txList = Array.isArray(w.transactions) ? w.transactions : [];
-                const mapped: Transaction[] = txList.map((tx: any) => ({
-                    id: tx.id && typeof tx.id === 'string' ? tx.id.substring(0, 8) : 'TRX-101',
-                    date: tx.createdAt
-                        ? new Date(tx.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-                        : 'Recent',
-                    reference: tx.referenceId || tx.referenceType || 'WALLET',
-                    referenceType: tx.referenceType || 'WALLET',
-                    description: tx.description || 'Agency Wallet Transaction',
-                    amount: tx.type === 'DEBIT' ? -Math.abs(Number(tx.amount || 0)) : Math.abs(Number(tx.amount || 0)),
-                    status: tx.status === 'COMPLETED' || tx.status === 'PAID' ? 'paid' : tx.status === 'PENDING' ? 'pending' : 'processing',
-                }));
+                const mapped: Transaction[] = txList.map((tx: any) => {
+                    const stUpper = String(tx.status || 'PAID').toUpperCase();
+                    const mappedStatus: Transaction['status'] =
+                        stUpper === 'COMPLETED' || stUpper === 'PAID' || stUpper === 'PROCESSED'
+                            ? 'paid'
+                            : stUpper === 'REJECTED' || stUpper === 'REFUNDED'
+                              ? 'rejected'
+                              : stUpper === 'PENDING'
+                                ? 'pending'
+                                : 'processing';
+
+                    return {
+                        id: tx.id && typeof tx.id === 'string' ? tx.id.substring(0, 8) : 'TRX-101',
+                        date: tx.createdAt
+                            ? new Date(tx.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : 'Recent',
+                        reference: tx.referenceId || tx.referenceType || 'WALLET',
+                        referenceType: tx.referenceType || 'WALLET',
+                        description: tx.description || 'Agency Wallet Transaction',
+                        amount: tx.type === 'DEBIT' ? -Math.abs(Number(tx.amount || 0)) : Math.abs(Number(tx.amount || 0)),
+                        status: mappedStatus,
+                    };
+                });
                 setTransactions(mapped);
 
                 setGroupInvoices(Array.isArray(w.groupInvoices) ? w.groupInvoices : []);
+                setBankSlips(Array.isArray(w.bankSlips) ? w.bankSlips : []);
                 setPendingBankSlips(Array.isArray(w.pendingBankSlips) ? w.pendingBankSlips : []);
+                setPayoutRequests(Array.isArray(w.payoutRequests) ? w.payoutRequests : []);
             } else {
                 setWallet({
                     balance: 0,
@@ -148,10 +175,29 @@ export default function AgentFinance() {
         loadWalletData();
     }, []);
 
+    const exchangeRate = Number(wallet?.exchangeRate || 1.85);
+    const currentBalance = Number(wallet?.balance ?? wallet?.balanceEur ?? 0);
+    const currentBalanceAzn = Number(wallet?.balanceAzn ?? (currentBalance * exchangeRate));
+    const pendingBalance = Number(wallet?.pendingBalance || 0);
+    const totalEarnedYtd = Number(wallet?.totalEarnedYtd || 0);
+    const unpaidGroupFees = Number(
+        wallet?.unpaidGroupFeesTotal ??
+            groupInvoices
+                .filter((i) => i.paymentStatus !== 'PAID')
+                .reduce((acc, i) => acc + Number(i.dueAmountEur ?? i.totalAmount ?? 0), 0)
+    );
+    const tier = wallet?.agentTier || 'BRONZE';
+    const ratePerPax = Number(wallet?.ratePerPax || 20);
+    const processedPax = Number(wallet?.totalPaxLifetime || 0);
+    const draftPax = Number(wallet?.totalPaxDraft || 0);
+    const commRates = wallet?.commissionRates || { BRONZE: 20, SILVER: 25, GOLD: 28, PLATINUM: 32 };
+
     const renderStatusBadge = (status: Transaction['status']) => {
         switch (status) {
             case 'paid':
                 return <span className="finance-badge paid">Completed</span>;
+            case 'rejected':
+                return <span className="finance-badge" style={{ background: '#FEE2E2', color: '#DC2626' }}>Rejected / Refunded</span>;
             case 'processing':
                 return <span className="finance-badge processing">Processing</span>;
             case 'pending':
@@ -164,7 +210,7 @@ export default function AgentFinance() {
         const s = (status || 'PENDING').toUpperCase();
         switch (s) {
             case 'PAID':
-                return <span className="finance-badge paid">Paid</span>;
+                return <span className="finance-badge paid">✓ Paid &amp; Settled</span>;
             case 'PARTIALLY_PAID':
                 return <span className="finance-badge processing">Partial</span>;
             case 'PENDING':
@@ -184,24 +230,31 @@ export default function AgentFinance() {
             if (topupMethod === 'CARD') {
                 await agentService.topupWallet({
                     amount: Number(topupAmount),
-                    currency: 'EUR',
+                    currency: topupCurrency,
+                    method: 'CARD',
                     paymentMethod: 'CARD',
                     referenceCode: topupReference || `AG-TOPUP-${Date.now().toString().slice(-6)}`,
                 });
-                showSuccess(`€ ${Number(topupAmount).toFixed(2)} Agency Wallet balansınıza uğurla əlavə edildi!`);
+                const creditedEur = topupCurrency === 'AZN' ? Number(topupAmount) / exchangeRate : Number(topupAmount);
+                showSuccess(
+                    topupCurrency === 'AZN'
+                        ? `${Number(topupAmount).toFixed(2)} AZN (€ ${creditedEur.toFixed(2)}) Agency Wallet balansınıza əlavə edildi!`
+                        : `€ ${Number(topupAmount).toFixed(2)} Agency Wallet balansınıza uğurla əlavə edildi!`
+                );
             } else {
                 const fd = new FormData();
                 fd.append('amount', String(topupAmount));
-                fd.append('currency', 'EUR');
+                fd.append('currency', topupCurrency);
                 fd.append('purpose', 'WALLET_TOPUP');
                 fd.append('bankName', topupBankName);
                 fd.append('senderName', accountHolder || 'Travel Agency Partner');
-                fd.append('receiptNumber', topupReference || `AG-WIRE-${Date.now().toString().slice(-6)}`);
+                fd.append('referenceCode', topupReference.trim() || `AG-WIRE-${Date.now().toString().slice(-6)}`);
                 if (topupSlipFile) {
                     fd.append('slip', topupSlipFile);
                 }
                 await paymentService.submitBankSlip(fd);
-                showSuccess(`€ ${Number(topupAmount).toFixed(2)} bank köçürmə qəbzi təqdim edildi! Admin təsdiqindən sonra balans artırılacaq.`);
+                showSuccess(`Bank köçürmə qəbzi təqdim edildi! Admin təsdiqindən sonra balans artırılacaq.`);
+                handleSwitchTab('slips');
             }
             setIsTopupModalOpen(false);
             setTopupSlipFile(null);
@@ -209,16 +262,16 @@ export default function AgentFinance() {
             await loadWalletData();
         } catch (err: any) {
             console.error('Top-up error:', err);
-            showError(err.message || 'Balans artırma əməliyyatı uğursuz oldu.');
+            showError(err?.response?.data?.message || err.message || 'Balans artırma əməliyyatı uğursuz oldu.');
         } finally {
             setIsSaving(false);
         }
     };
 
     const openPayInvoiceModal = (inv: GroupInvoice) => {
-        const currentBal = Number(wallet?.balance || 0);
+        const due = Number(inv.dueAmountEur ?? inv.totalAmount ?? 0);
         setPayingInvoice(inv);
-        setPayMethod(currentBal >= inv.totalAmount ? 'WALLET' : 'CARD');
+        setPayMethod(currentBalance >= due ? 'WALLET' : 'CARD');
         setPayReceiptNumber(`INV-${inv.groupCode}`);
         setPaySlipFile(null);
     };
@@ -226,18 +279,19 @@ export default function AgentFinance() {
     const handleSettleGroupInvoice = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!payingInvoice) return;
+        const dueEur = Number(payingInvoice.dueAmountEur ?? payingInvoice.totalAmount ?? 0);
 
         setIsSaving(true);
         try {
             if (payMethod === 'WALLET') {
                 await agentService.payGroupWithWallet(payingInvoice.groupId);
                 showSuccess(
-                    `${payingInvoice.groupCode} rüsumları (€ ${payingInvoice.totalAmount.toFixed(2)}) cüzdandan ödənildi və komissiya balansınıza köçürüldü!`
+                    `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) cüzdandan ödənildi və komissiya balansınıza köçürüldü!`
                 );
             } else if (payMethod === 'CARD') {
                 const intent = await paymentService.createPaymentIntent({
                     groupBatchId: payingInvoice.groupId,
-                    amount: payingInvoice.totalAmount,
+                    amount: dueEur,
                     currency: 'EUR',
                     purpose: 'GROUP_BATCH_PAYMENT',
                 });
@@ -246,7 +300,7 @@ export default function AgentFinance() {
                     bankReference: `AG-CARD-${Date.now().toString().slice(-6)}`,
                 });
                 showSuccess(
-                    `${payingInvoice.groupCode} rüsumları (€ ${payingInvoice.totalAmount.toFixed(2)}) B2B kartla ödənildi və komissiya balansınıza köçürüldü!`
+                    `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) B2B kartla ödənildi və komissiya balansınıza köçürüldü!`
                 );
             } else {
                 const fd = new FormData();
@@ -254,12 +308,12 @@ export default function AgentFinance() {
                 if (payingInvoice.dossierId) {
                     fd.append('dossierId', payingInvoice.dossierId);
                 }
-                fd.append('amount', String(payingInvoice.totalAmount));
+                fd.append('amount', String(dueEur));
                 fd.append('currency', 'EUR');
                 fd.append('purpose', `GROUP_BATCH_PAYMENT (${payingInvoice.groupCode})`);
                 fd.append('bankName', payBankName);
                 fd.append('senderName', paySenderName || accountHolder || 'Travel Agency Partner');
-                fd.append('receiptNumber', payReceiptNumber || `GRP-WIRE-${Date.now().toString().slice(-6)}`);
+                fd.append('referenceCode', payReceiptNumber.trim() || `GRP-WIRE-${Date.now().toString().slice(-6)}`);
                 if (paySlipFile) {
                     fd.append('slip', paySlipFile);
                 }
@@ -272,7 +326,14 @@ export default function AgentFinance() {
             await loadWalletData();
         } catch (err: any) {
             console.error('Settle group invoice error:', err);
-            showError(err.message || 'Qrup ödənişi zamanı xəta baş verdi.');
+            const msg = err?.response?.data?.message || err.message || 'Qrup ödənişi zamanı xəta baş verdi.';
+            if (/already.*settled|already.*paid/i.test(msg)) {
+                setPayingInvoice(null);
+                showSuccess('Bu qrup artıq ödənilib! Cədvəl yenilənir...');
+                await loadWalletData();
+            } else {
+                showError(msg);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -283,17 +344,17 @@ export default function AgentFinance() {
         setIsSaving(true);
         try {
             await agentService.saveBankDetails({
-                bankName,
-                iban,
-                swiftBic,
-                accountHolder: accountHolder || 'Beneficiary',
+                bankName: bankName.trim(),
+                iban: iban.trim().toUpperCase(),
+                swiftBic: swiftBic.trim().toUpperCase(),
+                accountHolder: accountHolder.trim() || 'Beneficiary',
             });
             showSuccess('Bank rekvizitləri bazada uğurla yadda saxlanıldı!');
             setIsPayoutModalOpen(false);
             await loadWalletData();
         } catch (err: any) {
             console.error('Bank details save error:', err);
-            showError(err.message || 'Bank məlumatları saxlanılarkən xəta baş verdi.');
+            showError(err?.response?.data?.message || err.message || 'Bank məlumatları saxlanılarkən xəta baş verdi.');
         } finally {
             setIsSaving(false);
         }
@@ -305,8 +366,13 @@ export default function AgentFinance() {
             showError('Zəhmət olmasa düzgün məbləğ daxil edin.');
             return;
         }
-        if ((wallet?.balance || 0) < payoutAmount) {
-            showError('Cüzdanınızda kifayət qədər balans yoxdur.');
+        const requestedEur = payoutCurrency === 'AZN' ? payoutAmount / exchangeRate : payoutAmount;
+        if (currentBalance + 0.005 < requestedEur) {
+            showError(`Cüzdanınızda kifayət qədər balans yoxdur (Mövcud: €${currentBalance.toFixed(2)}).`);
+            return;
+        }
+        if (!bankName.trim() || !iban.trim()) {
+            showError('Zəhmət olmasa Bank adını və IBAN nömrəsini daxil edin.');
             return;
         }
 
@@ -314,16 +380,19 @@ export default function AgentFinance() {
         try {
             await agentService.requestPayout({
                 amount: Number(payoutAmount),
-                bankName: bankName || 'EuroTech Partner Bank',
-                iban: iban || 'AZ00BANK00000000000000',
-                swiftBic: swiftBic || 'EUROAZ22',
+                currency: payoutCurrency,
+                bankName: bankName.trim() || 'EuroTech Partner Bank',
+                iban: iban.trim().toUpperCase(),
+                swiftBic: swiftBic.trim().toUpperCase() || 'IBAZAZ2X',
+                accountHolder: accountHolder.trim() || 'Agency Partner',
             });
-            showSuccess(`€ ${Number(payoutAmount).toFixed(2)} məbləğində çıxarış sorğusu göndərildi!`);
+            showSuccess(`€ ${requestedEur.toFixed(2)} məbləğində çıxarış sorğusu göndərildi!`);
             setIsRequestPayoutOpen(false);
+            handleSwitchTab('payouts');
             await loadWalletData();
         } catch (err: any) {
             console.error('Payout error:', err);
-            showError(err.message || 'Çıxarış sorğusu uğursuz oldu.');
+            showError(err?.response?.data?.message || err.message || 'Çıxarış sorğusu uğursuz oldu.');
         } finally {
             setIsSaving(false);
         }
@@ -373,28 +442,56 @@ export default function AgentFinance() {
     const handleDownloadGroupInvoice = async (groupId: string, code: string) => {
         setActionLoadingId(groupId);
         try {
-            showSuccess(`"${code}" üçün rəsmi B2B faktura (PDF) hazırlanır...`);
-            const res = await agentService.getGroupInvoicePdf(groupId);
-            const fileUrl = res.data?.fileUrl;
-            if (fileUrl) {
-                const fullUrl = getFileUrl(fileUrl);
-                const fileRes = await fetch(fullUrl);
-                const blob = await fileRes.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                link.download = res.data?.fileName || `group_invoice_${code}.pdf`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
-                showSuccess('Rəsmi Qrup Fakturası (PDF) uğurla endirildi!');
-            }
+            const safeCode = (code || groupId.substring(0, 8)).replace(/[^a-zA-Z0-9_-]/g, '_');
+            await downloadFileFromApi(`/api/v1/agent/groups/${groupId}/invoice-pdf?download=true`, `group_invoice_${safeCode}.pdf`);
+            showSuccess('Rəsmi Qrup Fakturası (PDF) uğurla endirildi!');
         } catch (err: any) {
             console.error('Invoice download error:', err);
             showError(err.message || 'Faktura faylını endirmək mümkün olmadı.');
         } finally {
             setActionLoadingId(null);
+        }
+    };
+
+    const handleOpenSlipReceipt = async (slip: any) => {
+        if (!slip?.id) return;
+        setOpeningSlipId(slip.id);
+        try {
+            const token = storage.getToken();
+            const headers: Record<string, string> = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const endpointUrl = getFileUrl(`/api/v1/payments/bank-slip/${slip.id}/file?inline=true`);
+            let res = await fetch(endpointUrl, { method: 'GET', headers });
+
+            if (!res.ok && slip.fileUrl) {
+                const fallbackUrl = getFileUrl(slip.fileUrl);
+                if (fallbackUrl) {
+                    res = await fetch(fallbackUrl, { method: 'GET', headers });
+                }
+            }
+
+            if (!res.ok) {
+                throw new Error(`Qəbz faylını açmaq mümkün olmadı (Status ${res.status})`);
+            }
+
+            const blob = await res.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const win = window.open(blobUrl, '_blank');
+            if (!win) {
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        } catch (err: any) {
+            console.error('Open slip receipt err:', err);
+            showError(err.message || 'Qəbz faylını açmaq mümkün olmadı.');
+        } finally {
+            setOpeningSlipId(null);
         }
     };
 
@@ -405,27 +502,25 @@ export default function AgentFinance() {
         return true;
     });
 
-    const currentBalance = Number(wallet?.balance || 0);
-    const pendingBalance = Number(wallet?.pendingBalance || 0);
-    const totalEarnedYtd = Number(wallet?.totalEarnedYtd || 0);
-    const unpaidGroupFees = Number(
-        wallet?.unpaidGroupFeesTotal ??
-            groupInvoices
-                .filter((i) => i.paymentStatus !== 'PAID')
-                .reduce((acc, i) => acc + Number(i.totalAmount || 0), 0)
-    );
-    const tier = wallet?.agentTier || 'BRONZE';
-    const ratePerPax = Number(wallet?.ratePerPax || 20);
-    const processedPax = Number(wallet?.totalPaxLifetime || 0);
-    const draftPax = Number(wallet?.totalPaxDraft || 0);
+    const topupConvertedPreview =
+        topupCurrency === 'EUR'
+            ? `≈ ${(Number(topupAmount || 0) * exchangeRate).toFixed(2)} AZN`
+            : `≈ €${(Number(topupAmount || 0) / exchangeRate).toFixed(2)} EUR (Credited to Wallet)`;
+
+    const payoutConvertedPreview =
+        payoutCurrency === 'EUR'
+            ? `≈ ${(Number(payoutAmount || 0) * exchangeRate).toFixed(2)} AZN`
+            : `≈ €${(Number(payoutAmount || 0) / exchangeRate).toFixed(2)} EUR (Deducted from Wallet)`;
 
     return (
         <div className="agent-finance-content fade-in">
             {/* Header Section */}
             <div className="agent-finance-header">
                 <div className="header-titles">
-                    <h1 className="dash-title">Finance & Commissions</h1>
-                    <p className="dash-subtitle">Manage your B2B Agency Wallet, settle group consular fees, and withdraw partner commissions.</p>
+                    <h1 className="dash-title">Finance &amp; Commissions</h1>
+                    <p className="dash-subtitle">
+                        Manage your B2B Agency Wallet (EUR / AZN • 1 EUR = {exchangeRate.toFixed(2)} AZN), settle group consular fees, and withdraw partner commissions.
+                    </p>
                 </div>
                 <div className="header-actions" style={{ flexWrap: 'wrap' }}>
                     <button className="btn-outline-secondary" onClick={handleExportCsv} disabled={isExporting} title="Download CSV report">
@@ -434,11 +529,11 @@ export default function AgentFinance() {
                     </button>
                     <button className="btn-outline-secondary" onClick={() => setIsPayoutModalOpen(true)}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        Payout Method
+                        Payout IBAN
                     </button>
                     <button className="btn-outline-secondary" onClick={() => setIsRequestPayoutOpen(true)} style={{ borderColor: '#0F1E36', color: '#0F1E36' }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                        Request Payout
+                        Withdraw Funds
                     </button>
                     <button className="btn-primary" onClick={() => setIsTopupModalOpen(true)}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -453,6 +548,7 @@ export default function AgentFinance() {
                     <div className="stat-content">
                         <span>Available Wallet Balance</span>
                         <h3>€ {currentBalance.toFixed(2)}</h3>
+                        <span style={{ fontSize: '0.8rem', opacity: 0.9 }}>≈ {currentBalanceAzn.toFixed(2)} AZN</span>
                     </div>
                     <div className="stat-icon-wrapper light-alpha">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -460,8 +556,9 @@ export default function AgentFinance() {
                 </div>
                 <div className="finance-stat-card">
                     <div className="stat-content">
-                        <span>Pending Clearing</span>
+                        <span>Pending Clearing (Commissions)</span>
                         <h3>€ {pendingBalance.toFixed(2)}</h3>
+                        <span style={{ fontSize: '0.8rem', color: '#64748B' }}>≈ {(pendingBalance * exchangeRate).toFixed(2)} AZN</span>
                     </div>
                     <div className="stat-icon-wrapper orange-tint">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -476,6 +573,7 @@ export default function AgentFinance() {
                     <div className="stat-content">
                         <span>Unpaid Group Fees</span>
                         <h3 style={{ color: unpaidGroupFees > 0 ? '#DC2626' : '#059669' }}>€ {unpaidGroupFees.toFixed(2)}</h3>
+                        <span style={{ fontSize: '0.8rem', color: '#64748B' }}>≈ {(unpaidGroupFees * exchangeRate).toFixed(2)} AZN</span>
                     </div>
                     <div className="stat-icon-wrapper red-tint">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
@@ -483,8 +581,9 @@ export default function AgentFinance() {
                 </div>
                 <div className="finance-stat-card">
                     <div className="stat-content">
-                        <span>Total Earned (YTD)</span>
+                        <span>Total Commissions Earned</span>
                         <h3>€ {totalEarnedYtd.toFixed(2)}</h3>
+                        <span style={{ fontSize: '0.8rem', color: '#64748B' }}>Funded: €{Number(wallet?.totalTopups || 0).toFixed(2)}</span>
                     </div>
                     <div className="stat-icon-wrapper green-tint">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -493,10 +592,13 @@ export default function AgentFinance() {
             </div>
 
             {pendingBankSlips.length > 0 && (
-                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '12px', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '12px', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                     <div style={{ fontSize: '0.9rem', color: '#92400E' }}>
                         <strong>⏳ {pendingBankSlips.length} Bank Wire Transfer(s) Pending Review:</strong> Admin Finance Desk təsdiqindən sonra balans və ya qrup fakturası avtomatik yenilənəcək.
                     </div>
+                    <button type="button" className="btn-outline-secondary" onClick={() => handleSwitchTab('slips')} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                        Inspect Slips →
+                    </button>
                 </div>
             )}
 
@@ -530,7 +632,7 @@ export default function AgentFinance() {
                             </span>
                         </div>
                         <h3 style={{ margin: '8px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: '#FFFFFF' }}>
-                            Agency Volume & Reward Progression
+                            Agency Volume &amp; Reward Progression
                         </h3>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -544,10 +646,10 @@ export default function AgentFinance() {
                 {/* Tier Milestones Progress Bar */}
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#BFDBFE', marginBottom: '6px' }}>
-                        <span>Bronze (€20)</span>
-                        <span>Silver (€25) - 25+ Pax</span>
-                        <span>Gold (€28) - 60+ Pax</span>
-                        <span>Platinum (€32) - 120+ Pax</span>
+                        <span>Bronze (€{Number(commRates.BRONZE || 20).toFixed(0)})</span>
+                        <span>Silver (€{Number(commRates.SILVER || 25).toFixed(0)}) - 25+ Pax</span>
+                        <span>Gold (€{Number(commRates.GOLD || 28).toFixed(0)}) - 60+ Pax</span>
+                        <span>Platinum (€{Number(commRates.PLATINUM || 32).toFixed(0)}) - 120+ Pax</span>
                     </div>
                     <div style={{ height: '8px', background: 'rgba(255, 255, 255, 0.2)', borderRadius: '4px', overflow: 'hidden' }}>
                         <div style={{ width: `${Math.min(100, Math.max(8, (processedPax / 120) * 100))}%`, height: '100%', background: '#FACC15', borderRadius: '4px', transition: 'width 0.5s ease' }}></div>
@@ -555,14 +657,14 @@ export default function AgentFinance() {
                 </div>
             </div>
 
-            {/* TAB NAVIGATION: Commissions vs Group Invoices */}
-            <div className="finance-tabs-nav">
+            {/* TAB NAVIGATION */}
+            <div className="finance-tabs-nav" style={{ flexWrap: 'wrap' }}>
                 <button
                     className={`finance-tab-btn ${activeTab === 'commissions' ? 'active' : ''}`}
                     onClick={() => handleSwitchTab('commissions')}
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
-                    Commissions & Wallet Ledger
+                    Commissions &amp; Wallet Ledger
                     <span className="finance-tab-badge">{transactions.length}</span>
                 </button>
                 <button
@@ -570,8 +672,22 @@ export default function AgentFinance() {
                     onClick={() => handleSwitchTab('invoices')}
                 >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 14h.01"/></svg>
-                    Group Invoices & Consular Fees
+                    Group Invoices &amp; Consular Fees
                     <span className="finance-tab-badge">{groupInvoices.length}</span>
+                </button>
+                <button
+                    className={`finance-tab-btn ${activeTab === 'slips' ? 'active' : ''}`}
+                    onClick={() => handleSwitchTab('slips')}
+                >
+                    🏦 Bank Wire Slips
+                    <span className="finance-tab-badge">{bankSlips.length}</span>
+                </button>
+                <button
+                    className={`finance-tab-btn ${activeTab === 'payouts' ? 'active' : ''}`}
+                    onClick={() => handleSwitchTab('payouts')}
+                >
+                    💸 Withdrawals &amp; Payouts
+                    <span className="finance-tab-badge">{payoutRequests.length}</span>
                 </button>
             </div>
 
@@ -579,10 +695,10 @@ export default function AgentFinance() {
             <div className="finance-grid-main">
                 {/* LEFT COLUMN */}
                 <div className="finance-column-left">
-                    {activeTab === 'commissions' ? (
+                    {activeTab === 'commissions' && (
                         <div className="finance-card">
                             <div className="card-header-premium">
-                                <h3>Wallet, Commission & Payout Ledger</h3>
+                                <h3>Wallet, Commission &amp; Payout Ledger</h3>
                                 <div className="filter-select-wrapper compact">
                                     <select
                                         className="finance-select"
@@ -592,7 +708,7 @@ export default function AgentFinance() {
                                         <option value="all">All Transactions</option>
                                         <option value="commissions">Commissions Only</option>
                                         <option value="topups">Wallet Top-Ups</option>
-                                        <option value="payouts">Debits & Payouts</option>
+                                        <option value="payouts">Debits &amp; Payouts</option>
                                     </select>
                                 </div>
                             </div>
@@ -623,6 +739,9 @@ export default function AgentFinance() {
                                                     <td className="cell-desc" title={trx.description}>{trx.description}</td>
                                                     <td className={`cell-amount text-right ${trx.amount > 0 ? 'positive' : 'negative'}`}>
                                                         {trx.amount > 0 ? '+' : '-'}€ {Math.abs(trx.amount).toFixed(2)}
+                                                        <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', fontWeight: 400 }}>
+                                                            ≈ {(Math.abs(trx.amount) * exchangeRate).toFixed(2)} AZN
+                                                        </span>
                                                     </td>
                                                     <td>{renderStatusBadge(trx.status)}</td>
                                                 </tr>
@@ -630,7 +749,6 @@ export default function AgentFinance() {
                                         ) : (
                                             <tr>
                                                 <td colSpan={5} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
-                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 36, height: 36, margin: '0 auto 12px', opacity: 0.4 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                                                     <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>No financial transactions recorded yet</p>
                                                     <p style={{ margin: 0, fontSize: '0.88rem' }}>Top up your Agency Wallet or register tour groups to view live commissions and settlements.</p>
                                                 </td>
@@ -640,12 +758,14 @@ export default function AgentFinance() {
                                 </table>
                             </div>
                         </div>
-                    ) : (
+                    )}
+
+                    {activeTab === 'invoices' && (
                         /* TAB 2: Group Invoices & Consular Fees */
                         <div className="finance-card">
                             <div className="card-header-premium">
-                                <h3>Delegation Invoices & Consular Fees</h3>
-                                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral)' }}>Settle group fees to confirm consular appointments & unlock commissions</span>
+                                <h3>Delegation Invoices &amp; Consular Fees</h3>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral)' }}>Settle group fees to confirm consular appointments &amp; unlock commissions</span>
                             </div>
 
                             <div className="premium-table-container">
@@ -741,6 +861,150 @@ export default function AgentFinance() {
                             </div>
                         </div>
                     )}
+
+                    {activeTab === 'slips' && (
+                        /* TAB 3: Bank Wire Slips */
+                        <div className="finance-card">
+                            <div className="card-header-premium">
+                                <h3>Uploaded Bank Wire Slips &amp; Treasury Review</h3>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--color-neutral)' }}>Track wire transfers submitted for Wallet Top-Up or Group Settlement</span>
+                            </div>
+
+                            <div className="premium-table-container">
+                                <table className="premium-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Reference</th>
+                                            <th>Originating Bank</th>
+                                            <th>Purpose</th>
+                                            <th>Amount</th>
+                                            <th>Review Status</th>
+                                            <th style={{ textAlign: 'right' }}>Receipt</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {bankSlips.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
+                                                    <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>Heç bir bank qəbzi yüklənməyib</p>
+                                                    <p style={{ margin: 0, fontSize: '0.88rem' }}>Bank köçürməsi ilə balans artırdıqda və ya qrup ödənişi etdikdə qəbzlər burada görünəcək.</p>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            bankSlips.map((slip: any) => {
+                                                const st = String(slip.displayStatus || slip.status || 'PENDING').toUpperCase();
+                                                const isApproved = st === 'APPROVED' || st === 'PAID' || st === 'VERIFIED';
+                                                const isRejected = st === 'REJECTED' || st === 'REFUNDED';
+                                                return (
+                                                    <tr key={slip.id}>
+                                                        <td className="cell-bold">{slip.referenceCode || slip.id?.substring(0, 8)}</td>
+                                                        <td>
+                                                            <strong>{slip.bankName || 'Bank Wire'}</strong>
+                                                            <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748B' }}>
+                                                                {slip.createdAt ? new Date(slip.createdAt).toLocaleDateString('en-GB') : '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td>{slip.purpose || 'WALLET_TOPUP'}</td>
+                                                        <td className="cell-bold">
+                                                            {slip.currency === 'AZN' ? `${Number(slip.amount || 0).toFixed(2)} AZN` : `€ ${Number(slip.amount || 0).toFixed(2)}`}
+                                                        </td>
+                                                        <td>
+                                                            <span
+                                                                className={`finance-badge ${isApproved ? 'paid' : isRejected ? '' : 'pending'}`}
+                                                                style={isRejected ? { background: '#FEE2E2', color: '#DC2626' } : undefined}
+                                                            >
+                                                                {isApproved ? '✓ Approved' : isRejected ? '✕ Rejected' : '● Under Review'}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'right' }}>
+                                                            <button
+                                                                type="button"
+                                                                className="btn-table-action"
+                                                                onClick={() => handleOpenSlipReceipt(slip)}
+                                                                disabled={openingSlipId === slip.id}
+                                                            >
+                                                                {openingSlipId === slip.id ? 'Opening...' : 'View Receipt ↗'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'payouts' && (
+                        /* TAB 4: Withdrawals & Payouts */
+                        <div className="finance-card">
+                            <div className="card-header-premium">
+                                <h3>Agency Withdrawal &amp; Payout Requests</h3>
+                                <button type="button" className="btn-table-action primary" onClick={() => setIsRequestPayoutOpen(true)}>
+                                    + New Withdrawal
+                                </button>
+                            </div>
+
+                            <div className="premium-table-container">
+                                <table className="premium-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Payout Ref</th>
+                                            <th>Destination Bank</th>
+                                            <th>IBAN &amp; SWIFT</th>
+                                            <th>Amount</th>
+                                            <th>Status</th>
+                                            <th>Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {payoutRequests.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--color-neutral)' }}>
+                                                    <p style={{ margin: '0 0 4px 0', fontWeight: 600, color: 'var(--color-primary)' }}>Hələlik çıxarış sorğusu yoxdur</p>
+                                                    <p style={{ margin: 0, fontSize: '0.88rem' }}>Qazandığınız komissiyanı və ya cüzdan balansınızı "Withdraw Funds" düyməsi ilə bank hesabınıza çıxara bilərsiniz.</p>
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            payoutRequests.map((p: any) => {
+                                                const st = String(p.status || 'PENDING').toUpperCase();
+                                                const isProcessed = st === 'PROCESSED';
+                                                const isRejected = st === 'REJECTED';
+                                                return (
+                                                    <tr key={p.id}>
+                                                        <td className="cell-bold">PO-{String(p.id).substring(0, 8).toUpperCase()}</td>
+                                                        <td>{p.bankName || 'Partner Bank'}</td>
+                                                        <td>
+                                                            <span style={{ fontFamily: 'monospace', fontSize: '0.84rem' }}>{p.iban}</span>
+                                                            {p.swiftBic && <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748B' }}>SWIFT: {p.swiftBic}</span>}
+                                                        </td>
+                                                        <td className="cell-bold">
+                                                            € {Number(p.amount || 0).toFixed(2)}
+                                                            <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748B', fontWeight: 400 }}>
+                                                                ≈ {(Number(p.amount || 0) * exchangeRate).toFixed(2)} AZN
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <span
+                                                                className={`finance-badge ${isProcessed ? 'paid' : isRejected ? '' : 'pending'}`}
+                                                                style={isRejected ? { background: '#FEE2E2', color: '#DC2626' } : undefined}
+                                                            >
+                                                                {isProcessed ? '✓ Processed' : isRejected ? '✕ Rejected (Refunded)' : '● Pending Review'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="cell-date">
+                                                            {p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-GB') : '—'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* RIGHT COLUMN: Bank Account Info & Tier Breakdown */}
@@ -799,19 +1063,19 @@ export default function AgentFinance() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'BRONZE' ? '#FEF3C7' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'BRONZE' ? 700 : 500 }}>
                                 <span>Bronze (0 - 24 Pax)</span>
-                                <strong>€ 20.00 / pax</strong>
+                                <strong>€ {Number(commRates.BRONZE || 20).toFixed(2)} / pax</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'SILVER' ? '#E0E7FF' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'SILVER' ? 700 : 500 }}>
                                 <span>Silver (25 - 59 Pax)</span>
-                                <strong>€ 25.00 / pax</strong>
+                                <strong>€ {Number(commRates.SILVER || 25).toFixed(2)} / pax</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'GOLD' ? '#FEF08A' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'GOLD' ? 700 : 500 }}>
                                 <span>Gold (60 - 119 Pax)</span>
-                                <strong>€ 28.00 / pax</strong>
+                                <strong>€ {Number(commRates.GOLD || 28).toFixed(2)} / pax</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: tier === 'PLATINUM' ? '#EDE9FE' : '#F8FAFC', borderRadius: '6px', fontWeight: tier === 'PLATINUM' ? 700 : 500 }}>
                                 <span>Platinum (120+ Pax)</span>
-                                <strong>€ 32.00 / pax</strong>
+                                <strong>€ {Number(commRates.PLATINUM || 32).toFixed(2)} / pax</strong>
                             </div>
                         </div>
                     </div>
@@ -825,7 +1089,7 @@ export default function AgentFinance() {
                         <div className="modal-header">
                             <div className="modal-header-info">
                                 <span className="modal-badge">Agency Wallet</span>
-                                <h2>Top Up Prepaid Balance</h2>
+                                <h2>Top Up Prepaid Balance (EUR / AZN)</h2>
                             </div>
                             <button className="btn-modal-close" onClick={() => setIsTopupModalOpen(false)}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -835,9 +1099,42 @@ export default function AgentFinance() {
                         <div className="modal-body">
                             <form id="agentTopupForm" onSubmit={handleTopupSubmit}>
                                 <div className="settings-section">
-                                    <h3>1. Deposit Amount (EUR)</h3>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                        <h3 style={{ margin: 0 }}>1. Currency &amp; Deposit Amount</h3>
+                                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#2563EB' }}>{topupConvertedPreview}</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTopupCurrency('EUR')}
+                                            style={{
+                                                padding: '9px',
+                                                borderRadius: '8px',
+                                                border: topupCurrency === 'EUR' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                background: topupCurrency === 'EUR' ? '#EFF6FF' : '#FFFFFF',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            € EUR (Euro)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTopupCurrency('AZN')}
+                                            style={{
+                                                padding: '9px',
+                                                borderRadius: '8px',
+                                                border: topupCurrency === 'AZN' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                background: topupCurrency === 'AZN' ? '#EFF6FF' : '#FFFFFF',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ₼ AZN (Manat)
+                                        </button>
+                                    </div>
                                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                                        {[250, 500, 1000, 2500].map((preset) => (
+                                        {(topupCurrency === 'EUR' ? [250, 500, 1000, 2500] : [450, 900, 1850, 4500]).map((preset) => (
                                             <button
                                                 key={preset}
                                                 type="button"
@@ -851,16 +1148,16 @@ export default function AgentFinance() {
                                                     cursor: 'pointer',
                                                 }}
                                             >
-                                                € {preset}
+                                                {topupCurrency === 'EUR' ? `€ ${preset}` : `${preset} ₼`}
                                             </button>
                                         ))}
                                     </div>
                                     <div className="client-input-group full-width">
-                                        <label>Custom Amount (EUR)</label>
+                                        <label>Custom Amount ({topupCurrency})</label>
                                         <input
                                             type="number"
                                             className="client-input"
-                                            min="10"
+                                            min="5"
                                             step="0.01"
                                             value={topupAmount}
                                             onChange={(e) => setTopupAmount(Number(e.target.value) || 0)}
@@ -922,11 +1219,10 @@ export default function AgentFinance() {
                                                     placeholder="e.g. WIRE-89124"
                                                     value={topupReference}
                                                     onChange={(e) => setTopupReference(e.target.value)}
-                                                    required
                                                 />
                                             </div>
                                             <div className="client-input-group full-width">
-                                                <label>Attach Payment Slip (PDF / Image)</label>
+                                                <label>Attach Payment Slip (PDF / Image — Optional if Reference given)</label>
                                                 <input
                                                     type="file"
                                                     accept=".pdf,.jpg,.jpeg,.png"
@@ -943,7 +1239,11 @@ export default function AgentFinance() {
                         <div className="modal-footer">
                             <button type="button" className="btn-modal-secondary" onClick={() => setIsTopupModalOpen(false)} disabled={isSaving}>Cancel</button>
                             <button type="submit" form="agentTopupForm" className="btn-modal-primary" disabled={isSaving || topupAmount <= 0}>
-                                {isSaving ? 'Emal olunur...' : topupMethod === 'CARD' ? `Deposit € ${topupAmount.toFixed(2)} Now` : 'Submit Wire Slip'}
+                                {isSaving
+                                    ? 'Emal olunur...'
+                                    : topupMethod === 'CARD'
+                                      ? `Deposit ${topupCurrency === 'EUR' ? '€ ' : ''}${topupAmount.toFixed(2)}${topupCurrency === 'AZN' ? ' AZN' : ''} Now`
+                                      : 'Submit Wire Slip'}
                             </button>
                         </div>
                     </div>
@@ -968,7 +1268,9 @@ export default function AgentFinance() {
                             <form id="settleGroupInvoiceForm" onSubmit={handleSettleGroupInvoice}>
                                 <div style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontWeight: 600, color: '#475569' }}>Total Consular & Package Fees ({payingInvoice.paxCount} Pax):</span>
+                                        <span style={{ fontWeight: 600, color: '#475569' }}>
+                                            Total Consular &amp; Package Fees ({payingInvoice.paxCount > 0 ? `${payingInvoice.paxCount} Pax` : 'Min. 1 Traveler Fee'}):
+                                        </span>
                                         <strong style={{ fontSize: '1.35rem', color: '#0F1E36' }}>€ {payingInvoice.totalAmount.toFixed(2)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.84rem', color: '#059669', fontWeight: 600 }}>
@@ -1033,8 +1335,24 @@ export default function AgentFinance() {
                                     </div>
 
                                     {payMethod === 'WALLET' && currentBalance < payingInvoice.totalAmount && (
-                                        <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#FEF2F2', color: '#991B1B', fontSize: '0.85rem' }}>
-                                            Agency Wallet balansınız (€ {currentBalance.toFixed(2)}) bu faktura üçün kifayət deyil. Zəhmət olmasa əvvəlcə <strong>+ Top Up Wallet</strong> edin və ya <strong>Online B2B Card</strong> seçin.
+                                        <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#FEF2F2', color: '#991B1B', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                            <span>
+                                                Agency Wallet balansınız (€ {currentBalance.toFixed(2)}) bu faktura üçün kifayət deyil (Çatışmayan: € {(payingInvoice.totalAmount - currentBalance).toFixed(2)}).
+                                            </span>
+                                            <button
+                                                type="button"
+                                                className="btn-table-action primary"
+                                                onClick={() => {
+                                                    const shortfall = Math.max(10, Number((payingInvoice.totalAmount - currentBalance).toFixed(2)));
+                                                    setPayingInvoice(null);
+                                                    setTopupCurrency('EUR');
+                                                    setTopupMethod('CARD');
+                                                    setTopupAmount(shortfall);
+                                                    setIsTopupModalOpen(true);
+                                                }}
+                                            >
+                                                + Top Up € {(payingInvoice.totalAmount - currentBalance).toFixed(2)}
+                                            </button>
                                         </div>
                                     )}
 
@@ -1053,7 +1371,7 @@ export default function AgentFinance() {
                                                 <input type="text" className="client-input" placeholder="e.g. Baku Travel Partner MMC" value={paySenderName} onChange={(e) => setPaySenderName(e.target.value)} />
                                             </div>
                                             <div className="client-input-group full-width">
-                                                <label>Attach Official Payment Slip (PDF / Image)</label>
+                                                <label>Attach Official Payment Slip (PDF / Image — Optional if Reference given)</label>
                                                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="client-input" onChange={(e) => setPaySlipFile(e.target.files?.[0] || null)} />
                                             </div>
                                         </div>
@@ -1088,7 +1406,7 @@ export default function AgentFinance() {
                         <div className="modal-header">
                             <div className="modal-header-info">
                                 <span className="modal-badge">Finance Settings</span>
-                                <h2>Bank Account Details</h2>
+                                <h2>Bank Account Details (IBAN)</h2>
                             </div>
                             <button className="btn-modal-close" onClick={() => setIsPayoutModalOpen(false)}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1138,7 +1456,7 @@ export default function AgentFinance() {
                         <div className="modal-header">
                             <div className="modal-header-info">
                                 <span className="modal-badge">Withdraw Funds</span>
-                                <h2>Request Agency Payout</h2>
+                                <h2>Request Agency Payout (EUR / AZN)</h2>
                             </div>
                             <button className="btn-modal-close" onClick={() => setIsRequestPayoutOpen(false)}>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1148,39 +1466,87 @@ export default function AgentFinance() {
                         <div className="modal-body">
                             <form id="requestPayoutForm" onSubmit={handleExecutePayout}>
                                 <div className="settings-section">
-                                    <h3>Withdrawal Amount</h3>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                        <h3 style={{ margin: 0 }}>Withdrawal Currency &amp; Amount</h3>
+                                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#2563EB' }}>{payoutConvertedPreview}</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPayoutCurrency('EUR')}
+                                            style={{
+                                                padding: '9px',
+                                                borderRadius: '8px',
+                                                border: payoutCurrency === 'EUR' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                background: payoutCurrency === 'EUR' ? '#EFF6FF' : '#FFFFFF',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            € Withdraw in EUR
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPayoutCurrency('AZN')}
+                                            style={{
+                                                padding: '9px',
+                                                borderRadius: '8px',
+                                                border: payoutCurrency === 'AZN' ? '2px solid #2563EB' : '1px solid #CBD5E1',
+                                                background: payoutCurrency === 'AZN' ? '#EFF6FF' : '#FFFFFF',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ₼ Withdraw in AZN
+                                        </button>
+                                    </div>
                                     <div className="client-form-grid">
                                         <div className="client-input-group full-width">
-                                            <label>Amount in EUR (Available: € {currentBalance.toFixed(2)})</label>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <label>
+                                                    Amount in {payoutCurrency} (Available: € {currentBalance.toFixed(2)} ≈ {currentBalanceAzn.toFixed(2)} AZN)
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setPayoutAmount(
+                                                            payoutCurrency === 'EUR'
+                                                                ? Number(currentBalance.toFixed(2))
+                                                                : Number(currentBalanceAzn.toFixed(2))
+                                                        )
+                                                    }
+                                                    style={{ background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', borderRadius: '6px', padding: '2px 8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                                                >
+                                                    MAX
+                                                </button>
+                                            </div>
                                             <input
                                                 type="number"
                                                 className="client-input"
-                                                min="10"
+                                                min="1"
                                                 step="0.01"
-                                                max={currentBalance || 10000}
                                                 value={payoutAmount}
                                                 onChange={(e) => setPayoutAmount(Number(e.target.value) || 0)}
                                                 required
                                             />
                                         </div>
                                     </div>
-                                    {currentBalance < 10 && (
-                                        <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#DC2626' }}>
-                                            Minimum withdrawal amount is € 10.00.
-                                        </div>
-                                    )}
                                 </div>
 
                                 <div className="settings-section">
                                     <h3>Destination Bank Account</h3>
                                     <div className="client-form-grid">
+                                        <div className="client-input-group full-width">
+                                            <label>Account Holder / Company Name</label>
+                                            <input type="text" className="client-input" placeholder="e.g. Travel Partner MMC" value={accountHolder} onChange={(e) => setAccountHolder(e.target.value)} required />
+                                        </div>
                                         <div className="client-input-group">
                                             <label>Bank Name</label>
                                             <input type="text" className="client-input" placeholder="Enter bank name" value={bankName} onChange={(e) => setBankName(e.target.value)} required />
                                         </div>
                                         <div className="client-input-group">
                                             <label>SWIFT / BIC</label>
-                                            <input type="text" className="client-input" placeholder="Enter SWIFT code" value={swiftBic} onChange={(e) => setSwiftBic(e.target.value)} required />
+                                            <input type="text" className="client-input" placeholder="Enter SWIFT code" value={swiftBic} onChange={(e) => setSwiftBic(e.target.value)} />
                                         </div>
                                         <div className="client-input-group full-width">
                                             <label>IBAN</label>
@@ -1197,9 +1563,11 @@ export default function AgentFinance() {
                                 type="submit"
                                 form="requestPayoutForm"
                                 className="btn-modal-primary"
-                                disabled={isSaving || currentBalance < 10 || currentBalance < payoutAmount}
+                                disabled={isSaving || currentBalance <= 0}
                             >
-                                {isSaving ? 'Göndərilir...' : `Withdraw € ${(Number(payoutAmount) || 0).toFixed(2)}`}
+                                {isSaving
+                                    ? 'Göndərilir...'
+                                    : `Withdraw ${payoutCurrency === 'EUR' ? '€ ' : ''}${(Number(payoutAmount) || 0).toFixed(2)}${payoutCurrency === 'AZN' ? ' AZN' : ''}`}
                             </button>
                         </div>
                     </div>
