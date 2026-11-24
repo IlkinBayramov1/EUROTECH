@@ -24,23 +24,8 @@ async function runTests() {
     }
   }
 
-  // 1. Health Integrations
-  await test('1. Health Check Endpoint (/api/health/integrations)', async () => {
-    const res = await fetch(`${BASE_URL}/api/health/integrations`);
-    const data = await res.json();
-    if (!res.ok || data.status !== 'HEALTHY') {
-      throw new Error(`Expected HEALTHY, got ${JSON.stringify(data)}`);
-    }
-    if (!data.integrations.database || data.integrations.database.status !== 'UP') {
-      throw new Error('Database is not UP');
-    }
-    if (data.integrations.backgroundSchedulers.activeWorkersCount !== 5) {
-      throw new Error('Expected 5 active cron workers');
-    }
-  });
-
-  // 2. Auth Tokens (Admin, Individual, Agent)
-  await test('2. Auth Tokens (Admin, Individual, Agent)', async () => {
+  // 1. Auth Tokens (Admin, Individual, Agent)
+  await test('1. Auth Tokens (Admin, Individual, Agent)', async () => {
     const prisma = require('./config/db');
     const { generateToken } = require('./utils/jwt.util');
 
@@ -58,6 +43,28 @@ async function runTests() {
 
     if (!adminToken || !agentToken || !individualToken) {
       throw new Error('Failed to generate authentication tokens');
+    }
+  });
+
+  // 2. Health Integrations (Verifies both RBAC 401 protection & Authenticated Admin 200 HEALTHY)
+  await test('2. Health Check Endpoint (/api/health/integrations)', async () => {
+    const unauthRes = await fetch(`${BASE_URL}/api/health/integrations`);
+    if (unauthRes.status !== 401) {
+      throw new Error(`Expected 401 Unauthorized without token, got ${unauthRes.status}`);
+    }
+
+    const res = await fetch(`${BASE_URL}/api/health/integrations`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'HEALTHY') {
+      throw new Error(`Expected HEALTHY, got ${JSON.stringify(data)}`);
+    }
+    if (!data.integrations.database || data.integrations.database.status !== 'UP') {
+      throw new Error('Database is not UP');
+    }
+    if (data.integrations.backgroundSchedulers.activeWorkersCount !== 5) {
+      throw new Error('Expected 5 active cron workers');
     }
   });
 
@@ -420,9 +427,14 @@ async function runTests() {
   console.log(`FAZA 3 TEST NƏTİCƏSİ: ${passed} KEÇDİ / ${failed} UĞURSUZ`);
   console.log('====================================================');
 
-  if (failed > 0) {
-    process.exit(1);
-  }
+  const prisma = require('./config/db');
+  await prisma.$disconnect();
+  process.exit(failed > 0 ? 1 : 0);
 }
 
-runTests();
+runTests().catch(async (err) => {
+  console.error(err);
+  const prisma = require('./config/db');
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+});

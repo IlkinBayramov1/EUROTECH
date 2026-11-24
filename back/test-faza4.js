@@ -1,6 +1,7 @@
 const BASE_URL = 'http://localhost:5000';
 const prisma = require('./config/db');
 const { maskPII } = require('./monitoring/logger');
+const { generateToken } = require('./utils/jwt.util');
 
 async function runFaza4Tests() {
   console.log('===============================================================');
@@ -62,9 +63,20 @@ async function runFaza4Tests() {
 
   // 3. HTTP Compression (Gzip / Deflate)
   await test('3. HTTP Response Compression (gzip threshold >= 512 bytes)', async () => {
+    const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+    if (!admin) {
+      throw new Error('Seeded ADMIN user not found for authenticated compression check');
+    }
+    const adminToken = generateToken({ userId: admin.id, id: admin.id, email: admin.email, role: admin.role });
     const res = await fetch(`${BASE_URL}/api/health/integrations`, {
-      headers: { 'Accept-Encoding': 'gzip, deflate' },
+      headers: {
+        'Accept-Encoding': 'gzip, deflate',
+        Authorization: `Bearer ${adminToken}`,
+      },
     });
+    if (!res.ok) {
+      throw new Error(`Expected 200 OK from /api/health/integrations, got HTTP ${res.status}`);
+    }
     const encoding = res.headers.get('content-encoding');
     if (!encoding || !encoding.includes('gzip')) {
       throw new Error(`Expected Content-Encoding: gzip, got ${encoding}`);
@@ -225,12 +237,15 @@ async function runFaza4Tests() {
   });
 
   console.log('\n===============================================================');
-  console.log(`FAZA 4 TEST NƏTİCƏSİ: ${passed} KEÇDİ / ${failed} UĞURSUZ (100% SUCCESS)`);
+  console.log(`FAZA 4 TEST NƏTİCƏSİ: ${passed} KEÇDİ / ${failed} UĞURSUZ (${failed === 0 ? '100% SUCCESS' : 'FAILED'})`);
   console.log('===============================================================');
 
-  if (failed > 0) {
-    process.exit(1);
-  }
+  await prisma.$disconnect();
+  process.exit(failed > 0 ? 1 : 0);
 }
 
-runFaza4Tests();
+runFaza4Tests().catch(async (err) => {
+  console.error(err);
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+});

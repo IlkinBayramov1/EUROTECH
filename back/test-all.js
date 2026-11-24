@@ -336,22 +336,41 @@ async function runAllTests() {
 
     // 18. Agent Portal Endpoints Test
     console.log('\n[18/21] Agent Portal: Qrup Yaratma, Komissiya ve Pul Kisesi...');
+    const walletService = require('./modules/payment/wallet.service');
     const agentGroupRes = await request('POST', '/agent/groups', {
       name: 'Vienna Summer Delegation',
       destination: 'Austria',
       duration: 'short',
       projectReason: 'Tourism',
+      applicants: [
+        { firstName: 'Rauf', lastName: 'Huseynli', passportNumber: 'C55443322', nationality: 'AZ' },
+      ],
     }, agentToken);
     groupBatchId = agentGroupRes.body.data.group.id;
     console.log(`  -> Qrup yaradildi: ${agentGroupRes.body.data.group.name} (${agentGroupRes.body.data.group.code})`);
 
-    // Submit group -> Generates commission
+    // Submit group
     const submitGroupRes = await request('POST', `/agent/groups/${groupBatchId}/submit`, {}, agentToken);
-    console.log(`  -> Qrup emala gonderildi: Komissiya elave edildi (+€${submitGroupRes.body.data.commissionCredited}) ✔️`);
+    console.log(`  -> Qrup emala gonderildi: Komissiya (+€${submitGroupRes.body.data.commissionCredited}) [OK]`);
+
+    // Credit test balance to Agent Wallet via real ledger so payout request tests real balance deduction
+    const agentWalletRecord = await walletService.getOrCreateWallet(agentUser.id);
+    await prisma.walletTransaction.create({
+      data: {
+        walletId: agentWalletRecord.id,
+        amount: 100.0,
+        type: 'CREDIT',
+        referenceType: 'TOPUP',
+        referenceId: `CI-AGENT-TOPUP-${Date.now()}`,
+        description: 'CI Test Top-Up for Payout Verification',
+        status: 'PAID',
+      },
+    });
+    await walletService.recalculateWalletBalances(agentWalletRecord.id);
 
     // Get Agent Wallet
     const walletRes = await request('GET', '/agent/wallet', null, agentToken);
-    console.log(`  -> Agent Pul Kisesi Balansi: €${walletRes.body.data.wallet.balance} ✔️`);
+    console.log(`  -> Agent Pul Kisesi Balansi: €${walletRes.body.data.wallet.balance} [OK]`);
 
     // Request Payout (within available balance)
     const availableBal = walletRes.body.data.wallet.balance;
@@ -362,7 +381,10 @@ async function runAllTests() {
       iban: 'AZ21IBAZ38019440333322221111',
       swiftBic: 'IBAZAZ2X',
     }, agentToken);
-    console.log(`  -> Cixaris Sorgusu STATUS: ${payoutRes.status} | Payout ID: ${payoutRes.body?.data?.payout?.id} ✔️`);
+    if (payoutRes.status !== 200 && payoutRes.status !== 201) {
+      throw new Error(`Agent payout request failed (${payoutRes.status}): ${JSON.stringify(payoutRes.body)}`);
+    }
+    console.log(`  -> Cixaris Sorgusu STATUS: ${payoutRes.status} | Payout ID: ${payoutRes.body?.data?.payout?.id} [OK]`);
 
 
     // 19. Corporate HR Portal Endpoints Test
@@ -392,19 +414,37 @@ async function runAllTests() {
     const delegRes = await request('POST', `/corporate/employees/${corpEmployeeId}/delegation-link`, {
       batchId: corpBatchId,
     }, corpToken);
-    console.log(`  -> Nümayəndəlik Linki: ${delegRes.body.data.delegationUrl} ✔️`);
+    console.log(`  -> Nümayəndəlik Linki: ${delegRes.body.data.delegationUrl} [OK]`);
 
     // Retrieve public delegation profile with token
     const delegProfileRes = await request('GET', `/corporate/delegation/profile?token=${delegRes.body.data.delegationToken}`);
-    console.log(`  -> Qonaq profili tesdiqlendi: ${delegProfileRes.body.data.profile.firstName} (Sirket: ${delegProfileRes.body.data.profile.companyName}) ✔️`);
+    console.log(`  -> Qonaq profili tesdiqlendi: ${delegProfileRes.body.data.profile.firstName} (Sirket: ${delegProfileRes.body.data.profile.companyName}) [OK]`);
 
     // Generate Proforma Invoice
     const invoiceRes = await request('POST', `/corporate/batches/${corpBatchId}/invoice`, { amount: 1450.0 }, corpToken);
-    console.log(`  -> Proforma Faktura yaradildi: ${invoiceRes.body.data.invoice.invoiceNumber} (PDF: ${invoiceRes.body.data.pdfUrl}) ✔️`);
+    console.log(`  -> Proforma Faktura yaradildi: ${invoiceRes.body.data.invoice.invoiceNumber} (PDF: ${invoiceRes.body.data.pdfUrl}) [OK]`);
+
+    // Fund Corporate Wallet via real ledger before executing pay-wallet
+    const corpWalletRecord = await walletService.getOrCreateWallet(corpUser.id);
+    await prisma.walletTransaction.create({
+      data: {
+        walletId: corpWalletRecord.id,
+        amount: 2000.0,
+        type: 'CREDIT',
+        referenceType: 'TOPUP',
+        referenceId: `CI-CORP-TOPUP-${Date.now()}`,
+        description: 'CI Test Pre-Funding for Corporate Batch Payment',
+        status: 'PAID',
+      },
+    });
+    await walletService.recalculateWalletBalances(corpWalletRecord.id);
 
     // Pay Batch with Corporate Wallet
     const payWalletRes = await request('POST', `/corporate/batches/${corpBatchId}/pay-wallet`, { amount: 1450.0 }, corpToken);
-    console.log(`  -> Balansdan odenis edildi: Yeni balans €${payWalletRes.body.data.newWalletBalance} ✔️`);
+    if (payWalletRes.status !== 200 && payWalletRes.status !== 201) {
+      throw new Error(`Corporate wallet payment failed (${payWalletRes.status}): ${JSON.stringify(payWalletRes.body)}`);
+    }
+    console.log(`  -> Balansdan odenis edildi: Yeni balans €${payWalletRes.body.data.newWalletBalance} [OK]`);
 
     // 20. Payment Intent & Mock Confirmation & Admin Approval
     console.log('\n[20/21] Payment Intent & Admin Decision Pipeline...');
@@ -416,7 +456,7 @@ async function runAllTests() {
       nextStatus: 'APPROVED',
       notes: 'Tebrikler! Vizaniz tesdiq edildi.',
     }, adminToken);
-    console.log(`  -> STATUS: ${decision.status} | Yekun Dosye Statusu: ${decision.body.data.dossier.status} ✔️`);
+    console.log(`  -> STATUS: ${decision.status} | Yekun Dosye Statusu: ${decision.body.data.dossier.status} [OK]`);
 
     // 21. Disaster Recovery Test
     console.log('\n[21/21] Disaster Recovery: RPO/RTO Integrity Test...');
@@ -429,6 +469,7 @@ async function runAllTests() {
 
   } catch (error) {
     console.error('Test zamani xeta yarandi:', error);
+    process.exitCode = 1;
   } finally {
     if (server) {
       server.close();
@@ -438,7 +479,7 @@ async function runAllTests() {
 
 runAllTests().then(async () => {
   await prisma.$disconnect();
-  process.exit(0);
+  process.exit(process.exitCode || 0);
 }).catch(async (err) => {
   console.error(err);
   await prisma.$disconnect();

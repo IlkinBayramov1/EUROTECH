@@ -820,138 +820,164 @@ async function migrateVcmsBaseline(prisma = prismaDefault) {
           },
         });
 
-        // Create 5 Question Categories for this purpose if none exist yet
+        // Create 5 Question Categories for this purpose if none exist yet (batched for fast cold bootstrap)
         const existingQCount = await prisma.purposeQuestionConfig.count({
           where: { visaPurposeId: purpose.id },
         });
 
         if (existingQCount === 0) {
+          await prisma.questionCategory.createMany({
+            data: STANDARD_CATEGORIES_FOR_PURPOSE.map((catSpec) => ({
+              visaPurposeId: purpose.id,
+              code: catSpec.code,
+              nameEn: catSpec.nameEn,
+              nameAz: catSpec.nameAz,
+              nameRu: catSpec.nameRu,
+              displayOrder: catSpec.displayOrder,
+              isActive: true,
+            })),
+            skipDuplicates: true,
+          });
+
+          const qCats = await prisma.questionCategory.findMany({
+            where: { visaPurposeId: purpose.id },
+          });
           const catMap = {};
-          for (const catSpec of STANDARD_CATEGORIES_FOR_PURPOSE) {
-            const qCat = await prisma.questionCategory.upsert({
-              where: { visaPurposeId_code: { visaPurposeId: purpose.id, code: catSpec.code } },
-              update: {},
-              create: {
-                visaPurposeId: purpose.id,
-                code: catSpec.code,
-                nameEn: catSpec.nameEn,
-                nameAz: catSpec.nameAz,
-                nameRu: catSpec.nameRu,
-                displayOrder: catSpec.displayOrder,
-                isActive: true,
-              },
-            });
-            catMap[catSpec.code] = qCat;
+          for (const qCat of qCats) {
+            catMap[qCat.code] = qCat;
           }
 
-          // Bind Global Questions (Q001..Q023) to this purpose in official form sequence
+          // Bind Global Questions (Q001..Q023) to this purpose in one batched insert
+          const pqRows = [];
           for (const gq of GLOBAL_QUESTIONS_SEED) {
             const globalQ = globalQuestionMap[gq.questionCode];
             const qCat = catMap[gq.categoryCode];
             if (!globalQ || !qCat) continue;
 
-            const pqConfig = await prisma.purposeQuestionConfig.create({
-              data: {
-                visaPurposeId: purpose.id,
-                categoryId: qCat.id,
-                globalQuestionId: globalQ.id,
-                isRequired: gq.defaultRequired,
-                isRepeatable: false,
-                officialFormOrder: gq.order,
-                isActive: true,
-              },
+            let conditionalLogicJson = undefined;
+            if (gq.questionCode === 'Q011') {
+              conditionalLogicJson = {
+                operator: 'AND',
+                action: 'SHOW_AND_REQUIRE',
+                rules: [{ questionCode: 'Q010', comparator: 'EQUALS', value: 'OPT_MARITAL_MARRIED' }],
+              };
+            } else if (gq.questionCode === 'Q023') {
+              conditionalLogicJson = {
+                operator: 'OR',
+                action: 'SHOW_AND_REQUIRE',
+                rules: [
+                  { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_EMPLOYED' },
+                  { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_SELF_EMPLOYED' },
+                  { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_STUDENT' },
+                ],
+              };
+            }
+
+            pqRows.push({
+              visaPurposeId: purpose.id,
+              categoryId: qCat.id,
+              globalQuestionId: globalQ.id,
+              isRequired: gq.defaultRequired,
+              isRepeatable: false,
+              officialFormOrder: gq.order,
+              conditionalLogicJson,
+              isActive: true,
+            });
+          }
+
+          if (pqRows.length > 0) {
+            await prisma.purposeQuestionConfig.createMany({
+              data: pqRows,
+              skipDuplicates: true,
             });
 
-            // Sample Conditional Logic 1: Q011 (Spouse Full Name) shown & required IF Q010 == OPT_MARITAL_MARRIED
-            if (gq.questionCode === 'Q011') {
-              await prisma.questionCondition.create({
-                data: {
-                  purposeQuestionConfigId: pqConfig.id,
+            // Attach relational QuestionCondition rows for Q011 and Q023
+            const q11Id = globalQuestionMap.Q011?.id;
+            const q23Id = globalQuestionMap.Q023?.id;
+            const condTargets = await prisma.purposeQuestionConfig.findMany({
+              where: {
+                visaPurposeId: purpose.id,
+                globalQuestionId: { in: [q11Id, q23Id].filter(Boolean) },
+              },
+              select: { id: true, globalQuestionId: true },
+            });
+
+            const conditionRows = [];
+            for (const target of condTargets) {
+              if (target.globalQuestionId === q11Id) {
+                conditionRows.push({
+                  purposeQuestionConfigId: target.id,
                   groupOperator: 'AND',
                   action: 'SHOW_AND_REQUIRE',
                   triggerQuestionCode: 'Q010',
                   comparator: 'EQUALS',
                   triggerValue: 'OPT_MARITAL_MARRIED',
                   displayOrder: 1,
-                },
-              });
-              await prisma.purposeQuestionConfig.update({
-                where: { id: pqConfig.id },
-                data: {
-                  conditionalLogicJson: {
-                    operator: 'AND',
-                    action: 'SHOW_AND_REQUIRE',
-                    rules: [{ questionCode: 'Q010', comparator: 'EQUALS', value: 'OPT_MARITAL_MARRIED' }],
-                  },
-                },
-              });
-            }
-
-            // Sample Conditional Logic 2: Q023 (Employer/University Name) shown & required IF Q022 IN [OPT_EMPLOYMENT_EMPLOYED, OPT_EMPLOYMENT_STUDENT]
-            if (gq.questionCode === 'Q023') {
-              await prisma.questionCondition.create({
-                data: {
-                  purposeQuestionConfigId: pqConfig.id,
+                });
+              } else if (target.globalQuestionId === q23Id) {
+                conditionRows.push({
+                  purposeQuestionConfigId: target.id,
                   groupOperator: 'OR',
                   action: 'SHOW_AND_REQUIRE',
                   triggerQuestionCode: 'Q022',
                   comparator: 'IN',
                   triggerValue: JSON.stringify(['OPT_EMPLOYMENT_EMPLOYED', 'OPT_EMPLOYMENT_SELF_EMPLOYED', 'OPT_EMPLOYMENT_STUDENT']),
                   displayOrder: 1,
-                },
-              });
-              await prisma.purposeQuestionConfig.update({
-                where: { id: pqConfig.id },
-                data: {
-                  conditionalLogicJson: {
-                    operator: 'OR',
-                    action: 'SHOW_AND_REQUIRE',
-                    rules: [
-                      { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_EMPLOYED' },
-                      { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_SELF_EMPLOYED' },
-                      { questionCode: 'Q022', comparator: 'EQUALS', value: 'OPT_EMPLOYMENT_STUDENT' },
-                    ],
-                  },
-                },
-              });
+                });
+              }
+            }
+            if (conditionRows.length > 0) {
+              await prisma.questionCondition.createMany({ data: conditionRows });
             }
           }
         }
 
-        // Bind Required Documents to this purpose if none exist yet
+        // Bind Required Documents to this purpose if none exist yet (batched for fast cold bootstrap)
         const existingDocCount = await prisma.purposeDocumentConfig.count({
           where: { visaPurposeId: purpose.id },
         });
 
         if (existingDocCount === 0) {
           const baseDocCodes = ['DOC-001', 'DOC-002', 'DOC-003', 'DOC-004', 'DOC-005', 'DOC-006', 'DOC-007', ...pSpec.extraDocs];
+          const docRows = [];
           for (let idx = 0; idx < baseDocCodes.length; idx++) {
             const dCode = baseDocCodes[idx];
             const gDoc = globalDocMap[dCode];
             if (!gDoc) continue;
+            docRows.push({
+              visaPurposeId: purpose.id,
+              globalDocumentId: gDoc.id,
+              isRequired: true,
+              displayOrder: idx + 1,
+              isActive: true,
+            });
+          }
 
-            const pDoc = await prisma.purposeDocumentConfig.create({
-              data: {
-                visaPurposeId: purpose.id,
-                globalDocumentId: gDoc.id,
-                isRequired: true,
-                displayOrder: idx + 1,
-                isActive: true,
-              },
+          if (docRows.length > 0) {
+            await prisma.purposeDocumentConfig.createMany({
+              data: docRows,
+              skipDuplicates: true,
             });
 
             // Conditional rule on DOC-004 (Employment Letter): required when Q022 == OPT_EMPLOYMENT_EMPLOYED
-            if (dCode === 'DOC-004') {
-              await prisma.documentCondition.create({
-                data: {
-                  purposeDocumentConfigId: pDoc.id,
-                  groupOperator: 'AND',
-                  action: 'SHOW_AND_REQUIRE',
-                  triggerQuestionCode: 'Q022',
-                  comparator: 'EQUALS',
-                  triggerValue: 'OPT_EMPLOYMENT_EMPLOYED',
-                },
+            const doc004Id = globalDocMap['DOC-004']?.id;
+            if (doc004Id) {
+              const pDoc004 = await prisma.purposeDocumentConfig.findFirst({
+                where: { visaPurposeId: purpose.id, globalDocumentId: doc004Id },
+                select: { id: true },
               });
+              if (pDoc004) {
+                await prisma.documentCondition.create({
+                  data: {
+                    purposeDocumentConfigId: pDoc004.id,
+                    groupOperator: 'AND',
+                    action: 'SHOW_AND_REQUIRE',
+                    triggerQuestionCode: 'Q022',
+                    comparator: 'EQUALS',
+                    triggerValue: 'OPT_EMPLOYMENT_EMPLOYED',
+                  },
+                });
+              }
             }
           }
         }

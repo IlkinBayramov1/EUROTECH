@@ -59,12 +59,39 @@ jobs:
       - name: Start Background Server & Execute Automated Tests
         run: |
           cd back
-          node server.js &
-          sleep 5
+          node server.js > /tmp/eurotech-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          echo "Waiting for EuroTech backend server on port 5000..."
+          READY=0
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:5000/api/health > /dev/null; then
+              echo "Backend server ready after ${i}s."
+              READY=1
+              break
+            fi
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "Backend server exited prematurely! Logs:"
+              cat /tmp/eurotech-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "Timed out waiting for backend server! Logs:"
+            cat /tmp/eurotech-server.log
+            exit 1
+          fi
+
           node test-all.js
           node test-faza2.js
           node test-faza3.js
           node test-faza4.js
+          node scripts/test_cross_module_vcms_propagation.js
+          node scripts/test_promocodes_e2e.js
+          node scripts/test_admin_analytics_e2e.js
         env:
           DATABASE_URL: mysql://root:root@localhost:3306/eurotech_db
 
