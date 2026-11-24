@@ -1,4 +1,5 @@
 const prisma = require('../../../config/db');
+const { nextBookingCode } = require('../../vcms/services/codeGenerator.service');
 
 async function getAgentAppointments(userId) {
   const appointments = await prisma.appointment.findMany({
@@ -10,11 +11,30 @@ async function getAgentAppointments(userId) {
       status: { not: 'CANCELLED' },
     },
     include: {
-      timeSlot: true,
+      timeSlot: {
+        include: {
+          country: true,
+          provider: {
+            include: {
+              embassy: true,
+              visaApplicationCentre: true,
+            },
+          },
+          visaType: true,
+          visaPurpose: true,
+        },
+      },
+      notifications: {
+        orderBy: { sentAt: 'desc' },
+        take: 5,
+      },
       groupBatch: {
         include: {
           dossiers: {
             include: {
+              country: true,
+              visaType: true,
+              visaPurpose: true,
               applicants: {
                 include: { documents: true },
               },
@@ -24,6 +44,9 @@ async function getAgentAppointments(userId) {
       },
       dossier: {
         include: {
+          country: true,
+          visaType: true,
+          visaPurpose: true,
           applicants: {
             include: { documents: true },
           },
@@ -53,28 +76,61 @@ async function getAgentAppointments(userId) {
     ).length;
 
     const group = appt.groupBatch;
+    const primaryDossier = group?.dossiers?.[0] || appt.dossier || null;
+    const providerObj = appt.timeSlot?.provider || null;
+    const providerName =
+      providerObj?.name ||
+      providerObj?.visaApplicationCentre?.providerName ||
+      providerObj?.embassy?.authorityName ||
+      null;
+
     return {
       id: appt.id,
+      bookingCode: appt.bookingCode || null,
       timeSlotId: appt.timeSlotId,
       status: appt.status,
-      location: appt.location || appt.timeSlot?.location || 'EuroTech Main Center, Port Baku Towers',
+      location:
+        appt.location ||
+        appt.timeSlot?.location ||
+        providerName ||
+        'EuroTech Main Center, Port Baku Towers',
       notes: appt.notes,
+      countryId: primaryDossier?.countryId || appt.timeSlot?.countryId || null,
+      visaTypeId: primaryDossier?.visaTypeId || appt.timeSlot?.visaTypeId || null,
+      visaPurposeId: primaryDossier?.visaPurposeId || appt.timeSlot?.visaPurposeId || null,
+      provider: providerObj
+        ? {
+            id: providerObj.id,
+            name: providerName,
+            providerType: providerObj.providerType,
+            timezone: providerObj.timezone,
+          }
+        : null,
+      notifications: appt.notifications || [],
       timeSlot: {
         id: appt.timeSlot?.id,
         date: appt.timeSlot?.date,
         startTime: appt.timeSlot?.startTime,
+        endTime: appt.timeSlot?.endTime,
         capacity: appt.timeSlot?.capacity || 10,
         bookedCount: appt.timeSlot?.bookedCount || 0,
+        slotStatus: appt.timeSlot?.slotStatus || 'AVAILABLE',
+        timezone: appt.timeSlot?.timezone || 'Asia/Baku',
         location: appt.timeSlot?.location,
       },
       groupInfo: {
         id: group?.code || 'GROUP',
         dbId: group?.id,
         name: group?.name || 'Group Delegation',
-        destination: group?.destination || '',
+        destination: group?.destination || primaryDossier?.country?.nameEn || '',
+        countryId: primaryDossier?.countryId || appt.timeSlot?.countryId || null,
+        visaTypeId: primaryDossier?.visaTypeId || appt.timeSlot?.visaTypeId || null,
+        visaPurposeId: primaryDossier?.visaPurposeId || appt.timeSlot?.visaPurposeId || null,
+        visaTypeName: primaryDossier?.visaType?.nameEn || appt.timeSlot?.visaType?.nameEn || null,
+        visaPurposeName: primaryDossier?.visaPurpose?.nameEn || appt.timeSlot?.visaPurpose?.nameEn || null,
         package: group?.dossiers?.[0]?.applicants?.[0]?.formDataJson?.package || 'Standard',
         passportStatus: verifiedApplicants === totalApplicants && totalApplicants > 0 ? 'Documents Ready' : 'Pending Action',
-        size: totalApplicants,
+        size: totalApplicants || appt.groupSize || 1,
         applicants: applicants.map((a) => ({
           id: a.id,
           name: `${a.firstName || ''} ${a.lastName || ''}`.trim() || 'Applicant',
@@ -179,6 +235,11 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
   let timeSlot = null;
   if (timeSlotId) {
     timeSlot = await prisma.timeSlot.findUnique({ where: { id: timeSlotId } });
+    if (timeSlot && ['DRAFT', 'BLOCKED', 'CLOSED'].includes(timeSlot.slotStatus)) {
+      const error = new Error(`Selected time slot is not available for booking (Status: ${timeSlot.slotStatus})`);
+      error.statusCode = 400;
+      throw error;
+    }
   }
 
   const apptDateStr = appointmentDate || (timeSlot ? new Date(timeSlot.date).toISOString().split('T')[0] : (existingAppointment?.timeSlot?.date ? new Date(existingAppointment.timeSlot.date).toISOString().split('T')[0] : '2026-11-20'));
@@ -286,25 +347,31 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
   }
 
   // Update appointment date & location on all dossiers belonging to this group
+  const resolvedLocation =
+    location || timeSlot?.location || existingAppointment?.location || 'EuroTech Main Center, Port Baku Towers';
   if (group.dossiers && group.dossiers.length > 0) {
     await prisma.dossier.updateMany({
       where: { groupBatchId: group.id },
       data: {
         appointmentDate: apptDateTime,
-        appointmentLocation: location || 'EuroTech Main Center, Port Baku Towers',
+        appointmentLocation: resolvedLocation,
       },
     });
   }
 
   const primaryDossier = group.dossiers?.[0] || null;
+  const bookingCode = existingAppointment?.bookingCode || (await nextBookingCode());
 
   if (existingAppointment) {
     return await prisma.appointment.update({
       where: { id: existingAppointment.id },
       data: {
+        bookingCode,
         timeSlotId: timeSlot.id,
+        providerId: timeSlot.providerId || existingAppointment.providerId || null,
+        visaTypeId: timeSlot.visaTypeId || primaryDossier?.visaTypeId || existingAppointment.visaTypeId || null,
         groupSize,
-        location: location || 'EuroTech Main Center, Port Baku Towers',
+        location: resolvedLocation,
         status: 'CONFIRMED',
         notes: `Group Appointment: ${group.name} (${group.code}) - ${groupSize} Pax`,
       },
@@ -313,13 +380,16 @@ async function setGroupAppointment(groupId, userId, { timeSlotId, appointmentDat
   } else {
     return await prisma.appointment.create({
       data: {
+        bookingCode,
         timeSlotId: timeSlot.id,
+        providerId: timeSlot.providerId || null,
+        visaTypeId: timeSlot.visaTypeId || primaryDossier?.visaTypeId || null,
         userId: group.userId || userId,
         dossierId: primaryDossier?.id || null,
         groupBatchId: group.id,
         groupSize,
         status: 'CONFIRMED',
-        location: location || 'EuroTech Main Center, Port Baku Towers',
+        location: resolvedLocation,
         notes: `Group Appointment: ${group.name} (${group.code}) - ${groupSize} Pax`,
       },
       include: { timeSlot: true },

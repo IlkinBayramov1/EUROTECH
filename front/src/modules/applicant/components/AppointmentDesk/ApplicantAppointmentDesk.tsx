@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { appointmentService } from '@/shared/api/services/appointment.service';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
 import { useToast } from '@/shared/context/ToastContext';
 import type { DossierContext } from '../../types/applicant.types';
 
@@ -20,18 +21,48 @@ export default function ApplicantAppointmentDesk({
     return d.toISOString().split('T')[0];
   });
   const [slots, setSlots] = useState<any[]>([]);
+  const [providers, setProviders] = useState<any[]>([]);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [booking, setBooking] = useState(false);
 
-  const existingAppt = dossier.appointment;
+  const existingAppt = dossier.appointment || (dossier as any)?.appointments?.[0];
 
   useEffect(() => {
     if (!selectedDate) return;
     setLoading(true);
-    appointmentService
-      .getSlots(selectedDate, selectedCenter)
-      .then((res: any) => {
+    const countryId = (dossier as any)?.countryId || dossier?.country?.id;
+    const visaTypeId = (dossier as any)?.visaTypeId;
+    const visaPurposeId = (dossier as any)?.visaPurposeId;
+    const groupSize = Math.max(1, (dossier as any)?.applicants?.length || 1);
+
+    vcmsApi
+      .getCustomerPublishedSlots({
+        countryId,
+        visaTypeId,
+        visaPurposeId,
+        groupSize,
+      })
+      .then(async (vcmsRes) => {
+        const provs = vcmsRes.data?.providers || [];
+        if (provs.length > 0) {
+          setProviders(provs);
+          if (selectedCenter === 'EuroTech Main Center') {
+            setSelectedCenter(provs[0].displayName);
+          }
+        }
+        const vcmsSlots = (vcmsRes.data?.slots || []).filter((s: any) => {
+          const sDate = s.slotDate || new Date(s.date).toISOString().slice(0, 10);
+          return sDate === selectedDate;
+        });
+
+        if (vcmsSlots.length > 0) {
+          setSlots(vcmsSlots);
+          setSelectedSlotId(vcmsSlots[0].id);
+          return;
+        }
+
+        const res: any = await appointmentService.getSlots(selectedDate, selectedCenter);
         const available = res.data?.slots || [];
         setSlots(available);
         if (available.length > 0) {
@@ -42,7 +73,7 @@ export default function ApplicantAppointmentDesk({
         console.warn('Slot load error:', err);
       })
       .finally(() => setLoading(false));
-  }, [selectedDate, selectedCenter]);
+  }, [selectedDate, selectedCenter, dossier]);
 
   const handleBookSlot = async () => {
     if (!selectedSlotId) {
@@ -75,7 +106,9 @@ export default function ApplicantAppointmentDesk({
 
       {existingAppt ? (
         <div className="existing-appointment-card">
-          <div className="appt-badge-confirmed">APPOINTMENT CONFIRMED</div>
+          <div className="appt-badge-confirmed">
+            APPOINTMENT CONFIRMED {(existingAppt as any).bookingCode ? `· ${(existingAppt as any).bookingCode}` : ''}
+          </div>
           <div className="appt-details-grid">
             <div className="appt-data-block">
               <span className="lbl">Date & Time</span>
@@ -85,7 +118,7 @@ export default function ApplicantAppointmentDesk({
             </div>
             <div className="appt-data-block">
               <span className="lbl">Consular Center</span>
-              <strong>{existingAppt.timeSlot?.location || existingAppt.appointmentLocation || 'EuroTech Main Center'}</strong>
+              <strong>{existingAppt.timeSlot?.location || existingAppt.appointmentLocation || (existingAppt as any).location || 'EuroTech Main Center'}</strong>
             </div>
             <div className="appt-data-block">
               <span className="lbl">Status</span>
@@ -96,11 +129,18 @@ export default function ApplicantAppointmentDesk({
       ) : (
         <div className="book-appointment-workflow">
           <div className="center-selection-grid">
-            {[
-              { id: 'EuroTech Main Center', title: 'EuroTech Main Center', sub: 'Port Baku Towers, 7th Floor' },
-              { id: 'EuroTech Premium Lounge', title: 'EuroTech Premium Lounge', sub: 'VIP Dedicated Desk, Refreshments' },
-              { id: 'Ganja Regional Center', title: 'Ganja Regional Center', sub: 'Heydar Aliyev Avenue 44' },
-            ].map((c) => (
+            {(providers.length > 0
+              ? providers.map((p) => ({
+                  id: p.displayName,
+                  title: p.displayName,
+                  sub: p.visaApplicationCentre?.address || p.embassy?.address || `Authorized ${p.providerType}`,
+                }))
+              : [
+                  { id: 'EuroTech Main Center', title: 'EuroTech Main Center', sub: 'Port Baku Towers, 7th Floor' },
+                  { id: 'EuroTech Premium Lounge', title: 'EuroTech Premium Lounge', sub: 'VIP Dedicated Desk, Refreshments' },
+                  { id: 'Ganja Regional Center', title: 'Ganja Regional Center', sub: 'Heydar Aliyev Avenue 44' },
+                ]
+            ).map((c) => (
               <button
                 key={c.id}
                 type="button"

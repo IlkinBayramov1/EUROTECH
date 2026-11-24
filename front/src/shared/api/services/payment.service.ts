@@ -1,11 +1,16 @@
 import { apiClient } from '../client';
 
 export interface PaymentIntentResponse {
+  zeroDueSettled?: boolean;
   paymentIntentId: string;
   clientSecret: string;
   amount: number;
+  originalAmountEur?: number;
+  discountAmountEur?: number;
+  appliedPromoCode?: string | null;
   currency: string;
-  status: string;
+  status?: string;
+  reference?: string;
 }
 
 export interface BankOrderResponse {
@@ -38,8 +43,10 @@ export const paymentService = {
     groupBatchId?: string;
     invoiceId?: string;
     purpose?: string;
+    scope?: string;
     amount?: number;
     currency?: string;
+    promoCode?: string;
   }): Promise<PaymentIntentResponse> => {
     const res = await apiClient.post<any>('/payments/create-intent', data);
     return res?.data || res;
@@ -102,6 +109,8 @@ export const paymentService = {
     dossierId?: string | null;
     groupBatchId?: string | null;
     invoiceId?: string | null;
+    promoCode?: string | null;
+    scope?: string | null;
   }): Promise<any> => {
     const res = await apiClient.post<any>('/payments/wallet/pay', data);
     return res;

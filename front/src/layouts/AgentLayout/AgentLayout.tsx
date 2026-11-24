@@ -248,7 +248,7 @@ export default function AgentLayout() {
                   }}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    💳 Commission Wallet & Payout Bank Details
+                    Commission Wallet & Payout Bank Details
                   </span>
                   <span>&rarr;</span>
                 </button>
@@ -274,7 +274,7 @@ export default function AgentLayout() {
                   }}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    📅 Group Consular Appointment Calendar
+                    Group Consular Appointment Calendar
                   </span>
                   <span>&rarr;</span>
                 </button>

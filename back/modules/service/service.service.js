@@ -223,12 +223,9 @@ async function checkoutServices({ dossierId, user, items }) {
 
     const { totalExtraFee, updatedTotal } = computeDossierTotals(dossier, allServices);
 
-    const paidTransactions = await tx.transaction.aggregate({
-      _sum: { amount: true },
-      where: { dossierId, status: 'PAID', currency: 'EUR' },
-    });
-    const alreadyPaidEur = Number(paidTransactions._sum.amount || 0);
-    const remainingBalanceEur = Math.max(0, Number((updatedTotal - alreadyPaidEur).toFixed(2)));
+    const { getDossierSettledCreditEur } = require('../payment/wallet.service');
+    const { settledCreditEur } = await getDossierSettledCreditEur(dossierId, tx, eurToAznRate);
+    const remainingBalanceEur = Math.max(0, Number((updatedTotal - settledCreditEur).toFixed(2)));
 
     const updateDossierData = {
       extraServicesFee: totalExtraFee,
@@ -290,15 +287,70 @@ async function removeServiceFromDossier(serviceId, user = null) {
   let refundedAmountEur = 0;
   if (service.dossier.paymentStatus === 'PAID' && Number(service.price) > 0) {
     try {
-      const { refundToWallet } = require('../payment/wallet.service');
-      await refundToWallet({
-        userId: service.dossier.userId,
-        amountEur: Number(service.price),
-        reason: `Refund for cancelled service: ${service.serviceType}`,
-        dossierId: service.dossierId,
+      const { refundToWallet, getDossierNetPaidEur, getEurToAznRate } = require('../payment/wallet.service');
+      const eurToAznRate = await getEurToAznRate(prisma);
+      const netPaidEur = await getDossierNetPaidEur(dossierId, prisma, eurToAznRate);
+
+      // Separate base dossier promo discounts from add-on service promo discounts to prevent promo-to-cash arbitrage
+      const appliedRedemptions = await prisma.promoCodeRedemption.findMany({
+        where: { dossierId, status: 'APPLIED' },
+        orderBy: { confirmedAt: 'desc' },
       });
-      refundedToWallet = true;
-      refundedAmountEur = Number(service.price);
+
+      const baseDiscountsEur = appliedRedemptions
+        .filter((r) => r.scope !== 'ADDITIONAL_SERVICES')
+        .reduce((sum, r) => sum + Number(r.discountAmountEur || 0), 0);
+
+      const addonRedemptions = appliedRedemptions.filter((r) => r.scope === 'ADDITIONAL_SERVICES');
+      const addonDiscountsEur = addonRedemptions.reduce((sum, r) => sum + Number(r.discountAmountEur || 0), 0);
+
+      // Add-on promo discounts cannot exceed the remaining active extraServicesFee
+      const retainedAddonDiscountEur = Math.min(addonDiscountsEur, totalExtraFee);
+      const clawedBackAddonDiscountEur = Number(Math.max(0, addonDiscountsEur - retainedAddonDiscountEur).toFixed(2));
+
+      if (clawedBackAddonDiscountEur > 0) {
+        let remainingToClaw = clawedBackAddonDiscountEur;
+        for (const r of addonRedemptions) {
+          if (remainingToClaw <= 0) break;
+          const rAmt = Number(r.discountAmountEur || 0);
+          if (rAmt <= remainingToClaw + 0.005) {
+            await prisma.promoCodeRedemption.update({
+              where: { id: r.id },
+              data: {
+                status: 'REFUNDED',
+                releasedAt: new Date(),
+                releaseReason: `Add-on service cancelled: ${service.serviceType}`,
+              },
+            });
+            remainingToClaw = Number(Math.max(0, remainingToClaw - rAmt).toFixed(2));
+          } else {
+            await prisma.promoCodeRedemption.update({
+              where: { id: r.id },
+              data: {
+                discountAmountEur: Number((rAmt - remainingToClaw).toFixed(2)),
+              },
+            });
+            remainingToClaw = 0;
+          }
+        }
+        await prisma.$executeRaw`UPDATE Dossier SET discountAmount = GREATEST(0, discountAmount - ${clawedBackAddonDiscountEur}) WHERE id = ${dossierId}`;
+      }
+
+      const effectiveRemainingDiscountEur = Number((baseDiscountsEur + retainedAddonDiscountEur).toFixed(2));
+      const requiredNetAfterRemoval = Math.max(0, Number((updatedTotal - effectiveRemainingDiscountEur).toFixed(2)));
+      const refundableCashCap = Math.max(0, Number((netPaidEur - requiredNetAfterRemoval).toFixed(2)));
+      const safeRefundEur = Number(Math.min(Number(service.price), refundableCashCap).toFixed(2));
+
+      if (safeRefundEur > 0) {
+        await refundToWallet({
+          userId: service.dossier.userId,
+          amountEur: safeRefundEur,
+          reason: `Refund for cancelled service: ${service.serviceType}`,
+          dossierId: service.dossierId,
+        });
+        refundedToWallet = true;
+        refundedAmountEur = safeRefundEur;
+      }
     } catch (refundErr) {
       console.error('Failed to issue wallet refund for removed service:', refundErr);
     }

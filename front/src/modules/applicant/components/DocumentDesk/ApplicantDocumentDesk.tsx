@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { documentService } from '@/shared/api/services/document.service';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
 import type { UnifiedApplicant, DossierContext, ApplicantDoc } from '../../types/applicant.types';
@@ -29,20 +30,50 @@ export default function ApplicantDocumentDesk({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedDocCode, setSelectedDocCode] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [vcmsDocs, setVcmsDocs] = useState<any[]>([]);
 
-  // Dynamic document requirements from database visaCategory or default official list
+  useEffect(() => {
+    if (!dossier?.id || !applicant?.id) return;
+    vcmsApi
+      .getApplicantAnswers(dossier.id, applicant.id)
+      .then((res) => {
+        const docs = res.data?.schema?.documents || [];
+        if (Array.isArray(docs) && docs.length > 0) {
+          setVcmsDocs(docs.filter((d: any) => d.evaluatedVisibility !== false));
+        }
+      })
+      .catch(() => {});
+  }, [dossier?.id, applicant?.id]);
+
+  // Dynamic document requirements from VCMS PurposeDocumentConfig, database visaCategory, or default official list
   const requiredList = React.useMemo(() => {
+    if (vcmsDocs.length > 0) {
+      return vcmsDocs.map((d: any) => ({
+        code: d.legacyDocCode || d.documentCode,
+        documentCode: d.documentCode,
+        purposeDocumentConfigId: d.configId || d.id,
+        title: `${d.documentCode} — ${d.nameEn}`,
+        desc: d.descriptionEn || d.descriptionAz || 'Official consular compliance document.',
+        isMandatory: d.evaluatedRequired !== undefined ? d.evaluatedRequired : d.isRequired,
+      }));
+    }
     const dbTypes = dossier.visaCategory?.requiredDocTypes;
     if (Array.isArray(dbTypes) && dbTypes.length > 0) {
       return dbTypes.map(t => ({
         code: t.code,
+        documentCode: t.code,
+        purposeDocumentConfigId: undefined,
         title: t.nameEn || t.code,
         desc: t.descriptionEn || t.descriptionAz || 'Official consular compliance document.',
         isMandatory: t.isMandatory !== undefined ? t.isMandatory : true,
       }));
     }
-    return DEFAULT_OFFICIAL_DOC_TYPES;
-  }, [dossier.visaCategory]);
+    return DEFAULT_OFFICIAL_DOC_TYPES.map((t) => ({
+      ...t,
+      documentCode: t.code,
+      purposeDocumentConfigId: undefined,
+    }));
+  }, [vcmsDocs, dossier.visaCategory]);
 
   const applicantDocs = applicant.documents || [];
 
@@ -70,6 +101,8 @@ export default function ApplicantDocumentDesk({
         dossierId: dossier.id,
         applicantId: applicant.id,
         requiredDocumentType: selectedDocCode,
+        purposeDocumentConfigId: targetReq?.purposeDocumentConfigId,
+        globalDocumentCode: targetReq?.documentCode,
         isMandatory: targetReq ? targetReq.isMandatory : true,
         file,
       });

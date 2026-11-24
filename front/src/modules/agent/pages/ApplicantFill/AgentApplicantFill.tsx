@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { agentService, dossierService } from '@/shared/api/services';
+import { evaluateFrontendConditionSet } from '@/modules/admin/api/vcmsApi';
+import DynamicVcmsFormRenderer, {
+    type VcmsQuestionItem,
+} from '@/modules/applicant/components/VcmsDynamicForm/DynamicVcmsFormRenderer';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
 import './AgentApplicantFill.css';
@@ -43,8 +47,12 @@ export default function AgentApplicantFill() {
     // Document Upload state
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedDocType, setSelectedDocType] = useState<string>('');
+    const [selectedDocConfigId, setSelectedDocConfigId] = useState<string>('');
     const [uploadingDocType, setUploadingDocType] = useState<string | null>(null);
     const [documents, setDocuments] = useState<any[]>([]);
+    const [vcmsQuestions, setVcmsQuestions] = useState<VcmsQuestionItem[]>([]);
+    const [vcmsDocuments, setVcmsDocuments] = useState<any[]>([]);
+    const [vcmsAnswers, setVcmsAnswers] = useState<Record<string, any>>({});
 
     const loadData = async () => {
         if (!groupId || !applicantId) {
@@ -73,6 +81,22 @@ export default function AgentApplicantFill() {
                 setAccommodation(a.formDataJson?.accommodation || '');
                 setStayDuration(a.formDataJson?.stayDuration || '');
                 setDocuments(a.documents || []);
+
+                const vcms = res.data.vcms;
+                if (vcms?.schema) {
+                    setVcmsQuestions(vcms.schema.questions || []);
+                    setVcmsDocuments(vcms.schema.documents || []);
+                    const savedMap: Record<string, any> = {};
+                    for (const ans of vcms.savedAnswers || []) {
+                        savedMap[ans.questionCode] =
+                            Array.isArray(ans.selectedOptionCodesJson) && ans.selectedOptionCodesJson.length > 1
+                                ? ans.selectedOptionCodesJson
+                                : ans.valueText ||
+                                  (Array.isArray(ans.selectedOptionCodesJson) ? ans.selectedOptionCodesJson[0] : '') ||
+                                  (ans.valueJson !== null && ans.valueJson !== undefined ? ans.valueJson : '');
+                    }
+                    setVcmsAnswers(savedMap);
+                }
             }
         } catch (err: any) {
             console.error('Self-fill load error:', err);
@@ -86,8 +110,9 @@ export default function AgentApplicantFill() {
         loadData();
     }, [groupId, applicantId]);
 
-    const triggerUpload = (docType: string) => {
+    const triggerUpload = (docType: string, configId?: string) => {
         setSelectedDocType(docType);
+        setSelectedDocConfigId(configId || '');
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
             fileInputRef.current.click();
@@ -103,12 +128,20 @@ export default function AgentApplicantFill() {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('requiredDocumentType', selectedDocType);
+            formData.append('globalDocumentCode', selectedDocType);
+            if (selectedDocConfigId) {
+                formData.append('purposeDocumentConfigId', selectedDocConfigId);
+            }
 
             const res: any = await agentService.uploadCustomerDoc(groupId, applicantId, formData);
             showSuccess('Sənəd uğurla yükləndi!');
             if (res.data?.document) {
                 setDocuments(prev => {
-                    const filtered = prev.filter(d => d.requiredDocumentType !== selectedDocType);
+                    const filtered = prev.filter(
+                        d =>
+                            d.requiredDocumentType !== selectedDocType &&
+                            d.globalDocumentCode !== selectedDocType
+                    );
                     return [...filtered, res.data.document];
                 });
             } else {
@@ -120,7 +153,12 @@ export default function AgentApplicantFill() {
         } finally {
             setUploadingDocType(null);
             setSelectedDocType('');
+            setSelectedDocConfigId('');
         }
+    };
+
+    const handleVcmsAnswerChange = (q: VcmsQuestionItem, val: any) => {
+        setVcmsAnswers((prev) => ({ ...prev, [q.questionCode]: val }));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -132,6 +170,24 @@ export default function AgentApplicantFill() {
             return;
         }
 
+        const formattedVcmsAnswers = vcmsQuestions
+            .filter((q) => vcmsAnswers[q.questionCode] !== undefined && vcmsAnswers[q.questionCode] !== '')
+            .map((q) => {
+                const rawVal = vcmsAnswers[q.questionCode];
+                const isSelect = ['SINGLE_SELECT', 'MULTIPLE_SELECT'].includes(q.answerType);
+                return {
+                    purposeQuestionConfigId: q.configId,
+                    questionCode: q.questionCode,
+                    valueText: Array.isArray(rawVal) ? rawVal.join(', ') : String(rawVal),
+                    valueJson: Array.isArray(rawVal) ? rawVal : undefined,
+                    selectedOptionCodes: isSelect
+                        ? Array.isArray(rawVal)
+                            ? rawVal.map(String)
+                            : [String(rawVal)]
+                        : undefined,
+                };
+            });
+
         setIsSaving(true);
         try {
             await agentService.submitCustomerSelfFill(groupId, applicantId, {
@@ -139,6 +195,7 @@ export default function AgentApplicantFill() {
                 lastName: lastName.trim(),
                 passportNumber: passportNumber.trim().toUpperCase(),
                 birthDate: dob || undefined,
+                vcmsAnswers: formattedVcmsAnswers,
                 formDataJson: {
                     dob,
                     issueDate,
@@ -243,9 +300,9 @@ export default function AgentApplicantFill() {
                             Hörmətli <strong>{firstName} {lastName}</strong>, viza müraciətiniz üçün təqdim etdiyiniz şəxsi məlumatlar və sənədlər qeydə alındı və tur agentiniz <strong>{groupData?.agencyName}</strong> tərəfindən nəzərdən keçiriləcək.
                         </p>
                         <div style={{ background: '#F8FAFC', padding: '16px', borderRadius: '12px', border: '1px solid #E2E8F0', textAlign: 'left', fontSize: '0.88rem' }}>
-                            <div style={{ marginBottom: '6px' }}>📍 Qrup / Səfər: <strong>{groupData?.name}</strong></div>
-                            <div style={{ marginBottom: '6px' }}>🌍 Təyinat Ölkəsi: <strong>{groupData?.destination}</strong></div>
-                            <div>📄 Yüklənmiş Sənədlər: <strong>{documents.length} ədəd</strong></div>
+                            <div style={{ marginBottom: '6px' }}>Qrup / Səfər: <strong>{groupData?.name}</strong></div>
+                            <div style={{ marginBottom: '6px' }}>Təyinat Ölkəsi: <strong>{groupData?.destination}</strong></div>
+                            <div>Yüklənmiş Sənədlər: <strong>{documents.length} ədəd</strong></div>
                         </div>
                         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
                             <button 
@@ -255,7 +312,7 @@ export default function AgentApplicantFill() {
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#EF4444', width: 'auto', padding: '12px 24px', cursor: 'pointer' }}
                             >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                                📄 Rəsmi Şengen Formasını Yüklə (PDF)
+                                Rəsmi Şengen Formasını Yüklə (PDF)
                             </button>
                         </div>
                         <p style={{ marginTop: '24px', fontSize: '0.85rem', color: '#94A3B8' }}>
@@ -397,6 +454,16 @@ export default function AgentApplicantFill() {
                                 />
                             </div>
                         </div>
+
+                        {vcmsQuestions.length > 0 && (
+                            <DynamicVcmsFormRenderer
+                                questions={vcmsQuestions}
+                                answers={vcmsAnswers}
+                                onAnswerChange={handleVcmsAnswerChange}
+                                stepFilter={null}
+                                countryName={groupData?.destination}
+                            />
+                        )}
                     </form>
                 </div>
 
@@ -408,8 +475,29 @@ export default function AgentApplicantFill() {
                     </p>
 
                     <div className="agent-fill-docs-list">
-                        {REQUIRED_DOC_TYPES.map(reqDoc => {
-                            const existing = documents.find(d => d.requiredDocumentType === reqDoc.type);
+                        {(vcmsDocuments.length > 0
+                            ? vcmsDocuments
+                                  .filter((d) => {
+                                      const evalState = evaluateFrontendConditionSet(
+                                          { isRequired: d.isRequired, isVisible: true, conditions: d.conditions },
+                                          vcmsAnswers
+                                      );
+                                      return evalState.isVisible;
+                                  })
+                                  .map((d) => ({
+                                      type: d.documentCode,
+                                      configId: d.configId,
+                                      title: `${d.documentCode} — ${d.nameEn}`,
+                                      desc: d.descriptionEn || d.nameAz || d.nameEn,
+                                  }))
+                            : REQUIRED_DOC_TYPES.map((r) => ({ ...r, configId: undefined }))
+                        ).map(reqDoc => {
+                            const existing = documents.find(
+                                d =>
+                                    d.requiredDocumentType === reqDoc.type ||
+                                    d.globalDocumentCode === reqDoc.type ||
+                                    (reqDoc.configId && d.purposeDocumentConfigId === reqDoc.configId)
+                            );
                             const isUploaded = !!existing;
                             const isUploadingThis = uploadingDocType === reqDoc.type;
 
@@ -426,9 +514,9 @@ export default function AgentApplicantFill() {
                                         <div className="doc-row-text">
                                             <h4>{reqDoc.title}</h4>
                                             <p>{reqDoc.desc}</p>
-                                            {isUploaded && existing?.originalFileName && (
+                                            {isUploaded && (existing?.originalFileName || existing?.fileName) && (
                                                 <span style={{ fontSize: '0.75rem', color: '#16A34A', display: 'block', marginTop: '4px', fontWeight: 600 }}>
-                                                    ✓ {existing.originalFileName}
+                                                    ✓ {existing.originalFileName || existing.fileName}
                                                 </span>
                                             )}
                                         </div>
@@ -436,7 +524,7 @@ export default function AgentApplicantFill() {
                                     <button 
                                         type="button" 
                                         className={`btn-upload-customer ${isUploaded ? 'reupload' : ''}`}
-                                        onClick={() => triggerUpload(reqDoc.type)}
+                                        onClick={() => triggerUpload(reqDoc.type, reqDoc.configId)}
                                         disabled={isUploadingThis}
                                     >
                                         {isUploadingThis ? 'Yüklənir...' : isUploaded ? 'Yenilə' : 'Fayl Yüklə'}

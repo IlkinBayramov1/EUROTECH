@@ -8,6 +8,7 @@ router.use(authMiddleware);
 router.use(requireRoles(['OPERATOR', 'MANAGER', 'ADMIN']));
 
 router.get('/metrics', adminController.getDashboardMetrics);
+router.get('/analytics', adminController.getDashboardAnalytics);
 router.get('/dossiers', adminController.getAllDossiers);
 router.patch('/dossier/:dossierId/decision', adminController.updateDossierDecision);
 

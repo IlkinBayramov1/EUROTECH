@@ -386,7 +386,7 @@ export default function AuthPage({ type }: AuthPageProps) {
           ) : (
             <div className="auth-toggle">
               <p style={{ color: '#64748B', fontSize: '0.82rem', margin: 0 }}>
-                🔒 Restricted Diplomatic Gateway. Credentials managed by EuroTech Administration.
+                Restricted Diplomatic Gateway. Credentials managed by EuroTech Administration.
               </p>
             </div>
           )}

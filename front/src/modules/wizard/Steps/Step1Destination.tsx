@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { dossierService } from '@/shared/api/services';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
 import type { DestinationCountry } from '../types/wizard.types';
 
 interface Step1Props {
@@ -9,72 +10,133 @@ interface Step1Props {
     countryCode: string;
     duration: string;
     projectReason: string;
+    visaTypeId?: string;
+    visaTypeName?: string;
+    visaPurposeId?: string;
+    visaPurposeName?: string;
+    consularFeeEur?: number;
     travelDate?: string;
   };
   updateData: (field: string, value: any) => void;
 }
 
 const FALLBACK_COUNTRIES: DestinationCountry[] = [
-  { id: 'hu-default', code: 'HU', nameEn: 'Hungary', nameAz: 'Macarıstan', flag: '🇭🇺', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'de-default', code: 'DE', nameEn: 'Germany', nameAz: 'Almaniya', flag: '🇩🇪', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'at-default', code: 'AT', nameEn: 'Austria', nameAz: 'Avstriya', flag: '🇦🇹', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'it-default', code: 'IT', nameEn: 'Italy', nameAz: 'İtaliya', flag: '🇮🇹', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'fr-default', code: 'FR', nameEn: 'France', nameAz: 'Fransa', flag: '🇫🇷', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'es-default', code: 'ES', nameEn: 'Spain', nameAz: 'İspaniya', flag: '🇪🇸', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'pl-default', code: 'PL', nameEn: 'Poland', nameAz: 'Polşa', flag: '🇵🇱', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'cz-default', code: 'CZ', nameEn: 'Czech Republic', nameAz: 'Çexiya', flag: '🇨🇿', processingTime: '15 business days', consularFee: '€80' },
-  { id: 'tr-default', code: 'TR', nameEn: 'Turkey', nameAz: 'Türkiyə', flag: '🇹🇷', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'hu-default', code: 'HU', nameEn: 'Hungary', nameAz: 'Macarıstan', flag: 'HU', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'de-default', code: 'DE', nameEn: 'Germany', nameAz: 'Almaniya', flag: 'DE', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'at-default', code: 'AT', nameEn: 'Austria', nameAz: 'Avstriya', flag: 'AT', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'it-default', code: 'IT', nameEn: 'Italy', nameAz: 'İtaliya', flag: 'IT', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'fr-default', code: 'FR', nameEn: 'France', nameAz: 'Fransa', flag: 'FR', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'es-default', code: 'ES', nameEn: 'Spain', nameAz: 'İspaniya', flag: 'ES', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'pl-default', code: 'PL', nameEn: 'Poland', nameAz: 'Polşa', flag: 'PL', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'cz-default', code: 'CZ', nameEn: 'Czech Republic', nameAz: 'Çexiya', flag: 'CZ', processingTime: '15 business days', consularFee: '€80' },
+  { id: 'tr-default', code: 'TR', nameEn: 'Turkey', nameAz: 'Türkiyə', flag: 'TR', processingTime: '15 business days', consularFee: '€80' },
 ];
 
 function getFlagEmoji(countryCode: string): string {
-  if (!countryCode || countryCode.length !== 2) return '🇪🇺';
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map(char => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
+  if (!countryCode || countryCode.length !== 2) return 'EU';
+  return countryCode.toUpperCase();
 }
 
 export default function Step1Destination({ data, updateData }: Step1Props) {
   const [countries, setCountries] = useState<DestinationCountry[]>(FALLBACK_COUNTRIES);
+  const [vcmsCountries, setVcmsCountries] = useState<any[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
     let isMounted = true;
     setLoadingCountries(true);
-    dossierService.getCountries()
-      .then(res => {
-        if (isMounted && res.data?.countries && res.data.countries.length > 0) {
-          const mapped: DestinationCountry[] = res.data.countries.map((c: any) => ({
+    vcmsApi
+      .getPublicCountries()
+      .then((res) => {
+        const rawList = res.data?.countries || [];
+        if (isMounted && rawList.length > 0) {
+          setVcmsCountries(rawList);
+          const mapped: DestinationCountry[] = rawList.map((c: any) => ({
             id: c.id,
             code: c.code || 'EU',
             nameEn: c.nameEn || 'Schengen State',
             nameAz: c.nameAz || c.nameEn || 'Şengen Dövləti',
-            flag: getFlagEmoji(c.code),
-            processingTime: '15 business days',
-            consularFee: '€80',
+            flag: c.flagEmoji || getFlagEmoji(c.code),
+            processingTime: c.processingDaysLabel || '15 business days',
+            consularFee: `€${c.visaTypes?.[0]?.defaultFeeEur || 80}`,
           }));
           setCountries(mapped);
 
-          // Default selection if not selected yet
-          if (!data.countryId && mapped.length > 0) {
-            const defaultSelection = mapped.find(m => m.code === 'HU') || mapped[0];
-            updateData('country', defaultSelection.nameEn);
-            updateData('countryId', defaultSelection.id);
-            updateData('countryCode', defaultSelection.code);
+          const defaultSelection =
+            rawList.find((m: any) => m.id === data.countryId || m.code === data.countryCode) ||
+            rawList.find((m: any) => m.code === 'FR' || m.code === 'HU') ||
+            rawList[0];
+
+          if (defaultSelection) {
+            if (!data.countryId) {
+              updateData('country', defaultSelection.nameEn);
+              updateData('countryId', defaultSelection.id);
+              updateData('countryCode', defaultSelection.code);
+            }
+            const firstVt = defaultSelection.visaTypes?.[0];
+            if (firstVt && !data.visaTypeId) {
+              updateData('visaTypeId', firstVt.id);
+              updateData('visaTypeName', firstVt.nameEn);
+              updateData('duration', firstVt.stayCategory === 'LONG' ? 'long' : 'short');
+              const firstPurpose = firstVt.purposes?.[0];
+              if (firstPurpose && !data.visaPurposeId) {
+                updateData('visaPurposeId', firstPurpose.id);
+                updateData('visaPurposeName', firstPurpose.nameEn);
+                updateData('projectReason', firstPurpose.nameEn);
+                const fee = firstPurpose.consularFeeOverride ?? firstVt.defaultFeeEur;
+                if (fee !== undefined && fee !== null) {
+                  updateData('consularFeeEur', Number(fee));
+                }
+              } else if (firstVt.defaultFeeEur !== undefined && firstVt.defaultFeeEur !== null) {
+                updateData('consularFeeEur', Number(firstVt.defaultFeeEur));
+              }
+            }
           }
+          return;
         }
+        return dossierService.getCountries();
       })
-      .catch(err => {
-        console.warn('Using fallback countries list:', err);
+      .catch(() => {
+        // Fallback to default countries
       })
       .finally(() => {
         if (isMounted) setLoadingCountries(false);
       });
 
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  const activeVcmsCountry = useMemo(() => {
+    return (
+      vcmsCountries.find(
+        (c) =>
+          c.id === data.countryId ||
+          c.code?.toUpperCase() === data.countryCode?.toUpperCase() ||
+          c.nameEn?.toLowerCase() === data.country?.toLowerCase()
+      ) || vcmsCountries[0] || null
+    );
+  }, [vcmsCountries, data.countryId, data.countryCode, data.country]);
+
+  const activeVisaType = useMemo(() => {
+    if (!activeVcmsCountry?.visaTypes?.length) return null;
+    if (data.visaTypeId) {
+      const byId = activeVcmsCountry.visaTypes.find((v: any) => v.id === data.visaTypeId);
+      if (byId) return byId;
+    }
+    const wantLong = data.duration === 'long';
+    return (
+      activeVcmsCountry.visaTypes.find((v: any) =>
+        wantLong ? v.stayCategory === 'LONG' : v.stayCategory === 'SHORT'
+      ) || activeVcmsCountry.visaTypes[0]
+    );
+  }, [activeVcmsCountry, data.visaTypeId, data.duration]);
+
+  const dynamicPurposes = useMemo(() => {
+    return activeVisaType?.purposes || [];
+  }, [activeVisaType]);
 
   const shortStayOptions = [
     'Tourism & Leisure Travel',
@@ -95,12 +157,37 @@ export default function Step1Destination({ data, updateData }: Step1Props) {
     'Long-term Resident / Guest Worker',
   ];
 
-  const currentProjectOptions = data.duration === 'long' ? longStayOptions : shortStayOptions;
+  const currentProjectOptions =
+    dynamicPurposes.length > 0
+      ? dynamicPurposes.map((p: any) => p.nameEn)
+      : data.duration === 'long'
+        ? longStayOptions
+        : shortStayOptions;
 
   const handleCountrySelect = (c: DestinationCountry) => {
     updateData('country', c.nameEn);
     updateData('countryId', c.id);
     updateData('countryCode', c.code);
+    const matched = vcmsCountries.find((vc) => vc.id === c.id || vc.code === c.code);
+    if (matched?.visaTypes?.length) {
+      const vt =
+        matched.visaTypes.find((v: any) =>
+          data.duration === 'long' ? v.stayCategory === 'LONG' : v.stayCategory === 'SHORT'
+        ) || matched.visaTypes[0];
+      updateData('visaTypeId', vt.id);
+      updateData('visaTypeName', vt.nameEn);
+      updateData('duration', vt.stayCategory === 'LONG' ? 'long' : 'short');
+      if (vt.purposes?.[0]) {
+        const p = vt.purposes[0];
+        updateData('visaPurposeId', p.id);
+        updateData('visaPurposeName', p.nameEn);
+        updateData('projectReason', p.nameEn);
+        const fee = p.consularFeeOverride ?? vt.defaultFeeEur;
+        updateData('consularFeeEur', fee !== undefined && fee !== null ? Number(fee) : undefined);
+      } else {
+        updateData('consularFeeEur', vt.defaultFeeEur !== undefined ? Number(vt.defaultFeeEur) : undefined);
+      }
+    }
   };
 
   return (
@@ -232,55 +319,177 @@ export default function Step1Destination({ data, updateData }: Step1Props) {
         </div>
       </div>
 
-      {/* Duration of Stay (Schengen C vs National D) */}
+      {/* Duration of Stay / Dynamic Country Visa Types */}
       <div className="wizard-input-group" style={{ marginBottom: '32px' }}>
-        <label>Duration of Stay (For all members)</label>
+        <label>Visa Type & Duration of Stay</label>
         <div className="duration-cards-grid">
-          <div
-            className={`duration-card ${data.duration === 'short' ? 'selected' : ''}`}
-            onClick={() => { updateData('duration', 'short'); updateData('projectReason', shortStayOptions[0]); }}
-          >
-            <div className="duration-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            </div>
-            <div className="duration-content">
-              <h3>Short Stay (≤ 90 days)</h3>
-              <span className="visa-badge">Schengen C Visa</span>
-            </div>
-          </div>
+          {activeVcmsCountry?.visaTypes?.length ? (
+            activeVcmsCountry.visaTypes.map((vt: any) => {
+              const isSelected = activeVisaType?.id === vt.id;
+              const isLong = vt.stayCategory === 'LONG';
+              return (
+                <div
+                  key={vt.id}
+                  className={`duration-card ${isSelected ? 'selected' : ''}`}
+                  onClick={() => {
+                    updateData('visaTypeId', vt.id);
+                    updateData('visaTypeName', vt.nameEn);
+                    updateData('duration', isLong ? 'long' : 'short');
+                    const firstP = vt.purposes?.[0];
+                    if (firstP) {
+                      updateData('visaPurposeId', firstP.id);
+                      updateData('visaPurposeName', firstP.nameEn);
+                      updateData('projectReason', firstP.nameEn);
+                      const fee = firstP.consularFeeOverride ?? vt.defaultFeeEur;
+                      updateData('consularFeeEur', fee !== undefined && fee !== null ? Number(fee) : undefined);
+                    } else {
+                      updateData('visaPurposeId', '');
+                      updateData('projectReason', isLong ? longStayOptions[0] : shortStayOptions[0]);
+                      updateData('consularFeeEur', vt.defaultFeeEur !== undefined ? Number(vt.defaultFeeEur) : undefined);
+                    }
+                  }}
+                >
+                  <div className="duration-icon">
+                    {isLong ? (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" />
+                        <line x1="8" y1="2" x2="8" y2="6" />
+                        <line x1="3" y1="10" x2="21" y2="10" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="duration-content">
+                    <h3>{vt.nameEn}</h3>
+                    <span className="visa-badge">
+                      {isLong ? 'Long Stay (> 90 days)' : 'Short Stay (≤ 90 days)'}
+                      {vt.defaultFeeEur !== undefined ? ` · €${Number(vt.defaultFeeEur).toFixed(0)}` : ''}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <>
+              <div
+                className={`duration-card ${data.duration === 'short' ? 'selected' : ''}`}
+                onClick={() => {
+                  updateData('duration', 'short');
+                  updateData('projectReason', shortStayOptions[0]);
+                }}
+              >
+                <div className="duration-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                </div>
+                <div className="duration-content">
+                  <h3>Short Stay (≤ 90 days)</h3>
+                  <span className="visa-badge">Schengen C Visa</span>
+                </div>
+              </div>
 
-          <div
-            className={`duration-card ${data.duration === 'long' ? 'selected' : ''}`}
-            onClick={() => { updateData('duration', 'long'); updateData('projectReason', longStayOptions[0]); }}
-          >
-            <div className="duration-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            </div>
-            <div className="duration-content">
-              <h3>Long Stay (&gt; 90 days)</h3>
-              <span className="visa-badge">National D Visa</span>
-            </div>
-          </div>
+              <div
+                className={`duration-card ${data.duration === 'long' ? 'selected' : ''}`}
+                onClick={() => {
+                  updateData('duration', 'long');
+                  updateData('projectReason', longStayOptions[0]);
+                }}
+              >
+                <div className="duration-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                </div>
+                <div className="duration-content">
+                  <h3>Long Stay (&gt; 90 days)</h3>
+                  <span className="visa-badge">National D Visa</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {/* Purpose of the Journey */}
-      <div className="wizard-input-group">
-        <label>Travel Project & Main Purpose</label>
+      <div className="wizard-input-group" style={{ marginBottom: 24 }}>
+        <label>Travel Project & Main Purpose ({activeVcmsCountry?.nameEn || data.country})</label>
         <div className="premium-select-wrapper">
           <select
             value={data.projectReason}
-            onChange={(e) => updateData('projectReason', e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              updateData('projectReason', val);
+              const matchedP = dynamicPurposes.find((p: any) => p.nameEn === val);
+              if (matchedP) {
+                updateData('visaPurposeId', matchedP.id);
+                updateData('visaPurposeName', matchedP.nameEn);
+                const fee = matchedP.consularFeeOverride ?? activeVisaType?.defaultFeeEur;
+                if (fee !== undefined && fee !== null) {
+                  updateData('consularFeeEur', Number(fee));
+                }
+              }
+            }}
             className={data.projectReason ? 'selected' : ''}
             disabled={!data.duration}
           >
             <option value="" disabled>Select your consular travel purpose</option>
-            {currentProjectOptions.map((opt) => (
+            {currentProjectOptions.map((opt: string) => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
           </select>
         </div>
       </div>
+
+      {/* Visa Application Centre & Embassy Official Info Card */}
+      {(activeVcmsCountry?.visaApplicationCentres?.[0] || activeVcmsCountry?.embassies?.[0]) && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 14,
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            padding: 16,
+            fontSize: '0.82rem',
+            color: '#334155',
+          }}
+        >
+          {activeVcmsCountry?.visaApplicationCentres?.[0] && (
+            <div>
+              <strong style={{ color: '#0f172a', display: 'block', marginBottom: 4 }}>
+                Visa Application Centre ({activeVcmsCountry.visaApplicationCentres[0].providerName})
+              </strong>
+              <div>Address: {activeVcmsCountry.visaApplicationCentres[0].address}</div>
+              <div>
+                Tel: {activeVcmsCountry.visaApplicationCentres[0].telephone} · Email:{' '}
+                {activeVcmsCountry.visaApplicationCentres[0].email}
+              </div>
+            </div>
+          )}
+          {activeVcmsCountry?.embassies?.[0] && (
+            <div>
+              <strong style={{ color: '#0f172a', display: 'block', marginBottom: 4 }}>
+                {activeVcmsCountry.embassies[0].responsibleAuthority}
+              </strong>
+              <div>Address: {activeVcmsCountry.embassies[0].address}</div>
+              <div>
+                Tel: {activeVcmsCountry.embassies[0].telephone} · Email: {activeVcmsCountry.embassies[0].email}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

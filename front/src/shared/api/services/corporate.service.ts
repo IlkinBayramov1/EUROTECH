@@ -99,8 +99,8 @@ export const corporateService = {
   generateInvoice: (batchId: string, amount?: number) =>
     apiClient.post(`/corporate/batches/${batchId}/invoice`, amount !== undefined ? { amount } : {}),
 
-  payWithWallet: (batchId: string) =>
-    apiClient.post(`/corporate/batches/${batchId}/pay-wallet`),
+  payWithWallet: (batchId: string, data?: { promoCode?: string | null }) =>
+    apiClient.post(`/corporate/batches/${batchId}/pay-wallet`, data || {}),
 
   getInvoices: () => apiClient.get('/corporate/invoices'),
 

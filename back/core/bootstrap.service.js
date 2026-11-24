@@ -212,6 +212,10 @@ async function bootstrapSystemData(prisma) {
       });
     }
 
+    // 7. Ensure VCMS & Appointment Management Baseline Data
+    const { migrateVcmsBaseline } = require('../scripts/migrate-vcms-baseline');
+    await migrateVcmsBaseline(prisma);
+
     console.log('[BOOTSTRAP] System reference data 100% verified & operational in MySQL.');
   } catch (error) {
     console.error('[BOOTSTRAP ERROR] Failed to bootstrap database:', error);

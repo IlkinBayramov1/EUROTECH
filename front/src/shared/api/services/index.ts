@@ -8,3 +8,4 @@ export * from './service.service';
 export * from './admin.service';
 export * from './payment.service';
 export * from './notification.service';
+export * from './promo.service';

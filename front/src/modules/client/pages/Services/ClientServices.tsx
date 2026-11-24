@@ -6,6 +6,8 @@ import { serviceService } from '@/shared/api/services/service.service';
 import { paymentService } from '@/shared/api/services/payment.service';
 import { storage } from '@/shared/utils/storage';
 import { DEFAULT_FRONTEND_CATALOG, type PricingPackageItem } from '@/shared/hooks/usePricingCatalog';
+import PromoCodeInput from '@/shared/components/PromoCodeInput/PromoCodeInput';
+import type { PromoValidationResult } from '@/shared/api/services/promo.service';
 import './ClientServices.css';
 
 interface ServiceItem {
@@ -244,6 +246,7 @@ export default function ClientServices() {
     // Payment Mode: 'WALLET' | 'CARD' | 'BANK_SLIP'
     const [paymentMethod, setPaymentMethod] = useState<'WALLET' | 'CARD' | 'BANK_SLIP'>('WALLET');
     const [walletBalanceEur, setWalletBalanceEur] = useState<number>(0);
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
 
     // Online Card Form State
     const [cardHolder, setCardHolder] = useState('E. Abdullayev');
@@ -441,6 +444,7 @@ export default function ClientServices() {
             showError('Please select at least one service to proceed.');
             return;
         }
+        setAppliedPromo(null);
         setShowCheckoutModal(true);
     };
 
@@ -448,6 +452,22 @@ export default function ClientServices() {
         const service = availableServices.find(s => s.id === cartItem.serviceId);
         return sum + (service ? service.price : 0);
     }, 0);
+
+    const cartSubtotalEur = Number(
+        cart
+            .reduce((sum, cartItem) => {
+                const service = availableServices.find(s => s.id === cartItem.serviceId);
+                if (!service) return sum;
+                const eur = service.priceEur !== undefined ? service.priceEur : service.price / (exchangeRate || 1.85);
+                return sum + eur;
+            }, 0)
+            .toFixed(2)
+    );
+
+    const effectivePayableEur = appliedPromo ? appliedPromo.finalAmountEur : cartSubtotalEur;
+    const effectivePayableAzn = appliedPromo
+        ? appliedPromo.finalAmountAzn
+        : Number((effectivePayableEur * (exchangeRate || 1.85)).toFixed(2));
 
     const executeCheckout = async () => {
         let activeId = dossierId;
@@ -464,31 +484,43 @@ export default function ClientServices() {
             return;
         }
 
+        const promoCodeStr = appliedPromo?.promo?.code || undefined;
+        const checkoutPayload = {
+            dossierId: activeId,
+            items: cart.map(c => ({
+                serviceType: c.serviceId,
+                applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
+            })),
+        };
+
         setIsProcessing(true);
         try {
             if (paymentMethod === 'WALLET') {
-                const totalEur = totalAmount / 1.80;
-                if (walletBalanceEur < totalEur) {
-                    showError(`Insufficient wallet balance (€${walletBalanceEur.toFixed(2)} < €${totalEur.toFixed(2)}). Please top up first or pay via Card.`);
+                if (effectivePayableEur > 0 && walletBalanceEur + 0.005 < effectivePayableEur) {
+                    showError(
+                        `Insufficient wallet balance (€${walletBalanceEur.toFixed(2)} < €${effectivePayableEur.toFixed(2)}). Please top up first or pay via Card.`
+                    );
                     setIsProcessing(false);
                     return;
                 }
 
-                // 1. Checkout services onto dossier
-                const payload = {
+                // 1. Attach services to dossier
+                await serviceService.checkout(checkoutPayload);
+
+                // 2. Settle remaining balance via wallet (with optional promo code)
+                await paymentService.payWithWallet({
                     dossierId: activeId,
-                    items: cart.map(c => ({
-                        serviceType: c.serviceId,
-                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
-                    }))
-                };
-                await serviceService.checkout(payload);
+                    promoCode: promoCodeStr,
+                    scope: 'ADDITIONAL_SERVICES',
+                });
 
-                // 2. Settle dossier via wallet
-                await paymentService.payWithWallet({ dossierId: activeId });
-
-                showSuccess(`Payment of ${totalAmount.toFixed(2)} AZN (€${totalEur.toFixed(2)}) settled instantly from your EuroTech Wallet! ${cart.length} service(s) activated.`);
+                showSuccess(
+                    effectivePayableEur <= 0
+                        ? `Services activated via promo code ${promoCodeStr} (€0.00 payable)!`
+                        : `Payment of ${effectivePayableAzn.toFixed(2)} AZN (€${effectivePayableEur.toFixed(2)}) settled instantly from your EuroTech Wallet! ${cart.length} service(s) activated.`
+                );
                 setCart([]);
+                setAppliedPromo(null);
                 setShowCheckoutModal(false);
                 await loadDossierData();
             } else if (paymentMethod === 'BANK_SLIP') {
@@ -498,47 +530,59 @@ export default function ClientServices() {
                     return;
                 }
 
+                // 1. Attach services first so backend validates promo against the authoritative updated balance
+                await serviceService.checkout(checkoutPayload);
+
+                // 2. Submit discounted bank slip with optional promo code
                 const fd = new FormData();
                 fd.append('dossierId', activeId);
-                fd.append('amount', totalAmount.toFixed(2));
+                fd.append('amount', effectivePayableAzn.toFixed(2));
                 fd.append('currency', 'AZN');
                 fd.append('bankName', slipBankName);
                 fd.append('senderName', slipSenderName || cardHolder || 'Applicant');
                 fd.append('receiptNumber', slipReceiptNumber || `REC-${Date.now()}`);
                 fd.append('purpose', `Value-Added Services (${cart.length} items)`);
+                fd.append('scope', 'ADDITIONAL_SERVICES');
+                if (promoCodeStr) {
+                    fd.append('promoCode', promoCodeStr);
+                }
                 fd.append('slip', slipFile);
 
                 await paymentService.submitBankSlip(fd);
 
-                // Attach services to dossier in pending state
-                const payload = {
-                    dossierId: activeId,
-                    items: cart.map(c => ({
-                        serviceType: c.serviceId,
-                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
-                    }))
-                };
-                await serviceService.checkout(payload).catch(() => {});
-
                 showSuccess('Bank payment slip submitted successfully! Services will be verified upon banking reconciliation.');
                 setCart([]);
                 setSlipFile(null);
+                setAppliedPromo(null);
                 setShowCheckoutModal(false);
                 await loadDossierData();
             } else {
-                // Online Card Checkout
-                const payload = {
-                    dossierId: activeId,
-                    items: cart.map(c => ({
-                        serviceType: c.serviceId,
-                        applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
-                    }))
-                };
+                // Online Card Checkout: attach services, then create & confirm PaymentIntent (supports promoCode & 100% free settlement)
+                await serviceService.checkout(checkoutPayload);
 
-                const res = await serviceService.checkout(payload);
-                const msg = res.data?.message || `Payment of ${totalAmount.toFixed(2)} AZN processed successfully! ${cart.length} service(s) activated.`;
-                showSuccess(msg);
+                const intent = await paymentService.createPaymentIntent({
+                    dossierId: activeId,
+                    amount: effectivePayableEur,
+                    currency: 'EUR',
+                    purpose: 'ADDITIONAL_SERVICES',
+                    scope: 'ADDITIONAL_SERVICES',
+                    promoCode: promoCodeStr,
+                });
+
+                if (!intent?.zeroDueSettled && intent?.paymentIntentId) {
+                    await paymentService.confirmPaymentMock({
+                        paymentIntentId: intent.paymentIntentId,
+                        bankReference: `SRV-CARD-${Date.now().toString().slice(-6)}`,
+                    });
+                }
+
+                showSuccess(
+                    effectivePayableEur <= 0
+                        ? `Services activated via promo code ${promoCodeStr} (€0.00 payable)!`
+                        : `Payment of ${effectivePayableAzn.toFixed(2)} AZN (€${effectivePayableEur.toFixed(2)}) processed successfully via Card! ${cart.length} service(s) activated.`
+                );
                 setCart([]);
+                setAppliedPromo(null);
                 setShowCheckoutModal(false);
                 await loadDossierData();
             }
@@ -924,6 +968,22 @@ export default function ClientServices() {
                                 })}
                             </div>
 
+                            <PromoCodeInput
+                                targetType="ADDITIONAL_SERVICES"
+                                dossierId={dossierId}
+                                cartItems={cart.map((c) => ({
+                                    serviceType: c.serviceId,
+                                    applicantId: c.applicantId === 'primary-applicant' ? undefined : c.applicantId,
+                                }))}
+                                grossAmountEur={cartSubtotalEur}
+                                displayCurrency="AZN"
+                                exchangeRate={exchangeRate}
+                                appliedPromo={appliedPromo}
+                                onPromoChange={setAppliedPromo}
+                                disabled={isProcessing}
+                                resetKey={`${dossierId || ''}-${cart.map((c) => `${c.serviceId}:${c.applicantId}`).join('|')}`}
+                            />
+
                             {/* Payment Method Selector */}
                             <div style={{ marginTop: '16px', marginBottom: '16px' }}>
                                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#0F1E36', marginBottom: '8px' }}>
@@ -944,7 +1004,7 @@ export default function ClientServices() {
                                             cursor: 'pointer'
                                         }}
                                     >
-                                        👛 Wallet (€{walletBalanceEur.toFixed(2)})
+                                        Wallet (€{walletBalanceEur.toFixed(2)})
                                     </button>
                                     <button
                                         type="button"
@@ -960,7 +1020,7 @@ export default function ClientServices() {
                                             cursor: 'pointer'
                                         }}
                                     >
-                                        💳 Card (Online)
+                                        Card (Online)
                                     </button>
                                     <button
                                         type="button"
@@ -976,7 +1036,7 @@ export default function ClientServices() {
                                             cursor: 'pointer'
                                         }}
                                     >
-                                        📄 Bank Wire Slip
+                                        Bank Wire Slip
                                     </button>
                                 </div>
                             </div>
@@ -990,15 +1050,15 @@ export default function ClientServices() {
                                         </span>
                                     </div>
                                     <p style={{ margin: '0 0 10px 0', fontSize: '0.84rem', color: '#64748B' }}>
-                                        Available Balance: <strong style={{ color: walletBalanceEur >= (totalAmount / 1.80) ? '#059669' : '#DC2626' }}>€{walletBalanceEur.toFixed(2)}</strong> (≈ {(walletBalanceEur * 1.80).toFixed(2)} AZN)
+                                        Available Balance: <strong style={{ color: walletBalanceEur + 0.005 >= effectivePayableEur ? '#059669' : '#DC2626' }}>€{walletBalanceEur.toFixed(2)}</strong> (≈ {(walletBalanceEur * (exchangeRate || 1.85)).toFixed(2)} AZN)
                                     </p>
-                                    {walletBalanceEur < (totalAmount / 1.80) ? (
+                                    {effectivePayableEur > 0 && walletBalanceEur + 0.005 < effectivePayableEur ? (
                                         <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', padding: '8px 12px', fontSize: '0.8rem', color: '#B91C1C' }}>
-                                            ⚠️ Insufficient balance to cover this purchase. Top up your EuroTech Wallet under "Wallet &amp; Invoices", or choose Card / Bank Wire.
+                                            Insufficient balance to cover this purchase. Top up your EuroTech Wallet under "Wallet &amp; Invoices", or choose Card / Bank Wire.
                                         </div>
                                     ) : (
                                         <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.8rem', color: '#047857' }}>
-                                            ✓ Funds will be immediately deducted and your additional services will be active right away.
+                                            Funds will be immediately deducted and your additional services will be active right away.
                                         </div>
                                     )}
                                 </div>
@@ -1010,7 +1070,7 @@ export default function ClientServices() {
                                             <strong style={{ fontSize: '0.88rem', color: '#0F1E36' }}>3D-Secure Bank Gateway</strong>
                                         </div>
                                         <span style={{ fontSize: '0.75rem', color: '#16A34A', fontWeight: 700, background: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
-                                            🔒 256-bit Encrypted
+                                            256-bit Encrypted
                                         </span>
                                     </div>
 
@@ -1034,10 +1094,9 @@ export default function ClientServices() {
                                                     value={cardNumber} 
                                                     onChange={(e) => setCardNumber(e.target.value)}
                                                     maxLength={19}
-                                                    style={{ width: '100%', padding: '8px 12px 8px 36px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', letterSpacing: '1px' }}
+                                                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.88rem', fontWeight: 600, color: '#0F1E36', background: '#FFFFFF', letterSpacing: '1px' }}
                                                     placeholder="4169 0000 0000 0000"
                                                 />
-                                                <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '1rem' }}>💳</span>
                                             </div>
                                         </div>
 
@@ -1073,7 +1132,7 @@ export default function ClientServices() {
                                         Upload Official Bank Payment Receipt / Slip
                                     </h4>
                                     <p style={{ margin: '0 0 12px 0', fontSize: '0.78rem', color: '#64748B' }}>
-                                        Please transfer {totalAmount.toFixed(2)} AZN to EuroTech Services bank account (IBAN: AZ00ABB00000000000000000000) and attach the receipt below:
+                                        Please transfer {effectivePayableAzn.toFixed(2)} AZN (€{effectivePayableEur.toFixed(2)}) to EuroTech Services bank account (IBAN: AZ00ABB00000000000000000000) and attach the receipt below:
                                     </p>
 
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
@@ -1124,8 +1183,10 @@ export default function ClientServices() {
                             )}
 
                             <div className="modal-total-summary-row" style={{ marginTop: '14px' }}>
-                                <span>Total Payable (AZN):</span>
-                                <span className="modal-grand-amount">{totalAmount.toFixed(2)} AZN</span>
+                                <span>Total Payable:</span>
+                                <span className="modal-grand-amount">
+                                    {effectivePayableAzn.toFixed(2)} AZN (€{effectivePayableEur.toFixed(2)})
+                                </span>
                             </div>
                         </div>
 
@@ -1133,7 +1194,7 @@ export default function ClientServices() {
                             <button 
                                 type="button" 
                                 className="btn-secondary" 
-                                onClick={() => setShowCheckoutModal(false)}
+                                onClick={() => { setShowCheckoutModal(false); setAppliedPromo(null); }}
                                 disabled={isProcessing}
                             >
                                 Cancel
@@ -1142,7 +1203,7 @@ export default function ClientServices() {
                                 type="button" 
                                 className="btn-primary modal-confirm-btn" 
                                 onClick={executeCheckout}
-                                disabled={isProcessing || (paymentMethod === 'WALLET' && walletBalanceEur < (totalAmount / 1.80))}
+                                disabled={isProcessing || (paymentMethod === 'WALLET' && effectivePayableEur > 0 && walletBalanceEur + 0.005 < effectivePayableEur)}
                                 style={{ background: '#0F1E36', borderColor: '#0F1E36' }}
                             >
                                 {isProcessing ? (
@@ -1150,20 +1211,19 @@ export default function ClientServices() {
                                         <svg className="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
                                         Processing Payment...
                                     </>
+                                ) : effectivePayableEur <= 0 ? (
+                                    <>Confirm Free Promo Settlement (€0.00)</>
                                 ) : paymentMethod === 'WALLET' ? (
                                     <>
-                                        <span>👛</span>
-                                        Pay {totalAmount.toFixed(2)} AZN from Wallet
+                                        Pay {effectivePayableAzn.toFixed(2)} AZN from Wallet
                                     </>
                                 ) : paymentMethod === 'CARD' ? (
                                     <>
-                                        <span>🔒</span>
-                                        Pay {totalAmount.toFixed(2)} AZN with Card
+                                        Pay {effectivePayableAzn.toFixed(2)} AZN with Card
                                     </>
                                 ) : (
                                     <>
-                                        <span>📤</span>
-                                        Submit Receipt ({totalAmount.toFixed(2)} AZN)
+                                        Submit Receipt ({effectivePayableAzn.toFixed(2)} AZN)
                                     </>
                                 )}
                             </button>

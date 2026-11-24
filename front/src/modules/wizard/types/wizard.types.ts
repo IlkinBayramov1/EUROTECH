@@ -48,6 +48,11 @@ export interface WizardFormData {
   duration: 'short' | 'long' | '';
   visaCategoryId?: string;
   visaCategoryCode?: string;
+  visaTypeId?: string;
+  visaTypeName?: string;
+  visaPurposeId?: string;
+  visaPurposeName?: string;
+  consularFeeEur?: number;
   projectReason: string;
   travelDate: string;
 
@@ -62,6 +67,7 @@ export interface WizardFormData {
   visaCenter: string;
   appointmentDate: string;
   appointmentTime: string;
+  timeSlotId?: string;
 
   // Step 5: Confirmation
   gdprConsent: boolean;

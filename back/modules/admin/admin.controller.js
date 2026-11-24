@@ -11,6 +11,19 @@ async function getDashboardMetrics(req, res, next) {
   }
 }
 
+async function getDashboardAnalytics(req, res, next) {
+  try {
+    const { range, portalType } = req.query || {};
+    const analytics = await adminService.getDashboardAnalytics({
+      range: range || '30D',
+      portalType: portalType || 'ALL',
+    });
+    return ApiResponse.success(res, { analytics }, 'Executive dashboard analytics retrieved');
+  } catch (error) {
+    return ApiResponse.error(res, error.message, error.statusCode || 400);
+  }
+}
+
 async function getAllDossiers(req, res, next) {
   try {
     const { status, portalType, search, page, limit } = req.query;
@@ -213,6 +226,7 @@ async function getCronMonitorStatus(req, res, next) {
 
 module.exports = {
   getDashboardMetrics,
+  getDashboardAnalytics,
   getAllDossiers,
   updateDossierDecision,
   getAgentPayouts,

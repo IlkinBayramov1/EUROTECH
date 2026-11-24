@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService, appointmentService, TimeSlot } from '@/shared/api/services';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
 import { createGoogleCalendarUrl, downloadIcsFile } from '@/shared/utils/calendar.util';
 import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientAppointment.css';
@@ -22,6 +23,15 @@ export default function ClientAppointment() {
     const [loadingSlots, setLoadingSlots] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
+    const [apptNotifications, setApptNotifications] = useState<any[]>([]);
+    const [countryProviders, setCountryProviders] = useState<any[]>([]);
+
+    useEffect(() => {
+        vcmsApi
+            .getMyAppointmentNotifications()
+            .then((res) => setApptNotifications(res.data?.notifications || []))
+            .catch(() => {});
+    }, []);
 
     // Load active dossier and appointments from database
     const loadAppointmentData = useCallback(async () => {
@@ -31,6 +41,18 @@ export default function ClientAppointment() {
             if (dossiers.length > 0) {
                 const active = dossiers[0];
                 setDossier(active);
+
+                vcmsApi
+                    .getCustomerPublishedSlots({
+                        countryId: active.countryId || active.country?.id || undefined,
+                        visaTypeId: active.visaTypeId || undefined,
+                        visaPurposeId: active.visaPurposeId || undefined,
+                        groupSize: Math.max(1, active.applicants?.length || 1),
+                    })
+                    .then((pRes) => {
+                        if (pRes.data?.providers) setCountryProviders(pRes.data.providers);
+                    })
+                    .catch(() => {});
 
                 // Extract all applicants for display
                 if (active.applicants && active.applicants.length > 0) {
@@ -85,36 +107,62 @@ export default function ClientAppointment() {
         loadAppointmentData();
     }, [loadAppointmentData]);
 
-    // Fetch slots for booking/rescheduling
+    // Fetch slots for booking/rescheduling (VCMS published slots first, fallback to general slots)
     const fetchAvailableSlots = async () => {
         setLoadingSlots(true);
         try {
-            const res = await appointmentService.getSlots();
-            if (res.data?.slots) {
-                const now = new Date();
-                // Filter only future or active slots with remaining capacity or active
-                const validSlots = res.data.slots.filter((s: any) => {
-                    if (!s.isActive) return false;
-                    const d = new Date(s.date);
-                    const match = (s.startTime || '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-                    if (match) {
-                        let h = parseInt(match[1], 10);
-                        const m = parseInt(match[2], 10);
-                        const ampm = (match[3] || '').toUpperCase();
-                        if (ampm === 'PM' && h < 12) h += 12;
-                        if (ampm === 'AM' && h === 12) h = 0;
-                        d.setHours(h, m, 0, 0);
-                    }
-                    return d > now;
-                });
+            const groupSize = Math.max(1, dossier?.applicants?.length || 1);
+            let slotsList: any[] = [];
 
-                setAvailableSlots(validSlots);
-                const firstAvailable = validSlots.find((s: any) => (s.capacity - s.bookedCount) > 0);
-                if (firstAvailable) {
-                    setSelectedSlotId(firstAvailable.id);
-                } else if (validSlots.length > 0) {
-                    setSelectedSlotId(validSlots[0].id);
+            try {
+                const vcmsRes = await vcmsApi.getCustomerPublishedSlots({
+                    countryId: dossier?.countryId || dossier?.country?.id || undefined,
+                    visaTypeId: dossier?.visaTypeId || undefined,
+                    visaPurposeId: dossier?.visaPurposeId || undefined,
+                    groupSize,
+                });
+                if (vcmsRes.data?.providers) {
+                    setCountryProviders(vcmsRes.data.providers);
                 }
+                if (Array.isArray(vcmsRes.data?.slots) && vcmsRes.data.slots.length > 0) {
+                    slotsList = vcmsRes.data.slots;
+                }
+            } catch {
+                // fallback to appointmentService.getSlots below
+            }
+
+            if (slotsList.length === 0) {
+                const res = await appointmentService.getSlots(undefined, undefined, {
+                    countryId: dossier?.countryId || dossier?.country?.id,
+                    visaTypeId: dossier?.visaTypeId,
+                    groupSize,
+                } as any);
+                slotsList = res.data?.slots || [];
+            }
+
+            const now = new Date();
+            const validSlots = slotsList.filter((s: any) => {
+                if (s.isActive === false || ['DRAFT', 'BLOCKED', 'CLOSED'].includes(s.slotStatus)) return false;
+                if ((s.capacity - (s.bookedCount || 0)) < groupSize) return false;
+                const d = new Date(s.date);
+                const match = (s.startTime || '').match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+                if (match) {
+                    let h = parseInt(match[1], 10);
+                    const m = parseInt(match[2], 10);
+                    const ampm = (match[3] || '').toUpperCase();
+                    if (ampm === 'PM' && h < 12) h += 12;
+                    if (ampm === 'AM' && h === 12) h = 0;
+                    d.setHours(h, m, 0, 0);
+                }
+                return d > now;
+            });
+
+            setAvailableSlots(validSlots);
+            const firstAvailable = validSlots.find((s: any) => (s.capacity - s.bookedCount) >= groupSize);
+            if (firstAvailable) {
+                setSelectedSlotId(firstAvailable.id);
+            } else if (validSlots.length > 0) {
+                setSelectedSlotId(validSlots[0].id);
             }
         } catch (err) {
             console.error('Slot loading error:', err);
@@ -370,7 +418,23 @@ export default function ClientAppointment() {
             {/* Səhifə Başlığı */}
             <div className="appt-header">
                 <div>
-                    <h1 className="docs-title">Appointment Management</h1>
+                    <h1 className="docs-title">
+                        Appointment Management{' '}
+                        {appointment?.bookingCode && (
+                            <span
+                                style={{
+                                    fontSize: '0.88rem',
+                                    padding: '3px 10px',
+                                    borderRadius: 999,
+                                    background: '#e0e7ff',
+                                    color: '#3730a3',
+                                    marginLeft: 8,
+                                }}
+                            >
+                                Booking ID: {appointment.bookingCode}
+                            </span>
+                        )}
+                    </h1>
                     <p className="docs-subtitle">View your scheduled biometric data submission and document handover details.</p>
                 </div>
                 {(status === 'confirmed' || status === 'rescheduled') && (
@@ -405,6 +469,49 @@ export default function ClientAppointment() {
                     </div>
                 )}
             </div>
+
+            {apptNotifications.filter((n) => !n.readAt).length > 0 && (
+                <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {apptNotifications
+                        .filter((n) => !n.readAt)
+                        .map((notif) => (
+                            <div
+                                key={notif.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 14,
+                                    padding: '13px 16px',
+                                    borderRadius: 12,
+                                    background: notif.type === 'SLOT_RESCHEDULED' ? '#fef3c7' : '#eff6ff',
+                                    border: `1px solid ${notif.type === 'SLOT_RESCHEDULED' ? '#fcd34d' : '#bfdbfe'}`,
+                                    color: '#0f172a',
+                                    fontSize: '0.86rem',
+                                }}
+                            >
+                                <div>
+                                    <strong>{notif.title}:</strong> {notif.message}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    style={{ padding: '5px 10px', fontSize: '0.78rem' }}
+                                    onClick={async () => {
+                                        await vcmsApi.markAppointmentNotificationRead(notif.id);
+                                        setApptNotifications((prev) =>
+                                            prev.map((item) =>
+                                                item.id === notif.id ? { ...item, readAt: new Date().toISOString() } : item
+                                            )
+                                        );
+                                    }}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        ))}
+                </div>
+            )}
 
             <div className="appt-grid">
                 {/* Sol Sütun: Cari Görüş Kartı */}
@@ -555,17 +662,52 @@ export default function ClientAppointment() {
                     </div>
 
                     <div className="appt-card location-card">
-                        <h3>Location Details</h3>
+                        <h3>Location &amp; Official Consular Offices</h3>
                         <div className="location-box">
                             <div className="location-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
                             </div>
                             <div className="location-info">
                                 <h4>{venueLocation}</h4>
-                                <p>{venueLocation.includes('Premium') ? 'Port Baku Towers, 7th Floor, Neftchilar Ave 153' : '15 Nobel Avenue, Azure Business Center, 4th Floor'}</p>
-                                <p>Baku, Azerbaijan, AZ1025</p>
+                                <p>
+                                    {countryProviders[0]?.visaApplicationCentre?.address ||
+                                        countryProviders[0]?.embassy?.address ||
+                                        (venueLocation.includes('Premium')
+                                            ? 'Port Baku Towers, 7th Floor, Neftchilar Ave 153'
+                                            : '15 Nobel Avenue, Azure Business Center, 4th Floor')}
+                                </p>
+                                <p>Baku, Azerbaijan</p>
                             </div>
                         </div>
+                        {countryProviders.length > 0 && (
+                            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.8rem', color: '#475569' }}>
+                                {countryProviders.map((prov) => {
+                                    const office = prov.visaApplicationCentre || prov.embassy;
+                                    return (
+                                        <div
+                                            key={prov.id}
+                                            style={{
+                                                padding: '8px 10px',
+                                                borderRadius: 8,
+                                                background: '#f8fafc',
+                                                border: '1px solid #e2e8f0',
+                                            }}
+                                        >
+                                            <strong style={{ color: '#0f172a', display: 'block' }}>
+                                                {prov.displayName} ({prov.timezone || 'Asia/Baku'})
+                                            </strong>
+                                            {office?.address && <div>Address: {office.address}</div>}
+                                            {(office?.telephone || office?.email) && (
+                                                <div>
+                                                    {office?.telephone ? `Tel: ${office.telephone}` : ''}{' '}
+                                                    {office?.email ? `· Email: ${office.email}` : ''}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                         <a href="https://maps.google.com/?q=EuroTech+Visa+Application+Center+Baku" target="_blank" rel="noreferrer" className="map-link">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
                             View on Google Maps

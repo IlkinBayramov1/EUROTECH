@@ -7,6 +7,7 @@ const { generateSecureToken, hashToken } = require('../../../utils/token.util');
 const { calculatePortalFees } = require('../../../utils/finance.util');
 const { getPricingCatalog } = require('../../service/pricingConfig.service');
 const walletService = require('../../payment/wallet.service');
+const { nextBookingCode } = require('../../vcms/services/codeGenerator.service');
 
 const uploadDir = path.resolve(env.UPLOAD_DIR);
 if (!fs.existsSync(uploadDir)) {
@@ -37,6 +38,9 @@ async function createBatch({
   userId,
   name,
   destination,
+  countryId,
+  visaTypeId,
+  visaPurposeId,
   travelDate,
   duration,
   projectReason,
@@ -44,6 +48,8 @@ async function createBatch({
   packagePrice,
   appointmentDate,
   appointmentTime,
+  timeSlotId,
+  visaCenter,
   employees,
   totalAmount,
   paymentMethod,
@@ -54,53 +60,119 @@ async function createBatch({
   const empList = Array.isArray(employees) ? employees : [];
   const batchSize = Math.max(1, empList.length);
   const catalog = await getPricingCatalog();
-  const fees = calculatePortalFees({
-    portalType: 'CORPORATE',
-    paxCount: batchSize,
-    activePackage: pkg,
-    duration: duration || 'short',
-    catalog,
-  });
-  const pkgPrice = Number(packagePrice !== undefined ? packagePrice : fees.packageAddOnPerPax);
-  const consularFeePP = Number((fees.govFeePerPax + fees.baseServiceFeePerPax).toFixed(2));
-  const calculatedTotal = Number(totalAmount) || fees.grandTotalEur;
 
   return await prisma.$transaction(async (tx) => {
-    // 1. GroupBatch yaradılması
-    const batch = await tx.groupBatch.create({
-      data: {
-        code,
-        portalType: 'CORPORATE',
-        userId,
-        name: name || 'Corporate Delegation Batch',
-        destination: dest,
-        travelDate: travelDate ? new Date(travelDate) : null,
-        duration: duration || 'short',
-        projectReason: projectReason || 'Business / Corporate',
-        packageTier: pkg,
-        status: 'DRAFT',
-      },
-    });
-
-    // 2. Ölkə və Viza kateqoriyası
-    let country = await tx.country.findFirst({
-      where: {
-        OR: [
-          { code: dest },
-          { nameEn: { contains: dest } },
-          { nameAz: { contains: dest } },
-          { code: 'HU' },
-        ],
-      },
-    });
+    // 1. Ölkə və Viza kateqoriyası / VCMS həlli
+    let country = null;
+    if (countryId) {
+      country = await tx.country.findUnique({ where: { id: countryId } });
+    }
+    if (!country && dest) {
+      country = await tx.country.findFirst({
+        where: {
+          OR: [
+            { code: dest.toUpperCase() },
+            { nameEn: { equals: dest } },
+            { nameAz: { equals: dest } },
+            { nameEn: { contains: dest } },
+            { nameAz: { contains: dest } },
+          ],
+        },
+      });
+    }
     if (!country) {
-      country = await tx.country.findFirst();
+      country =
+        (await tx.country.findFirst({ where: { code: 'HU' } })) || (await tx.country.findFirst());
       if (!country) {
         country = await tx.country.create({
           data: { code: 'HU', nameAz: 'Macaristan', nameEn: 'Hungary', nameRu: 'Vengriya' },
         });
       }
     }
+
+    let resolvedVisaPurpose = null;
+    let resolvedVisaType = null;
+    if (visaPurposeId) {
+      resolvedVisaPurpose = await tx.visaPurpose.findUnique({
+        where: { id: visaPurposeId },
+        include: { visaType: true },
+      });
+      resolvedVisaType = resolvedVisaPurpose?.visaType || null;
+    }
+    if (!resolvedVisaType && visaTypeId) {
+      resolvedVisaType = await tx.visaType.findUnique({ where: { id: visaTypeId } });
+    }
+    if (!resolvedVisaType && country) {
+      const targetStay = String(duration || 'short').toLowerCase() === 'long' ? 'LONG' : 'SHORT';
+      resolvedVisaType =
+        (await tx.visaType.findFirst({
+          where: { countryId: country.id, stayCategory: targetStay, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        })) ||
+        (await tx.visaType.findFirst({
+          where: { countryId: country.id, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        }));
+    }
+    if (!resolvedVisaPurpose && resolvedVisaType) {
+      const reasonStr = String(projectReason || 'Business').trim();
+      resolvedVisaPurpose =
+        (await tx.visaPurpose.findFirst({
+          where: {
+            visaTypeId: resolvedVisaType.id,
+            status: 'ACTIVE',
+            OR: [
+              { nameEn: { contains: reasonStr } },
+              { nameAz: { contains: reasonStr } },
+            ],
+          },
+          orderBy: { displayOrder: 'asc' },
+        })) ||
+        (await tx.visaPurpose.findFirst({
+          where: { visaTypeId: resolvedVisaType.id, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        }));
+    }
+
+    let configurationVersionId = null;
+    if (country?.id) {
+      const latestVersion = await tx.configurationVersion.findFirst({
+        where: { countryId: country.id, status: 'ACTIVE' },
+        orderBy: { versionNumber: 'desc' },
+      });
+      if (latestVersion) configurationVersionId = latestVersion.id;
+    }
+
+    const baseConsularFee =
+      resolvedVisaPurpose?.consularFeeOverride ?? resolvedVisaType?.defaultFeeEur;
+
+    const fees = calculatePortalFees({
+      portalType: 'CORPORATE',
+      paxCount: batchSize,
+      activePackage: pkg,
+      duration: duration || (resolvedVisaType?.stayCategory === 'LONG' ? 'long' : 'short'),
+      baseConsularFee: baseConsularFee !== undefined && baseConsularFee !== null ? Number(baseConsularFee) : undefined,
+      catalog,
+    });
+    const pkgPrice = Number(packagePrice !== undefined ? packagePrice : fees.packageAddOnPerPax);
+    const consularFeePP = Number((fees.govFeePerPax + fees.baseServiceFeePerPax).toFixed(2));
+    const calculatedTotal = Number(totalAmount) || fees.grandTotalEur;
+
+    // 2. GroupBatch yaradılması
+    const batch = await tx.groupBatch.create({
+      data: {
+        code,
+        portalType: 'CORPORATE',
+        userId,
+        name: name || 'Corporate Delegation Batch',
+        destination: destination || country?.nameEn || dest,
+        travelDate: travelDate ? new Date(travelDate) : null,
+        duration: duration || (resolvedVisaType?.stayCategory === 'LONG' ? 'long' : 'short'),
+        projectReason: projectReason || resolvedVisaPurpose?.nameEn || 'Business / Corporate',
+        packageTier: pkg,
+        status: 'DRAFT',
+      },
+    });
 
     let category = await tx.visaCategory.findFirst({ where: { countryId: country.id } });
     if (!category) {
@@ -118,6 +190,9 @@ async function createBatch({
         groupBatchId: batch.id,
         countryId: country.id,
         visaCategoryId: category.id,
+        visaTypeId: resolvedVisaType?.id || null,
+        visaPurposeId: resolvedVisaPurpose?.id || null,
+        configurationVersionId,
         serviceFee: pkgPrice * batchSize,
         governmentFee: consularFeePP * batchSize,
         totalAmount: calculatedTotal,
@@ -216,55 +291,88 @@ async function createBatch({
 
     // 5. Randevu təyini (Step 4)
     let appointment = null;
-    if (appointmentDate) {
-      const apptDateObj = new Date(appointmentDate);
+    if (appointmentDate || timeSlotId) {
+      const apptDateObj = appointmentDate ? new Date(appointmentDate) : new Date();
       const startOfDay = new Date(new Date(apptDateObj).setHours(0, 0, 0, 0));
       const endOfDay = new Date(new Date(apptDateObj).setHours(23, 59, 59, 999));
       const timeStr = appointmentTime || '10:30 AM';
 
       let slot = null;
+      if (timeSlotId) {
+        slot = await tx.timeSlot.findUnique({ where: { id: timeSlotId } });
+      }
       // If appointmentTime is a UUID or slot ID
-      if (appointmentTime && (appointmentTime.length === 36 || (appointmentTime.includes('-') && appointmentTime.length > 20))) {
+      if (!slot && appointmentTime && (appointmentTime.length === 36 || (appointmentTime.includes('-') && appointmentTime.length > 20))) {
         slot = await tx.timeSlot.findUnique({ where: { id: appointmentTime } });
       }
 
-      if (!slot) {
+      if (!slot && appointmentDate) {
         slot = await tx.timeSlot.findFirst({
           where: {
             date: { gte: startOfDay, lte: endOfDay },
             startTime: timeStr,
             isActive: true,
+            slotStatus: 'AVAILABLE',
+            ...(country?.id ? { OR: [{ countryId: country.id }, { countryId: null }] } : {}),
           },
         });
       }
 
-      if (!slot) {
+      const defaultCorpLoc = visaCenter || 'EuroTech Main Center';
+
+      if (slot) {
+        if (['DRAFT', 'BLOCKED', 'CLOSED'].includes(slot.slotStatus)) {
+          const err = new Error(`Selected time slot is not available for booking (Status: ${slot.slotStatus})`);
+          err.statusCode = 400;
+          throw err;
+        }
+        const remaining = slot.capacity - slot.bookedCount;
+        if (remaining < batchSize) {
+          const err = new Error(`Selected time slot has insufficient capacity (Available: ${remaining}, Batch size: ${batchSize})`);
+          err.statusCode = 400;
+          throw err;
+        }
+        const newBookedCount = slot.bookedCount + batchSize;
+        slot = await tx.timeSlot.update({
+          where: { id: slot.id },
+          data: {
+            bookedCount: newBookedCount,
+            slotStatus: newBookedCount >= slot.capacity ? 'FULL' : 'AVAILABLE',
+          },
+        });
+      } else {
         slot = await tx.timeSlot.create({
           data: {
             date: startOfDay,
             startTime: (timeStr && timeStr.length < 20) ? timeStr : '10:30 AM',
             capacity: Math.max(15, batchSize + 5),
             bookedCount: batchSize,
-            location: 'EuroTech Main Center',
+            slotStatus: 'AVAILABLE',
+            countryId: country?.id || null,
+            visaTypeId: resolvedVisaType?.id || null,
+            visaPurposeId: resolvedVisaPurpose?.id || null,
+            location: defaultCorpLoc,
             isActive: true,
           },
         });
-      } else {
-        await tx.timeSlot.update({
-          where: { id: slot.id },
-          data: { bookedCount: { increment: batchSize } },
-        });
       }
+
+      const bookingCode = await nextBookingCode(tx);
+      const resolvedLoc = slot.location || defaultCorpLoc;
 
       appointment = await tx.appointment.create({
         data: {
+          bookingCode,
           userId,
           timeSlotId: slot.id,
+          providerId: slot.providerId || null,
+          visaTypeId: slot.visaTypeId || resolvedVisaType?.id || null,
           dossierId: dossier.id,
           groupBatchId: batch.id,
+          groupSize: batchSize,
           status: 'PENDING_PAYMENT',
-          location: slot.location,
-          notes: `Corporate Batch: ${batch.name} (${batch.code})`,
+          location: resolvedLoc,
+          notes: `Corporate Batch: ${batch.name} (${batch.code}) - ${batchSize} Pax`,
         },
         include: { timeSlot: true },
       });
@@ -273,7 +381,7 @@ async function createBatch({
         where: { id: dossier.id },
         data: {
           appointmentDate: slot.date,
-          appointmentLocation: slot.location,
+          appointmentLocation: resolvedLoc,
           currentStep: 4,
         },
       });
@@ -423,6 +531,9 @@ async function getCorporateBatches(userId) {
     include: {
       dossiers: {
         include: {
+          country: true,
+          visaType: true,
+          visaPurpose: true,
           applicants: {
             include: { documents: true },
           },
@@ -430,7 +541,25 @@ async function getCorporateBatches(userId) {
         },
       },
       appointments: {
-        include: { timeSlot: true },
+        include: {
+          timeSlot: {
+            include: {
+              country: true,
+              provider: {
+                include: {
+                  embassy: true,
+                  visaApplicationCentre: true,
+                },
+              },
+              visaType: true,
+              visaPurpose: true,
+            },
+          },
+          notifications: {
+            orderBy: { sentAt: 'desc' },
+            take: 5,
+          },
+        },
       },
       invoices: true,
     },

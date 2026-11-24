@@ -265,21 +265,18 @@ export default function SelectProfile() {
             </div>
             <div className="sp-modal-body">
               <div className="sp-support-item">
-                <div className="sp-support-icon">📞</div>
                 <div>
                   <strong>Emergency Consular Hotline:</strong>
                   <p>+994 12 400 00 00 / +36 1 455 00 00</p>
                 </div>
               </div>
               <div className="sp-support-item">
-                <div className="sp-support-icon">✉️</div>
                 <div>
                   <strong>Direct Email Support:</strong>
                   <p><a href="mailto:support@eurotech.services">support@eurotech.services</a></p>
                 </div>
               </div>
               <div className="sp-support-item">
-                <div className="sp-support-icon">⏰</div>
                 <div>
                   <strong>Operating Hours:</strong>
                   <p>Monday – Friday: 09:00 – 18:00 (Baku & Budapest Time)</p>

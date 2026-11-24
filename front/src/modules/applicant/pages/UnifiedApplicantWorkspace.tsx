@@ -222,6 +222,7 @@ export default function UnifiedApplicantWorkspace() {
         {/* Tab 1: 37-Point Harmonized Questionnaire */}
         {activeTab === 'questionnaire' && (
           <SchengenQuestionnaire
+            applicantId={applicant.id}
             formData={formData}
             onFieldChange={updateFormField}
             dossier={dossier}

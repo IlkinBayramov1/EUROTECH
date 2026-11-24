@@ -5,6 +5,178 @@ export interface AdminMetrics {
   totalRevenue: number;
 }
 
+export type DashboardRange = '7D' | '30D' | '90D' | '12M' | 'ALL';
+
+export interface TimeSeriesPoint {
+  key: string;
+  label: string;
+  applications: number;
+  applicants: number;
+  approved: number;
+  revenueEur: number;
+  revenueAzn: number;
+}
+
+export interface PortalBreakdownRow {
+  portalType: 'INDIVIDUAL' | 'GROUP_AGENT' | 'CORPORATE';
+  label: string;
+  dossiers: number;
+  applicants: number;
+  revenueEur: number;
+  sharePct: number;
+  revenueSharePct: number;
+}
+
+export interface PipelineStageRow {
+  status: DossierStatusType;
+  label: string;
+  count: number;
+  liveTotal: number;
+  sharePct: number;
+}
+
+export interface DestinationStatRow {
+  countryId: string;
+  code: string;
+  name: string;
+  dossiers: number;
+  applicants: number;
+  approved: number;
+  rejected: number;
+  revenueEur: number;
+  approvalRatePct: number;
+}
+
+export interface PaymentMethodRow {
+  provider: string;
+  label: string;
+  count: number;
+  amountEur: number;
+  sharePct: number;
+}
+
+export interface DailySlotCapacityRow {
+  date: string;
+  label: string;
+  booked: number;
+  capacity: number;
+  available: number;
+  occupancyPct: number;
+}
+
+export interface AdminDashboardAnalytics {
+  meta: {
+    range: DashboardRange;
+    portalType: string;
+    granularity: 'DAY' | 'WEEK' | 'MONTH';
+    eurToAznRate: number;
+    generatedAt: string;
+  };
+  summary: AdminMetrics;
+  kpis: {
+    totalApplications: number;
+    totalApplicationsDeltaPct: number;
+    activeDossiers: number;
+    totalApplicantsInRange: number;
+    awaitingReviewCount: number;
+    underReviewCount: number;
+    needsCorrectionCount: number;
+    pendingDocumentsCount: number;
+    approvalRatePct: number;
+    approvedCount: number;
+    rejectedCount: number;
+    approvedThisMonth: number;
+    avgTurnaroundDays: number;
+    netRevenueEur: number;
+    netRevenueAzn: number;
+    netRevenueDeltaPct: number;
+    avgOrderValueEur: number;
+    allTimeNetRevenueEur: number;
+    upcomingAppointmentsCount: number;
+    slotOccupancyPct: number;
+    slotBookedNext14d: number;
+    slotCapacityNext14d: number;
+    pendingActionsTotal: number;
+    walletFloatEur: number;
+    promoDiscountsEur: number;
+  };
+  triage: {
+    newSubmissionsCount: number;
+    needsCorrectionCount: number;
+    submittedToConsulateCount: number;
+    pendingBankSlipsCount: number;
+    pendingBankSlipsEur: number;
+    pendingPayoutsCount: number;
+    pendingPayoutsEur: number;
+    pendingDocumentsCount: number;
+  };
+  timeSeries: TimeSeriesPoint[];
+  portalBreakdown: PortalBreakdownRow[];
+  statusPipeline: PipelineStageRow[];
+  documentHealth: {
+    total: number;
+    verified: number;
+    pending: number;
+    needsCorrection: number;
+    rejected: number;
+    verificationRatePct: number;
+  };
+  topDestinations: DestinationStatRow[];
+  paymentMethods: PaymentMethodRow[];
+  treasury: {
+    totalWalletFloatEur: number;
+    totalWalletFloatAzn: number;
+    pendingWalletBalanceEur: number;
+    walletFloatByPortal: {
+      INDIVIDUAL: number;
+      GROUP_AGENT: number;
+      CORPORATE: number;
+    };
+    pendingBankSlipsCount: number;
+    pendingBankSlipsEur: number;
+    pendingPayoutsCount: number;
+    pendingPayoutsEur: number;
+  };
+  appointments: {
+    upcomingConfirmedCount: number;
+    occupancyPct: number;
+    totalBookedNext14d: number;
+    totalCapacityNext14d: number;
+    byStatus: {
+      CONFIRMED: number;
+      COMPLETED: number;
+      PENDING_PAYMENT: number;
+      RESCHEDULED: number;
+      CANCELLED: number;
+      NO_SHOW: number;
+    };
+    dailyCapacity: DailySlotCapacityRow[];
+  };
+  promoImpact: {
+    activeCodesCount: number;
+    redemptionsCount: number;
+    totalDiscountEur: number;
+    avgDiscountPct: number;
+    topCodes: Array<{
+      id: string;
+      code: string;
+      redemptions: number;
+      discountEur: number;
+    }>;
+  };
+  userGrowth: {
+    totalUsers: number;
+    newUsersInRange: number;
+    newUsersDeltaPct: number;
+    byRole: {
+      INDIVIDUAL: number;
+      AGENT_TUR_OPERATOR: number;
+      CORPORATE_HR: number;
+      STAFF: number;
+    };
+  };
+}
+
 export type DossierStatusType = 
   | 'RECEIVED'
   | 'UNDER_REVIEW'
@@ -88,6 +260,8 @@ export interface AdminDossier {
   governmentFee: number;
   serviceFee: number;
   extraServicesFee: number;
+  discountAmount?: number;
+  appliedPromoCode?: string | null;
   totalAmount: number;
   paymentStatus: 'PENDING' | 'PAID' | 'REFUNDED';
   archivedZipUrl?: string | null;

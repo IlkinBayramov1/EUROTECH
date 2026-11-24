@@ -18,10 +18,15 @@ export interface BookAppointmentPayload {
 }
 
 export const appointmentService = {
-  getSlots: (date?: string, location?: string) => {
+  getSlots: (date?: string, location?: string, extraParams?: Record<string, any>) => {
     const params = new URLSearchParams();
     if (date) params.append('date', date);
     if (location) params.append('location', location);
+    if (extraParams && typeof extraParams === 'object') {
+      Object.entries(extraParams).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') params.append(k, String(v));
+      });
+    }
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get(`/appointments/slots${queryString}`);
   },

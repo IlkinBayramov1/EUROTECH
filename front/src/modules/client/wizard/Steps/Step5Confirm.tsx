@@ -28,13 +28,13 @@ interface Step5Props {
 }
 
 const COUNTRY_DATA: Record<string, { name: string; flag: string }> = {
-    HU: { name: 'Hungary', flag: '🇭🇺' },
-    AT: { name: 'Austria', flag: '🇦🇹' },
-    DE: { name: 'Germany', flag: '🇩🇪' },
-    IT: { name: 'Italy', flag: '🇮🇹' },
-    FR: { name: 'France', flag: '🇫🇷' },
-    PL: { name: 'Poland', flag: '🇵🇱' },
-    ES: { name: 'Spain', flag: '🇪🇸' },
+    HU: { name: 'Hungary', flag: 'HU' },
+    AT: { name: 'Austria', flag: 'AT' },
+    DE: { name: 'Germany', flag: 'DE' },
+    IT: { name: 'Italy', flag: 'IT' },
+    FR: { name: 'France', flag: 'FR' },
+    PL: { name: 'Poland', flag: 'PL' },
+    ES: { name: 'Spain', flag: 'ES' },
 };
 
 const NATIONALITY_NAMES: Record<string, string> = {
@@ -60,7 +60,7 @@ const SERVICE_CATALOG = [
 export default function Step5Confirm({ data, updateData }: Step5Props) {
     const s = data.services;
     const applicantCount = Math.max(data.applicants.length, 1);
-    const countryMeta = COUNTRY_DATA[data.country.toUpperCase()] || { name: data.country || 'Schengen Area', flag: '🇪🇺' };
+    const countryMeta = COUNTRY_DATA[data.country.toUpperCase()] || { name: data.country || 'Schengen Area', flag: 'EU' };
 
     // Wallet balance state
     const [walletBalanceEur, setWalletBalanceEur] = useState<number>(0);
@@ -188,7 +188,6 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
                 {/* 2. Consular Biometrics Appointment */}
                 <div className="info-block" style={{ background: '#FFFFFF', border: '1.5px solid #E2E8F0', borderRadius: '12px', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.04)' }}>
                     <div className="info-block-header" style={{ background: '#F8FAFC', padding: '16px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '1.2rem' }}>🏛️</span>
                         <h3 style={{ margin: 0, fontSize: '1rem', color: '#0F1E36', fontWeight: 700 }}>Consular Biometrics Appointment</h3>
                     </div>
                     <div className="info-block-content" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -230,7 +229,6 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
                     alignItems: 'center'
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '1.2rem' }}>👥</span>
                         <h3 style={{ margin: 0, fontSize: '1rem', color: '#0F1E36', fontWeight: 700 }}>Registered Applicants ({applicantCount})</h3>
                     </div>
                     <span style={{ fontSize: '0.82rem', color: '#1D4ED8', fontWeight: 600, background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '3px 10px', borderRadius: '12px' }}>
@@ -410,7 +408,7 @@ export default function Step5Confirm({ data, updateData }: Step5Props) {
                         </p>
                         {!canPayWithWallet && (
                             <span style={{ display: 'block', marginTop: '6px', fontSize: '0.76rem', color: '#D97706', fontWeight: 600 }}>
-                                ⚠️ Insufficient balance (€{walletBalanceEur.toFixed(2)} &lt; €{grandTotalEur.toFixed(2)}). You can pay via Card or settle later in Wallet &amp; Billing.
+                                Insufficient balance (€{walletBalanceEur.toFixed(2)} &lt; €{grandTotalEur.toFixed(2)}). You can pay via Card or settle later in Wallet &amp; Billing.
                             </span>
                         )}
                     </div>

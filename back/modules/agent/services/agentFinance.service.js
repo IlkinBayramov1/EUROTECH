@@ -148,10 +148,12 @@ async function getAgentWallet(userId) {
           },
         });
       } else if (
-        existingTx.status !== expectedStatus ||
-        Math.abs(Number(existingTx.amount) - commissionAmount) > 0.01 ||
-        existingTx.description !== expectedDesc
+        existingTx.status === 'PENDING' &&
+        (existingTx.status !== expectedStatus ||
+          Math.abs(Number(existingTx.amount) - commissionAmount) > 0.01 ||
+          existingTx.description !== expectedDesc)
       ) {
+        // Never overwrite already-settled PAID or promo-waived REFUNDED commission rows
         await prisma.walletTransaction.update({
           where: { id: existingTx.id },
           data: {
@@ -237,8 +239,11 @@ async function getAgentWallet(userId) {
     const isPaid =
       (g.dossiers.length > 0 && g.dossiers.every((d) => d.paymentStatus === 'PAID')) ||
       paidBatchIds.has(g.id);
-    const paidAmountEur = isPaid ? totalAmount : 0;
-    const dueAmountEur = isPaid ? 0 : totalAmount;
+    const discountAmountEur = Number(g.discountAmount || primaryDossier?.discountAmount || 0);
+    const appliedPromoCode = g.appliedPromoCode || primaryDossier?.appliedPromoCode || null;
+    const netTotalAfterDiscount = Math.max(0, Number((totalAmount - discountAmountEur).toFixed(2)));
+    const paidAmountEur = isPaid ? netTotalAfterDiscount : 0;
+    const dueAmountEur = isPaid ? 0 : netTotalAfterDiscount;
 
     groupInvoices.push({
       groupId: g.id,
@@ -251,6 +256,8 @@ async function getAgentWallet(userId) {
       governmentFee: govFee,
       serviceFee: srvFee,
       totalAmount,
+      discountAmountEur,
+      appliedPromoCode,
       paidAmountEur,
       dueAmountEur,
       estimatedCommissionEur: Number((allApps.length * ratePerPax).toFixed(2)),
@@ -324,11 +331,14 @@ async function topupAgentWallet(userId, payload = {}) {
   };
 }
 
-async function payGroupWithWallet(groupId, userId, userRole = 'AGENT') {
+async function payGroupWithWallet(groupId, userId, userRole = 'AGENT', options = {}) {
   const settlement = await walletService.payWithWallet({
     userId,
     userRole,
     groupBatchId: groupId,
+    promoCode: options.promoCode || null,
+    scope: 'GROUP_BATCH_PAYMENT',
+    source: options.source || null,
   });
   const updatedWallet = await getAgentWallet(userId);
   return {

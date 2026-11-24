@@ -214,7 +214,7 @@ export default function Step3Applicant({ data, updateData }: Step3Props) {
                                         title="Auto-fill passport data by pasting MRZ lines"
                                     >
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg>
-                                        {openMrzId === app.id ? 'Close MRZ' : '⚡ MRZ Auto-fill'}
+                                        {openMrzId === app.id ? 'Close MRZ' : 'MRZ Auto-fill'}
                                     </button>
 
                                     {!isPrimary && (
@@ -282,7 +282,7 @@ export default function Step3Applicant({ data, updateData }: Step3Props) {
                                     />
                                     {mrzErrors[app.id] && (
                                         <p style={{ color: '#DC2626', fontSize: '0.8rem', marginTop: '6px', marginBottom: 0 }}>
-                                            ⚠️ {mrzErrors[app.id]}
+                                            {mrzErrors[app.id]}
                                         </p>
                                     )}
                                     {mrzSuccess[app.id] && (
@@ -456,7 +456,7 @@ export default function Step3Applicant({ data, updateData }: Step3Props) {
                                     />
                                     {expiringSoon && (
                                         <span style={{ fontSize: '0.78rem', color: '#DC2626', fontWeight: 600, display: 'block', marginTop: '4px' }}>
-                                            ⚠️ Warning: Passport has less than 6 months validity remaining.
+                                            Warning: Passport has less than 6 months validity remaining.
                                         </span>
                                     )}
                                 </div>

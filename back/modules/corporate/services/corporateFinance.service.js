@@ -116,11 +116,14 @@ async function generateProformaInvoice({ batchId, corporateUserId, amount }) {
   };
 }
 
-async function payBatchWithWallet({ batchId, corporateUserId }) {
+async function payBatchWithWallet({ batchId, corporateUserId, userRole = 'CORPORATE_HR', promoCode = null, source = null }) {
   const result = await walletService.payWithWallet({
     userId: corporateUserId,
-    userRole: 'CORPORATE_HR',
+    userRole: userRole || 'CORPORATE_HR',
     groupBatchId: batchId,
+    promoCode: promoCode || null,
+    scope: 'GROUP_BATCH_PAYMENT',
+    source: source || null,
   });
 
   return {
@@ -128,6 +131,9 @@ async function payBatchWithWallet({ batchId, corporateUserId }) {
     batchStatus: 'PROCESSING',
     newWalletBalance: result.newBalance,
     paidAmountEur: result.paidAmountEur,
+    originalAmountEur: result.originalAmountEur,
+    discountAmountEur: result.discountAmountEur,
+    appliedPromoCode: result.appliedPromoCode,
     reference: result.reference,
   };
 }

@@ -2,6 +2,7 @@ const prisma = require('../../../config/db');
 const { parseSafeDate, calculatePortalFees, getAgentCommissionRate } = require('../../../utils/finance.util');
 const walletService = require('../../payment/wallet.service');
 const { getPricingCatalog } = require('../../service/pricingConfig.service');
+const { nextBookingCode } = require('../../vcms/services/codeGenerator.service');
 
 function generateGroupCode() {
   const digits = Math.floor(100000 + Math.random() * 900000);
@@ -37,7 +38,11 @@ async function syncGroupFinancialsInTx(groupId, userId, tx = prisma) {
     where: { id: groupId },
     include: {
       dossiers: {
-        include: { applicants: true },
+        include: {
+          applicants: true,
+          visaType: true,
+          visaPurpose: true,
+        },
       },
     },
   });
@@ -59,11 +64,15 @@ async function syncGroupFinancialsInTx(groupId, userId, tx = prisma) {
   const pkg = group.packageTier || allApplicants[0]?.formDataJson?.package || 'standard';
 
   const primaryDossier = group.dossiers[0] || null;
+  const baseConsularFee =
+    primaryDossier?.visaPurpose?.consularFeeOverride ?? primaryDossier?.visaType?.defaultFeeEur;
+
   const fees = calculatePortalFees({
     portalType: 'GROUP_AGENT',
     paxCount: paxForPricing,
     activePackage: pkg,
     duration: group.duration || 'short',
+    baseConsularFee: baseConsularFee !== undefined && baseConsularFee !== null ? Number(baseConsularFee) : undefined,
     catalog,
   });
 
@@ -153,6 +162,9 @@ async function createGroup({
   userId,
   name,
   destination,
+  countryId,
+  visaTypeId,
+  visaPurposeId,
   travelDate,
   duration,
   projectReason,
@@ -161,6 +173,8 @@ async function createGroup({
   services,
   appointmentDate,
   appointmentTime,
+  timeSlotId,
+  visaCenter,
   paymentMethod,
 }) {
   const code = generateGroupCode();
@@ -174,33 +188,13 @@ async function createGroup({
     : null;
 
   const catalog = await getPricingCatalog();
-  const fees = calculatePortalFees({
-    portalType: 'GROUP_AGENT',
-    paxCount,
-    activePackage: selectedPackage,
-    services,
-    duration: duration || 'short',
-    catalog,
-  });
 
   return await prisma.$transaction(async (tx) => {
-    const group = await tx.groupBatch.create({
-      data: {
-        code,
-        portalType: 'GROUP_AGENT',
-        userId,
-        name: (name || 'Tour Delegation').trim(),
-        destination: destination || 'Europe / Schengen',
-        travelDate: safeTravelDate,
-        duration: duration || 'short',
-        projectReason: projectReason || 'Tourism',
-        packageTier: selectedPackage,
-        status: 'DRAFT',
-      },
-    });
-
     let country = null;
-    if (destination) {
+    if (countryId) {
+      country = await tx.country.findUnique({ where: { id: countryId } });
+    }
+    if (!country && destination) {
       country = await tx.country.findFirst({
         where: {
           OR: [
@@ -222,6 +216,87 @@ async function createGroup({
       });
     }
 
+    let resolvedVisaPurpose = null;
+    let resolvedVisaType = null;
+    if (visaPurposeId) {
+      resolvedVisaPurpose = await tx.visaPurpose.findUnique({
+        where: { id: visaPurposeId },
+        include: { visaType: true },
+      });
+      resolvedVisaType = resolvedVisaPurpose?.visaType || null;
+    }
+    if (!resolvedVisaType && visaTypeId) {
+      resolvedVisaType = await tx.visaType.findUnique({ where: { id: visaTypeId } });
+    }
+    if (!resolvedVisaType && country) {
+      const targetStay = String(duration || 'short').toLowerCase() === 'long' ? 'LONG' : 'SHORT';
+      resolvedVisaType =
+        (await tx.visaType.findFirst({
+          where: { countryId: country.id, stayCategory: targetStay, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        })) ||
+        (await tx.visaType.findFirst({
+          where: { countryId: country.id, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        }));
+    }
+    if (!resolvedVisaPurpose && resolvedVisaType) {
+      const reasonStr = String(projectReason || 'Tourism').trim();
+      resolvedVisaPurpose =
+        (await tx.visaPurpose.findFirst({
+          where: {
+            visaTypeId: resolvedVisaType.id,
+            status: 'ACTIVE',
+            OR: [
+              { nameEn: { contains: reasonStr } },
+              { nameAz: { contains: reasonStr } },
+            ],
+          },
+          orderBy: { displayOrder: 'asc' },
+        })) ||
+        (await tx.visaPurpose.findFirst({
+          where: { visaTypeId: resolvedVisaType.id, status: 'ACTIVE' },
+          orderBy: { displayOrder: 'asc' },
+        }));
+    }
+
+    let configurationVersionId = null;
+    if (country?.id) {
+      const latestVersion = await tx.configurationVersion.findFirst({
+        where: { countryId: country.id, status: 'ACTIVE' },
+        orderBy: { versionNumber: 'desc' },
+      });
+      if (latestVersion) configurationVersionId = latestVersion.id;
+    }
+
+    const baseConsularFee =
+      resolvedVisaPurpose?.consularFeeOverride ?? resolvedVisaType?.defaultFeeEur;
+
+    const fees = calculatePortalFees({
+      portalType: 'GROUP_AGENT',
+      paxCount,
+      activePackage: selectedPackage,
+      services,
+      duration: duration || (resolvedVisaType?.stayCategory === 'LONG' ? 'long' : 'short'),
+      baseConsularFee: baseConsularFee !== undefined && baseConsularFee !== null ? Number(baseConsularFee) : undefined,
+      catalog,
+    });
+
+    const group = await tx.groupBatch.create({
+      data: {
+        code,
+        portalType: 'GROUP_AGENT',
+        userId,
+        name: (name || 'Tour Delegation').trim(),
+        destination: destination || country?.nameEn || 'Europe / Schengen',
+        travelDate: safeTravelDate,
+        duration: duration || (resolvedVisaType?.stayCategory === 'LONG' ? 'long' : 'short'),
+        projectReason: projectReason || resolvedVisaPurpose?.nameEn || 'Tourism',
+        packageTier: selectedPackage,
+        status: 'DRAFT',
+      },
+    });
+
     let category = await tx.visaCategory.findFirst({ where: { countryId: country.id } });
     if (!category) {
       category = await tx.visaCategory.create({
@@ -235,6 +310,8 @@ async function createGroup({
       });
     }
 
+    const defaultLocation = visaCenter || 'EuroTech Main Center, Port Baku Towers';
+
     const dossier = await tx.dossier.create({
       data: {
         dossierNumber: `${code}-${Date.now().toString().slice(-4)}`,
@@ -243,6 +320,9 @@ async function createGroup({
         groupBatchId: group.id,
         countryId: country.id,
         visaCategoryId: category.id,
+        visaTypeId: resolvedVisaType?.id || null,
+        visaPurposeId: resolvedVisaPurpose?.id || null,
+        configurationVersionId,
         status: 'RECEIVED',
         currentStep: 1,
         governmentFee: fees.govFeePerPax,
@@ -251,7 +331,7 @@ async function createGroup({
         totalAmount: fees.grandTotalEur,
         paymentStatus: 'PENDING',
         appointmentDate: safeApptDateTime,
-        appointmentLocation: 'EuroTech Main Center, Port Baku Towers',
+        appointmentLocation: defaultLocation,
       },
     });
 
@@ -277,22 +357,51 @@ async function createGroup({
       });
     }
 
-    if (safeApptDateTime) {
-      const startOfDay = new Date(safeApptDateTime.getTime());
-      startOfDay.setUTCHours(0, 0, 0, 0);
-      const endOfDay = new Date(safeApptDateTime.getTime());
-      endOfDay.setUTCHours(23, 59, 59, 999);
-      const slotStartStr = appointmentTime || '10:00';
+    if (safeApptDateTime || timeSlotId) {
+      let timeSlot = null;
+      if (timeSlotId) {
+        timeSlot = await tx.timeSlot.findUnique({ where: { id: timeSlotId } });
+      }
 
-      let timeSlot = await tx.timeSlot.findFirst({
-        where: {
-          date: { gte: startOfDay, lte: endOfDay },
-          startTime: slotStartStr,
-          isActive: true,
-        },
-      });
+      const slotStartStr = appointmentTime || (timeSlot ? timeSlot.startTime : '10:00');
+      if (!timeSlot && safeApptDateTime) {
+        const startOfDay = new Date(safeApptDateTime.getTime());
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const endOfDay = new Date(safeApptDateTime.getTime());
+        endOfDay.setUTCHours(23, 59, 59, 999);
 
-      if (!timeSlot) {
+        timeSlot = await tx.timeSlot.findFirst({
+          where: {
+            date: { gte: startOfDay, lte: endOfDay },
+            startTime: slotStartStr,
+            isActive: true,
+            slotStatus: 'AVAILABLE',
+            ...(country?.id ? { OR: [{ countryId: country.id }, { countryId: null }] } : {}),
+          },
+        });
+      }
+
+      if (timeSlot) {
+        if (['DRAFT', 'BLOCKED', 'CLOSED'].includes(timeSlot.slotStatus)) {
+          const err = new Error(`Selected time slot is not available for booking (Status: ${timeSlot.slotStatus})`);
+          err.statusCode = 400;
+          throw err;
+        }
+        const remaining = timeSlot.capacity - timeSlot.bookedCount;
+        if (remaining < paxCount) {
+          const err = new Error(`Selected time slot has insufficient capacity (Available: ${remaining}, Group size: ${paxCount})`);
+          err.statusCode = 400;
+          throw err;
+        }
+        const newBookedCount = timeSlot.bookedCount + paxCount;
+        timeSlot = await tx.timeSlot.update({
+          where: { id: timeSlot.id },
+          data: {
+            bookedCount: newBookedCount,
+            slotStatus: newBookedCount >= timeSlot.capacity ? 'FULL' : 'AVAILABLE',
+          },
+        });
+      } else if (safeApptDateTime) {
         timeSlot = await tx.timeSlot.create({
           data: {
             date: safeApptDateTime,
@@ -300,28 +409,42 @@ async function createGroup({
             capacity: Math.max(30, paxCount + 10),
             bookedCount: paxCount,
             isActive: true,
-            location: 'EuroTech Main Center, Port Baku Towers',
+            slotStatus: 'AVAILABLE',
+            countryId: country?.id || null,
+            visaTypeId: resolvedVisaType?.id || null,
+            visaPurposeId: resolvedVisaPurpose?.id || null,
+            location: defaultLocation,
           },
-        });
-      } else {
-        await tx.timeSlot.update({
-          where: { id: timeSlot.id },
-          data: { bookedCount: { increment: paxCount } },
         });
       }
 
-      await tx.appointment.create({
-        data: {
-          timeSlotId: timeSlot.id,
-          userId,
-          dossierId: dossier.id,
-          groupBatchId: group.id,
-          groupSize: paxCount,
-          status: 'PENDING_PAYMENT',
-          location: 'EuroTech Main Center, Port Baku Towers',
-          notes: `Group Batch: ${group.name} (${code}) - ${paxCount} Pax`,
-        },
-      });
+      if (timeSlot) {
+        const bookingCode = await nextBookingCode(tx);
+        const resolvedLoc = timeSlot.location || defaultLocation;
+        await tx.appointment.create({
+          data: {
+            bookingCode,
+            timeSlotId: timeSlot.id,
+            providerId: timeSlot.providerId || null,
+            visaTypeId: timeSlot.visaTypeId || resolvedVisaType?.id || null,
+            userId,
+            dossierId: dossier.id,
+            groupBatchId: group.id,
+            groupSize: paxCount,
+            status: 'PENDING_PAYMENT',
+            location: resolvedLoc,
+            notes: `Group Batch: ${group.name} (${code}) - ${paxCount} Pax`,
+          },
+        });
+
+        await tx.dossier.update({
+          where: { id: dossier.id },
+          data: {
+            appointmentDate: timeSlot.date || safeApptDateTime,
+            appointmentLocation: resolvedLoc,
+          },
+        });
+      }
     }
 
     // Create Pending Commission entry immediately so Agent sees exact Pending Clearing balance
@@ -388,13 +511,16 @@ async function getAgentGroups(userId) {
     include: {
       dossiers: {
         include: {
+          country: true,
+          visaType: true,
+          visaPurpose: true,
           applicants: {
             include: { documents: true },
           },
         },
       },
       appointments: {
-        include: { timeSlot: true },
+        include: { timeSlot: true, notifications: { orderBy: { sentAt: 'desc' }, take: 5 } },
       },
     },
     orderBy: { createdAt: 'desc' },

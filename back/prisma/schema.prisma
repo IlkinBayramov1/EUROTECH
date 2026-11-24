@@ -51,10 +51,88 @@ enum DocumentStatus {
 }
 
 enum AppointmentStatus {
+  PENDING
   CONFIRMED
   PENDING_PAYMENT
   CANCELLED
   RESCHEDULED
+  COMPLETED
+  NO_SHOW
+}
+
+enum ConfigStatus {
+  ACTIVE
+  DRAFT
+  INACTIVE
+}
+
+enum QuestionAnswerType {
+  TEXT
+  NUMBER
+  DATE
+  SINGLE_SELECT
+  MULTIPLE_SELECT
+  YES_NO
+  TEXTAREA
+  EMAIL
+  PHONE
+  COUNTRY_SELECT
+  ADDRESS
+  FILE_UPLOAD
+  REPEATER
+}
+
+enum DocumentCategoryType {
+  IDENTITY
+  FINANCIAL
+  TRAVEL
+  ACCOMMODATION
+  EMPLOYMENT
+  EDUCATION
+  FAMILY
+  PURPOSE_SPECIFIC
+  OTHER
+}
+
+enum AppointmentProviderType {
+  EMBASSY
+  VISA_APPLICATION_CENTRE
+}
+
+enum SlotManagementMode {
+  AUTOMATIC_GENERATION
+  MANUAL_AVAILABILITY
+}
+
+enum ScheduleStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  ARCHIVED
+}
+
+enum ExcludedDateReason {
+  PUBLIC_HOLIDAY
+  EMBASSY_CLOSED
+  VISA_CENTRE_CLOSED
+  TECHNICAL_MAINTENANCE
+  OTHER
+}
+
+enum SlotStatus {
+  DRAFT
+  AVAILABLE
+  FULL
+  BLOCKED
+  CLOSED
+}
+
+enum AppointmentNotificationType {
+  BOOKING_CONFIRMED
+  SLOT_RESCHEDULED
+  BOOKING_CANCELLED
+  REMINDER_24H
+  REMINDER_2H
 }
 
 enum GroupBatchStatus {
@@ -109,6 +187,36 @@ enum FamilyRole {
   OTHER
 }
 
+enum PromoDiscountType {
+  PERCENTAGE
+  FIXED_EUR
+}
+
+enum PromoApplyTarget {
+  TOTAL_AMOUNT
+  SERVICE_AND_EXTRAS_ONLY
+}
+
+enum PromoScope {
+  ALL
+  DOSSIER_PAYMENT
+  GROUP_BATCH_PAYMENT
+  ADDITIONAL_SERVICES
+}
+
+enum PromoStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum PromoRedemptionStatus {
+  RESERVED
+  APPLIED
+  RELEASED
+  REFUNDED
+}
+
 model User {
   id                      String                  @id @default(uuid())
   username                String?                 @unique
@@ -147,6 +255,8 @@ model User {
   departments             CorporateDepartment[]
   bankPaymentReceipts     BankPaymentReceipt[]
   agentTier               AgentTier               @default(BRONZE)
+  createdPromoCodes       PromoCode[]             @relation("PromoCodeCreatedBy")
+  promoRedemptions        PromoCodeRedemption[]
 }
 
 model PasswordResetToken {
@@ -215,15 +325,34 @@ model OtpToken {
 }
 
 model Country {
-  id             String         @id @default(uuid())
-  code           String         @unique // e.g. HU, DE, CZ, AZ, UZ, TR
-  nameAz         String
-  nameEn         String
-  nameRu         String
-  flagUrl        String?
-  isActive       Boolean        @default(true)
-  visaCategories VisaCategory[]
-  dossiers       Dossier[]
+  id                     String                       @id @default(uuid())
+  code                   String                       @unique // e.g. HU, DE, CZ, AZ, UZ, TR
+  nameAz                 String
+  nameEn                 String
+  nameRu                 String
+  flagUrl                String?
+  flagEmoji              String?
+  region                 String                       @default("Europe")
+  isSchengen             Boolean                      @default(true)
+  status                 ConfigStatus                 @default(ACTIVE)
+  isActive               Boolean                      @default(true)
+  displayOrder           Int                          @default(0)
+  processingDaysLabel    String?                      @default("15 business days")
+  metadataJson           Json?
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @default(now()) @updatedAt
+  visaCategories         VisaCategory[]
+  visaTypes              VisaType[]
+  visaApplicationCentres VisaApplicationCentre[]
+  embassies              Embassy[]
+  applicationLocations   CountryApplicationLocation[]
+  configurationVersions  ConfigurationVersion[]
+  appointmentProviders   AppointmentProvider[]
+  appointmentSchedules   AppointmentSchedule[]
+  scheduleExceptions     ScheduleException[]
+  timeSlots              TimeSlot[]
+  dossiers               Dossier[]
+  promoCodes             PromoCode[]
 }
 
 model VisaCategory {
@@ -276,11 +405,17 @@ model Dossier {
   user                User                   @relation(fields: [userId], references: [id])
   groupBatchId        String?
   groupBatch          GroupBatch?            @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
-  countryId           String
-  country             Country                @relation(fields: [countryId], references: [id])
-  visaCategoryId      String
-  visaCategory        VisaCategory           @relation(fields: [visaCategoryId], references: [id])
-  currentStep         Int                    @default(1) // 1 - 8 Addımlı Sihirbaz
+  countryId              String
+  country                Country                @relation(fields: [countryId], references: [id])
+  visaCategoryId         String
+  visaCategory           VisaCategory           @relation(fields: [visaCategoryId], references: [id])
+  visaTypeId             String?
+  visaType               VisaType?              @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  visaPurposeId          String?
+  visaPurpose            VisaPurpose?           @relation(fields: [visaPurposeId], references: [id], onDelete: SetNull)
+  configurationVersionId String?
+  configurationVersion   ConfigurationVersion?  @relation(fields: [configurationVersionId], references: [id], onDelete: SetNull)
+  currentStep            Int                    @default(1) // 1 - 8 Addımlı Sihirbaz
   status              DossierStatus          @default(RECEIVED)
   appointmentDate     DateTime?
   appointmentLocation String?                // e.g. Budapeşt qəbul mərkəzi
@@ -289,6 +424,8 @@ model Dossier {
   governmentFee       Float                  @default(80.0)
   serviceFee          Float                  @default(120.0)
   extraServicesFee    Float                  @default(0.0)
+  discountAmount      Float                  @default(0.0)
+  appliedPromoCode    String?
   totalAmount         Float                  @default(200.0)
   paymentStatus       PaymentStatus          @default(PENDING)
   gdprConsent         Boolean                @default(false)
@@ -304,6 +441,7 @@ model Dossier {
   appointments        Appointment[]
   statusHistory       DossierStatusHistory[]
   bankPaymentReceipts BankPaymentReceipt[]
+  promoRedemptions    PromoCodeRedemption[]
 
   @@index([userId, status])
   @@index([portalType, createdAt])
@@ -330,20 +468,24 @@ model Applicant {
   selfFillCompletedAt     DateTime?
   documents               ApplicantDocument[]
   services                AdditionalService[]
+  questionAnswers         ApplicantQuestionAnswer[]
 
   @@index([passportNumberHash])
 }
 
 
 model ApplicantDocument {
-  id                   String             @id @default(uuid())
-  dossierId            String?
-  dossier              Dossier?           @relation(fields: [dossierId], references: [id], onDelete: Cascade)
-  applicantId          String?
-  applicant            Applicant?         @relation(fields: [applicantId], references: [id], onDelete: Cascade)
-  corporateEmployeeId  String?
-  corporateEmployee    CorporateEmployee? @relation(fields: [corporateEmployeeId], references: [id], onDelete: Cascade)
-  requiredDocumentType String
+  id                      String                 @id @default(uuid())
+  dossierId               String?
+  dossier                 Dossier?               @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  applicantId             String?
+  applicant               Applicant?             @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  corporateEmployeeId     String?
+  corporateEmployee       CorporateEmployee?     @relation(fields: [corporateEmployeeId], references: [id], onDelete: Cascade)
+  purposeDocumentConfigId String?
+  purposeDocumentConfig   PurposeDocumentConfig? @relation(fields: [purposeDocumentConfigId], references: [id], onDelete: SetNull)
+  globalDocumentCode      String?
+  requiredDocumentType    String
   fileUrl              String
   fileName             String
   originalFileName     String?
@@ -387,9 +529,10 @@ model Transaction {
   idempotencyKey        String?       @unique
   orderReference        String?
   receiptUrl            String?
-  status                PaymentStatus @default(PENDING)
+  status                PaymentStatus         @default(PENDING)
   metadataJson          Json?
-  createdAt             DateTime      @default(now())
+  createdAt             DateTime              @default(now())
+  promoRedemptions      PromoCodeRedemption[]
 
   @@index([stripePaymentIntentId])
   @@index([paymentProvider, status])
@@ -434,34 +577,63 @@ model DossierStatusHistory {
 }
 
 model TimeSlot {
-  id           String        @id @default(uuid())
-  date         DateTime
-  startTime    String        // e.g. "10:30 AM"
-  capacity     Int           @default(10)
-  bookedCount  Int           @default(0)
-  location     String        @default("EuroTech Main Center")
-  isActive     Boolean       @default(true)
-  appointments Appointment[]
+  id            String               @id @default(uuid())
+  date          DateTime
+  startTime     String               // e.g. "09:00", "11:00"
+  capacity      Int                  @default(10)
+  bookedCount   Int                  @default(0)
+  location      String               @default("EuroTech Main Center")
+  isActive      Boolean              @default(true)
+  countryId     String?
+  country       Country?             @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  providerId    String?
+  provider      AppointmentProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  scheduleId    String?
+  schedule      AppointmentSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  visaTypeId    String?
+  visaType      VisaType?            @relation(fields: [visaTypeId], references: [id], onDelete: SetNull)
+  visaPurposeId String?
+  visaPurpose   VisaPurpose?         @relation(fields: [visaPurposeId], references: [id], onDelete: SetNull)
+  slotDate      String?              // Canonical local date "2026-12-01"
+  monthKey      String?              // "2026-12"
+  timezone      String               @default("Asia/Baku")
+  slotStatus    SlotStatus           @default(AVAILABLE)
+  isManual      Boolean              @default(false)
+  notes         String?              @db.Text
+  uniqueSlotKey String?              @unique // Deterministic duplicate protection key
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @default(now()) @updatedAt
+  appointments  Appointment[]
+
+  @@index([countryId, providerId, monthKey])
+  @@index([scheduleId, slotDate])
+  @@index([slotDate, slotStatus])
 }
 
 model Appointment {
-  id            String            @id @default(uuid())
-  timeSlotId    String
-  timeSlot      TimeSlot          @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dossierId     String?
-  dossier       Dossier?          @relation(fields: [dossierId], references: [id], onDelete: SetNull)
-  groupBatchId  String?
-  groupBatch    GroupBatch?       @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
-  status        AppointmentStatus @default(CONFIRMED)
-  groupSize     Int               @default(1)
-  location      String?
-  notes         String?
-  reminded24hAt DateTime?
-  reminded2hAt  DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id                    String                    @id @default(uuid())
+  bookingCode           String?                   @unique // e.g. AP001, AP002
+  timeSlotId            String
+  timeSlot              TimeSlot                  @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dossierId             String?
+  dossier               Dossier?                  @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  groupBatchId          String?
+  groupBatch            GroupBatch?               @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
+  providerId            String?
+  visaTypeId            String?
+  rescheduledFromSlotId String?
+  status                AppointmentStatus         @default(CONFIRMED)
+  groupSize             Int                       @default(1)
+  location              String?
+  notes                 String?
+  adminNotes            String?                   @db.Text
+  reminded24hAt         DateTime?
+  reminded2hAt          DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  notifications         AppointmentNotification[]
 
   @@index([timeSlotId, status])
   @@index([userId, createdAt])
@@ -479,12 +651,15 @@ model GroupBatch {
   duration            String?              // "short" or "long"
   projectReason       String?              // "Tourism", "Business / Corporate", "Work"
   packageTier         String?
-  status              GroupBatchStatus     @default(DRAFT)
+  discountAmount      Float                 @default(0.0)
+  appliedPromoCode    String?
+  status              GroupBatchStatus      @default(DRAFT)
   dossiers            Dossier[]
   appointments        Appointment[]
   invoices            CorporateInvoice[]
   bankPaymentReceipts BankPaymentReceipt[]
-  createdAt           DateTime             @default(now())
+  promoRedemptions    PromoCodeRedemption[]
+  createdAt           DateTime              @default(now())
   updatedAt           DateTime             @updatedAt
 }
 
@@ -575,12 +750,15 @@ model CorporateInvoice {
   corporateUser   User          @relation(fields: [corporateUserId], references: [id], onDelete: Cascade)
   groupBatchId    String?
   groupBatch      GroupBatch?   @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
-  invoiceNumber   String        @unique // e.g. "INV-2026-9012"
-  amount          Float
-  dueDate         DateTime
-  status          InvoiceStatus @default(PENDING)
-  pdfUrl          String?
-  createdAt       DateTime      @default(now())
+  invoiceNumber    String                @unique // e.g. "INV-2026-9012"
+  amount           Float
+  discountAmount   Float                 @default(0.0)
+  appliedPromoCode String?
+  dueDate          DateTime
+  status           InvoiceStatus         @default(PENDING)
+  pdfUrl           String?
+  promoRedemptions PromoCodeRedemption[]
+  createdAt        DateTime              @default(now())
   updatedAt       DateTime      @updatedAt
 }
 
@@ -615,8 +793,9 @@ model BankPaymentReceipt {
   adminNotes       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  promoRedemptions PromoCodeRedemption[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 }
 
 model CronTaskLog {
@@ -649,5 +828,614 @@ model OutboundMessageLog {
 
   @@index([status, retryCount])
 }
+
+// ============================================================================
+// VISA CONFIGURATION & MANAGEMENT SYSTEM (VCMS) & APPOINTMENT ENGINE MODELS
+// ============================================================================
+
+model VisaType {
+  id                  String             @id @default(uuid())
+  countryId           String
+  country             Country            @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  code                String             // e.g. SHORT_STAY_C, LONG_STAY_D, VISITOR_B1_B2
+  nameEn              String             // e.g. Short Stay Visa (C)
+  nameAz              String?
+  nameRu              String?
+  descriptionEn       String?            @db.Text
+  descriptionAz       String?            @db.Text
+  descriptionRu       String?            @db.Text
+  stayCategory        String             @default("SHORT") // SHORT | LONG | TRANSIT | OTHER
+  maxDurationDays     Int?               // e.g. 90
+  maxDurationLabel    String?            // e.g. "Up to 90 days in any 180-day period"
+  defaultFeeEur       Float              @default(80.0)
+  status              ConfigStatus       @default(ACTIVE)
+  displayOrder        Int                @default(0)
+  metadataJson        Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  purposes            VisaPurpose[]
+  providerMappings    ProviderVisaType[]
+  schedules           AppointmentSchedule[]
+  timeSlots           TimeSlot[]
+  dossiers            Dossier[]
+
+  @@unique([countryId, code])
+  @@index([countryId, status, displayOrder])
+}
+
+model VisaPurpose {
+  id                   String                  @id @default(uuid())
+  visaTypeId           String
+  visaType             VisaType                @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  code                 String                  // e.g. TOURISM, BUSINESS, FAMILY_PRIVATE, MEDICAL, STUDY, EMPLOYMENT
+  nameEn               String                  // e.g. Business
+  nameAz               String?
+  nameRu               String?
+  descriptionEn        String?                 @db.Text
+  descriptionAz        String?                 @db.Text
+  descriptionRu        String?                 @db.Text
+  consularFeeOverride  Float?
+  status               ConfigStatus            @default(ACTIVE)
+  displayOrder         Int                     @default(0)
+  legacyVisaCategoryId String?
+  metadataJson         Json?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  questionCategories   QuestionCategory[]
+  questionConfigs      PurposeQuestionConfig[]
+  documentConfigs      PurposeDocumentConfig[]
+  providerMappings     ProviderVisaPurpose[]
+  schedules            AppointmentSchedule[]
+  timeSlots            TimeSlot[]
+  dossiers             Dossier[]
+
+  @@unique([visaTypeId, code])
+  @@index([visaTypeId, status, displayOrder])
+}
+
+model GlobalQuestion {
+  id                  String                  @id @default(uuid())
+  questionCode        String                  @unique // Auto-generated: Q001, Q002...
+  titleEn             String                  // Short admin title: "First Name"
+  titleAz             String?
+  titleRu             String?
+  officialTextEn      String                  @db.Text // Exact form question
+  officialTextAz      String?                 @db.Text
+  officialTextRu      String?                 @db.Text
+  defaultCategoryName String                  @default("General Information")
+  answerType          QuestionAnswerType      @default(TEXT)
+  defaultRequired     Boolean                 @default(true)
+  isReusable          Boolean                 @default(true)
+  isRepeatable        Boolean                 @default(false)
+  helpTextEn          String?                 @db.Text
+  helpTextAz          String?                 @db.Text
+  defaultValue        String?
+  validationJson      Json?
+  repeaterSchemaJson  Json?
+  schengenPdfFieldKey String?                 // Bridge to 37-point Schengen PDF generator
+  status              ConfigStatus            @default(ACTIVE)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  options             GlobalQuestionOption[]
+  validations         QuestionValidation[]
+  purposeConfigs      PurposeQuestionConfig[]
+
+  @@index([status, answerType])
+}
+
+model GlobalQuestionOption {
+  id               String         @id @default(uuid())
+  globalQuestionId String
+  globalQuestion   GlobalQuestion @relation(fields: [globalQuestionId], references: [id], onDelete: Cascade)
+  optionCode       String         @unique // e.g. OPT_MARITAL_SINGLE, OPT_MARITAL_MARRIED
+  labelEn          String
+  labelAz          String?
+  labelRu          String?
+  displayOrder     Int            @default(0)
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([globalQuestionId, displayOrder])
+}
+
+model QuestionCategory {
+  id            String                  @id @default(uuid())
+  visaPurposeId String
+  visaPurpose   VisaPurpose             @relation(fields: [visaPurposeId], references: [id], onDelete: Cascade)
+  code          String                  // e.g. YOUR_PLANS, YOUR_INFORMATION, TRAVEL_DOCUMENT
+  nameEn        String                  // e.g. "1. Your Plans"
+  nameAz        String?
+  nameRu        String?
+  descriptionEn String?
+  displayOrder  Int                     @default(0)
+  isActive      Boolean                 @default(true)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  questions     PurposeQuestionConfig[]
+
+  @@unique([visaPurposeId, code])
+  @@index([visaPurposeId, displayOrder])
+}
+
+model PurposeQuestionConfig {
+  id                   String                    @id @default(uuid())
+  visaPurposeId        String
+  visaPurpose          VisaPurpose               @relation(fields: [visaPurposeId], references: [id], onDelete: Cascade)
+  categoryId           String
+  category             QuestionCategory          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  globalQuestionId     String
+  globalQuestion       GlobalQuestion            @relation(fields: [globalQuestionId], references: [id], onDelete: Cascade)
+
+  // Local Country/Purpose Overrides (NULL => inherit from GlobalQuestion)
+  customTitleEn        String?
+  customTitleAz        String?
+  customOfficialTextEn String?                   @db.Text
+  customOfficialTextAz String?                   @db.Text
+  customHelpTextEn     String?                   @db.Text
+  customHelpTextAz     String?                   @db.Text
+  customDefaultValue   String?
+  customAnswerType     QuestionAnswerType?
+  isRequired           Boolean                   @default(true)
+  isRepeatable         Boolean                   @default(false)
+  officialFormOrder    Int                       @default(0)
+  validationOverride   Json?
+  optionsOverrideJson  Json?
+  conditionalLogicJson Json?
+  isActive             Boolean                   @default(true)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  conditions           QuestionCondition[]
+  validations          QuestionValidation[]
+  answers              ApplicantQuestionAnswer[]
+
+  @@unique([visaPurposeId, globalQuestionId])
+  @@index([visaPurposeId, categoryId, officialFormOrder])
+}
+
+model QuestionCondition {
+  id                      String                @id @default(uuid())
+  purposeQuestionConfigId String
+  purposeQuestionConfig   PurposeQuestionConfig @relation(fields: [purposeQuestionConfigId], references: [id], onDelete: Cascade)
+  groupOperator           String                @default("AND") // AND | OR
+  action                  String                @default("SHOW_AND_REQUIRE") // SHOW | HIDE | SHOW_AND_REQUIRE | REQUIRE
+  triggerQuestionCode     String                // e.g. Q012
+  comparator              String                @default("EQUALS")
+  triggerValue            String?               // e.g. OPT_MARITAL_MARRIED
+  displayOrder            Int                   @default(0)
+  createdAt               DateTime              @default(now())
+
+  @@index([purposeQuestionConfigId])
+  @@index([triggerQuestionCode])
+}
+
+model QuestionValidation {
+  id                      String                 @id @default(uuid())
+  purposeQuestionConfigId String?
+  purposeQuestionConfig   PurposeQuestionConfig? @relation(fields: [purposeQuestionConfigId], references: [id], onDelete: Cascade)
+  globalQuestionId        String?
+  globalQuestion          GlobalQuestion?        @relation(fields: [globalQuestionId], references: [id], onDelete: Cascade)
+  ruleType                String                 // MIN_LENGTH | MAX_LENGTH | REGEX | MIN_VALUE | MAX_VALUE | FUTURE_DATE | PAST_DATE | PASSPORT_VALIDITY_MONTHS | ALLOWED_EXTENSIONS
+  ruleValue               String
+  errorMessageEn          String?
+  errorMessageAz          String?
+  errorMessageRu          String?
+  createdAt               DateTime               @default(now())
+
+  @@index([purposeQuestionConfigId])
+  @@index([globalQuestionId])
+}
+
+model DocumentCategory {
+  id            String           @id @default(uuid())
+  code          String           @unique // IDENTITY, FINANCIAL, TRAVEL, ACCOMMODATION, EMPLOYMENT, EDUCATION, FAMILY, PURPOSE_SPECIFIC, OTHER
+  nameEn        String
+  nameAz        String?
+  nameRu        String?
+  displayOrder  Int              @default(0)
+  isActive      Boolean          @default(true)
+  documents     GlobalDocument[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+}
+
+model GlobalDocument {
+  id                 String                  @id @default(uuid())
+  documentCode       String                  @unique // Auto-generated: DOC-001, DOC-002...
+  nameEn             String
+  nameAz             String?
+  nameRu             String?
+  descriptionEn      String?                 @db.Text
+  descriptionAz      String?                 @db.Text
+  descriptionRu      String?                 @db.Text
+  category           DocumentCategoryType    @default(OTHER)
+  documentCategoryId String?
+  documentCategory   DocumentCategory?       @relation(fields: [documentCategoryId], references: [id], onDelete: SetNull)
+  defaultRequired    Boolean                 @default(true)
+  isReusable         Boolean                 @default(true)
+  allowedFormats     String                  @default("pdf,jpg,jpeg,png")
+  maxFileSizeMb      Int                     @default(15)
+  legacyDocCode      String?
+  status             ConfigStatus            @default(ACTIVE)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  purposeConfigs     PurposeDocumentConfig[]
+
+  @@index([category, status])
+}
+
+model PurposeDocumentConfig {
+  id                   String              @id @default(uuid())
+  visaPurposeId        String
+  visaPurpose          VisaPurpose         @relation(fields: [visaPurposeId], references: [id], onDelete: Cascade)
+  globalDocumentId     String
+  globalDocument       GlobalDocument      @relation(fields: [globalDocumentId], references: [id], onDelete: Cascade)
+  customNameEn         String?
+  customNameAz         String?
+  customDescriptionEn  String?             @db.Text
+  customDescriptionAz  String?             @db.Text
+  isRequired           Boolean             @default(true)
+  displayOrder         Int                 @default(0)
+  conditionalRulesJson Json?
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  conditions           DocumentCondition[]
+  uploadedDocuments    ApplicantDocument[]
+
+  @@unique([visaPurposeId, globalDocumentId])
+  @@index([visaPurposeId, displayOrder])
+}
+
+model DocumentCondition {
+  id                      String                @id @default(uuid())
+  purposeDocumentConfigId String
+  purposeDocumentConfig   PurposeDocumentConfig @relation(fields: [purposeDocumentConfigId], references: [id], onDelete: Cascade)
+  groupOperator           String                @default("AND")
+  action                  String                @default("SHOW_AND_REQUIRE")
+  triggerQuestionCode     String
+  comparator              String                @default("EQUALS")
+  triggerValue            String?
+  createdAt               DateTime              @default(now())
+
+  @@index([purposeDocumentConfigId])
+  @@index([triggerQuestionCode])
+}
+
+model ConfigurationVersion {
+  id            String       @id @default(uuid())
+  countryId     String
+  country       Country      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  status        ConfigStatus @default(DRAFT)
+  changeSummary String?      @db.Text
+  snapshotJson  Json
+  publishedById String?
+  publishedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  dossiers      Dossier[]
+
+  @@unique([countryId, versionNumber])
+  @@index([countryId, status])
+}
+
+model VisaApplicationCentre {
+  id                    String                       @id @default(uuid())
+  countryId             String
+  country               Country                      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  providerName          String                       // e.g. Capago, VFS Global, TLScontact
+  centreName            String?
+  city                  String                       @default("Baku")
+  locationCountryCode   String                       @default("AZ")
+  locationCountryName   String                       @default("Azerbaijan")
+  address               String                       @db.Text
+  telephone             String?
+  email                 String?
+  officialWebsite       String?
+  appointmentBookingUrl String?
+  workingHours          String?
+  notes                 String?                      @db.Text
+  status                ConfigStatus                 @default(ACTIVE)
+  isPrimary             Boolean                      @default(true)
+  metadataJson          Json?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  applicationLocations  CountryApplicationLocation[]
+  appointmentProviders  AppointmentProvider[]
+
+  @@index([countryId, locationCountryCode, status])
+}
+
+model Embassy {
+  id                    String                       @id @default(uuid())
+  countryId             String
+  country               Country                      @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  responsibleAuthority  String                       // e.g. Embassy of France in Baku
+  city                  String                       @default("Baku")
+  locationCountryCode   String                       @default("AZ")
+  locationCountryName   String                       @default("Azerbaijan")
+  address               String                       @db.Text
+  telephone             String?
+  email                 String?
+  officialWebsite       String?
+  visaInformationUrl    String?
+  consularHours         String?
+  jurisdictionNotes     String?                      @db.Text
+  status                ConfigStatus                 @default(ACTIVE)
+  isPrimary             Boolean                      @default(true)
+  metadataJson          Json?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  applicationLocations  CountryApplicationLocation[]
+  appointmentProviders  AppointmentProvider[]
+
+  @@index([countryId, locationCountryCode, status])
+}
+
+model CountryApplicationLocation {
+  id                      String                 @id @default(uuid())
+  destinationCountryId    String
+  destinationCountry      Country                @relation(fields: [destinationCountryId], references: [id], onDelete: Cascade)
+  applicantCountryCode    String                 // e.g. AZ, GE, TR
+  applicantCountryName    String                 // e.g. Azerbaijan
+  visaApplicationCentreId String?
+  visaApplicationCentre   VisaApplicationCentre? @relation(fields: [visaApplicationCentreId], references: [id], onDelete: SetNull)
+  embassyId               String?
+  embassy                 Embassy?               @relation(fields: [embassyId], references: [id], onDelete: SetNull)
+  isDefault               Boolean                @default(false)
+  status                  ConfigStatus           @default(ACTIVE)
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  @@unique([destinationCountryId, applicantCountryCode])
+  @@index([applicantCountryCode, status])
+}
+
+model AppointmentProvider {
+  id                      String                  @id @default(uuid())
+  countryId               String
+  country                 Country                 @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  providerType            AppointmentProviderType
+  embassyId               String?
+  embassy                 Embassy?                @relation(fields: [embassyId], references: [id], onDelete: SetNull)
+  visaApplicationCentreId String?
+  visaApplicationCentre   VisaApplicationCentre?  @relation(fields: [visaApplicationCentreId], references: [id], onDelete: SetNull)
+  displayName             String
+  applicantCountryCode    String                  @default("AZ")
+  timezone                String                  @default("Asia/Baku")
+  defaultManagementMode   SlotManagementMode      @default(AUTOMATIC_GENERATION)
+  status                  ConfigStatus            @default(ACTIVE)
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  servedVisaTypes         ProviderVisaType[]
+  servedPurposes          ProviderVisaPurpose[]
+  schedules               AppointmentSchedule[]
+  exceptions              ScheduleException[]
+  slots                   TimeSlot[]
+
+  @@index([countryId, providerType, status])
+  @@index([applicantCountryCode])
+}
+
+model ProviderVisaType {
+  id         String              @id @default(uuid())
+  providerId String
+  provider   AppointmentProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  visaTypeId String
+  visaType   VisaType            @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  isDefault  Boolean             @default(true)
+  isActive   Boolean             @default(true)
+  createdAt  DateTime            @default(now())
+
+  @@unique([providerId, visaTypeId])
+}
+
+model ProviderVisaPurpose {
+  id            String              @id @default(uuid())
+  providerId    String
+  provider      AppointmentProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  visaPurposeId String
+  visaPurpose   VisaPurpose         @relation(fields: [visaPurposeId], references: [id], onDelete: Cascade)
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+
+  @@unique([providerId, visaPurposeId])
+}
+
+model AppointmentSchedule {
+  id              String              @id @default(uuid())
+  countryId       String
+  country         Country             @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  providerId      String
+  provider        AppointmentProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  visaTypeId      String
+  visaType        VisaType            @relation(fields: [visaTypeId], references: [id], onDelete: Cascade)
+  visaPurposeId   String?
+  visaPurpose     VisaPurpose?        @relation(fields: [visaPurposeId], references: [id], onDelete: SetNull)
+  monthKey        String              // e.g. "2026-12"
+  startDate       DateTime
+  endDate         DateTime
+  timezone        String              @default("Asia/Baku")
+  managementMode  SlotManagementMode  @default(AUTOMATIC_GENERATION)
+  status          ScheduleStatus      @default(DRAFT)
+  publishedAt     DateTime?
+  publishedById   String?
+  closedAt        DateTime?
+  createdByUserId String?
+  notes           String?             @db.Text
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  generationRule  SlotGenerationRule?
+  exceptions      ScheduleException[]
+  slots           TimeSlot[]
+
+  @@index([countryId, providerId, monthKey])
+  @@index([status, monthKey])
+}
+
+model SlotGenerationRule {
+  id                    String              @id @default(uuid())
+  scheduleId            String              @unique
+  schedule              AppointmentSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  appointmentsPerDay    Int                 @default(2)
+  appointmentTimesJson  Json                // e.g. ["09:00", "11:00"]
+  capacityPerSlot       Int                 @default(1)
+  workingDaysJson       Json                // e.g. [1, 2, 3, 4, 5]
+  excludeWeekends       Boolean             @default(true)
+  excludeLastDayOfMonth Boolean             @default(true)
+  excludePublicHolidays Boolean             @default(true)
+  lastGeneratedAt       DateTime?
+  lastSummaryJson       Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+}
+
+model ScheduleException {
+  id              String               @id @default(uuid())
+  scheduleId      String?
+  schedule        AppointmentSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  providerId      String?
+  provider        AppointmentProvider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  countryId       String?
+  country         Country?             @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  excludedDate    String               // "2026-12-31"
+  monthKey        String               // "2026-12"
+  reason          ExcludedDateReason   @default(PUBLIC_HOLIDAY)
+  note            String?
+  isPublicHoliday Boolean              @default(false)
+  createdByUserId String?
+  createdAt       DateTime             @default(now())
+
+  @@index([monthKey, countryId, providerId])
+  @@index([excludedDate])
+}
+
+model AppointmentNotification {
+  id              String                      @id @default(uuid())
+  appointmentId   String
+  appointment     Appointment                 @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  userId          String
+  type            AppointmentNotificationType
+  channel         String                      @default("IN_APP_AND_EMAIL")
+  title           String
+  message         String                      @db.Text
+  previousSlotIso String?
+  newSlotIso      String?
+  sentAt          DateTime                    @default(now())
+  readAt          DateTime?
+  deliveryStatus  String                      @default("SENT")
+
+  @@index([userId, readAt])
+  @@index([appointmentId])
+}
+
+model ApplicantQuestionAnswer {
+  id                      String                @id @default(uuid())
+  dossierId               String
+  applicantId             String
+  applicant               Applicant             @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  purposeQuestionConfigId String
+  purposeQuestionConfig   PurposeQuestionConfig @relation(fields: [purposeQuestionConfigId], references: [id], onDelete: Cascade)
+  questionCode            String
+  valueText               String?               @db.Text
+  selectedOptionCodesJson Json?
+  structuredValueJson     Json?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  @@unique([applicantId, purposeQuestionConfigId])
+  @@index([dossierId, applicantId])
+  @@index([questionCode])
+}
+
+// ============================================================================
+// PROMO CODES & DISCOUNT ENGINE MODELS
+// ============================================================================
+
+model PromoCode {
+  id                   String                @id @default(uuid())
+  code                 String                @unique
+  title                String?
+  description          String?               @db.Text
+  discountType         PromoDiscountType     @default(PERCENTAGE)
+  discountValue        Float
+  maxDiscountEur       Float?
+  minOrderAmountEur    Float?
+  applyTarget          PromoApplyTarget      @default(TOTAL_AMOUNT)
+  allowAgentCommission Boolean               @default(true)
+  applicableScope      PromoScope            @default(ALL)
+  allowedPortalsJson   Json?
+  countryId            String?
+  country              Country?              @relation(fields: [countryId], references: [id], onDelete: SetNull)
+  maxUses              Int?
+  maxUsesPerUser       Int?                  @default(1)
+  currentUses          Int                   @default(0)
+  startsAt             DateTime?
+  expiresAt            DateTime?
+  status               PromoStatus           @default(ACTIVE)
+  createdByUserId      String?
+  createdBy            User?                 @relation("PromoCodeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  redemptions          PromoCodeRedemption[]
+
+  @@index([status, expiresAt])
+  @@index([countryId])
+}
+
+model PromoCodeRedemption {
+  id                    String                @id @default(uuid())
+  promoCodeId           String
+  promoCode             PromoCode             @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
+  promoCodeSnapshot     String
+  discountTypeSnapshot  PromoDiscountType
+  discountValueSnapshot Float
+  userId                String
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portalType            PortalType            @default(INDIVIDUAL)
+  scope                 PromoScope            @default(DOSSIER_PAYMENT)
+  paymentMethod         String                @default("WALLET")
+  dossierId             String?
+  dossier               Dossier?              @relation(fields: [dossierId], references: [id], onDelete: SetNull)
+  groupBatchId          String?
+  groupBatch            GroupBatch?           @relation(fields: [groupBatchId], references: [id], onDelete: SetNull)
+  corporateInvoiceId    String?
+  corporateInvoice      CorporateInvoice?     @relation(fields: [corporateInvoiceId], references: [id], onDelete: SetNull)
+  transactionId         String?
+  transaction           Transaction?          @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  bankPaymentReceiptId  String?
+  bankPaymentReceipt    BankPaymentReceipt?   @relation(fields: [bankPaymentReceiptId], references: [id], onDelete: SetNull)
+  originalAmountEur     Float
+  eligibleAmountEur     Float
+  discountAmountEur     Float
+  finalAmountEur        Float
+  currency              String                @default("EUR")
+  status                PromoRedemptionStatus @default(RESERVED)
+  reservedAt            DateTime              @default(now())
+  confirmedAt           DateTime?
+  releasedAt            DateTime?
+  releaseReason         String?
+  metadataJson          Json?
+
+  @@index([promoCodeId, userId, status])
+  @@index([dossierId, status])
+  @@index([groupBatchId, status])
+  @@index([corporateInvoiceId, status])
+  @@index([transactionId])
+  @@index([bankPaymentReceiptId])
+}
+
+
 
 

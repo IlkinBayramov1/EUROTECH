@@ -41,6 +41,7 @@ export default function Step5Review({
     activePackage: formData.services.activePackage,
     services: formData.services,
     duration: formData.duration || 'short',
+    baseConsularFeeOverride: formData.consularFeeEur,
   });
 
   // Inline Quick Top-Up Modal State inside Step 5
@@ -128,10 +129,11 @@ export default function Step5Review({
               Destination Country
             </span>
             <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0F172A', marginTop: '4px' }}>
-              🇪🇺 {formData.country || 'Hungary'} ({formData.countryCode || 'HU'})
+              {formData.country || 'Hungary'} ({formData.countryCode || 'HU'})
             </div>
             <div style={{ fontSize: '0.82rem', color: '#64748B' }}>
-              {formData.duration === 'long' ? 'National D Visa (Long Stay)' : 'Schengen C Visa (Short Stay)'}
+              {formData.visaTypeName ||
+                (formData.duration === 'long' ? 'National D Visa (Long Stay)' : 'Schengen C Visa (Short Stay)')}
             </div>
           </div>
 
@@ -140,7 +142,7 @@ export default function Step5Review({
               Travel Date &amp; Purpose
             </span>
             <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', marginTop: '4px' }}>
-              📅 {formData.travelDate || 'Departure TBD'}
+              {formData.travelDate || 'Departure TBD'}
             </div>
             <div style={{ fontSize: '0.82rem', color: '#64748B' }}>
               {formData.projectReason || 'Tourism'}
@@ -152,7 +154,7 @@ export default function Step5Review({
               Biometric Appointment
             </span>
             <div style={{ fontSize: '1rem', fontWeight: 700, color: '#0F172A', marginTop: '4px' }}>
-              🏛️ {formData.appointmentDate || 'Not selected'}
+              {formData.appointmentDate || 'Not selected'}
             </div>
             <div style={{ fontSize: '0.82rem', color: '#64748B' }}>
               {formData.appointmentTime || 'Time TBD'}
@@ -164,7 +166,7 @@ export default function Step5Review({
               Total Applicants &amp; Package
             </span>
             <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#2563EB', marginTop: '4px' }}>
-              👥 {applicantsCount} {applicantsCount === 1 ? 'Applicant' : 'Applicants'}
+              {applicantsCount} {applicantsCount === 1 ? 'Applicant' : 'Applicants'}
             </div>
             <div style={{ fontSize: '0.82rem', color: '#64748B', fontWeight: 600 }}>
               Package: {fees.packageName}
@@ -255,7 +257,7 @@ export default function Step5Review({
 
         {isAgent && (
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', marginTop: '8px', borderRadius: '8px', background: '#ECFDF5', border: '1px solid #A7F3D0', fontSize: '0.88rem', color: '#065F46' }}>
-            <span>🎁 Partner Commission Unlocked Upon Settlement (€{resolvedAgentRate.toFixed(2)} × {applicantsCount} Pax)</span>
+            <span>Partner Commission Unlocked Upon Settlement (€{resolvedAgentRate.toFixed(2)} × {applicantsCount} Pax)</span>
             <strong>+€ {estimatedAgentCommissionEur.toFixed(2)} Credited to Wallet</strong>
           </div>
         )}

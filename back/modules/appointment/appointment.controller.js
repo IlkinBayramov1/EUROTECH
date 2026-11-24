@@ -3,8 +3,16 @@ const ApiResponse = require('../../core/api.response');
 
 async function getAvailableSlots(req, res, next) {
   try {
-    const { date, location } = req.query;
-    const slots = await appointmentService.getAvailableSlots({ date, location });
+    const { date, location, countryId, visaTypeId, visaPurposeId, providerId, groupSize } = req.query;
+    const slots = await appointmentService.getAvailableSlots({
+      date,
+      location,
+      countryId,
+      visaTypeId,
+      visaPurposeId,
+      providerId,
+      groupSize,
+    });
     return ApiResponse.success(res, { slots }, 'Available time slots retrieved successfully');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);

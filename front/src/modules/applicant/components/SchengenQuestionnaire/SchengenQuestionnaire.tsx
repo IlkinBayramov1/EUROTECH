@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Step1TripDetails from './Step1TripDetails';
 import Step2PersonalData from './Step2PersonalData';
 import Step3TravelDocument from './Step3TravelDocument';
 import Step4AccommodationExpenses from './Step4AccommodationExpenses';
 import Step5ContactsEmployment from './Step5ContactsEmployment';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
+import DynamicVcmsFormRenderer, {
+  type VcmsQuestionItem,
+} from '../VcmsDynamicForm/DynamicVcmsFormRenderer';
 import type { DossierContext } from '../../types/applicant.types';
 
 interface SchengenQuestionnaireProps {
+  applicantId?: string;
   formData: Record<string, any>;
   onFieldChange: (field: string, value: any) => void;
   dossier: DossierContext | null;
@@ -16,6 +21,7 @@ interface SchengenQuestionnaireProps {
 }
 
 export default function SchengenQuestionnaire({
+  applicantId,
   formData,
   onFieldChange,
   dossier,
@@ -24,6 +30,69 @@ export default function SchengenQuestionnaire({
   isCorporateMode,
 }: SchengenQuestionnaireProps) {
   const [currentStep, setCurrentStep] = useState(1);
+  const [vcmsQuestions, setVcmsQuestions] = useState<VcmsQuestionItem[]>([]);
+  const [vcmsAnswers, setVcmsAnswers] = useState<Record<string, any>>({});
+  const [vcmsMeta, setVcmsMeta] = useState<{ visaTypeName?: string; visaPurposeName?: string }>({});
+
+  const targetAppId = applicantId || (dossier as any)?.applicants?.[0]?.id;
+
+  useEffect(() => {
+    if (!dossier?.id || !targetAppId) return;
+    vcmsApi
+      .getApplicantAnswers(dossier.id, targetAppId)
+      .then((res) => {
+        const qs = res.data?.schema?.questions || [];
+        setVcmsQuestions(qs);
+        setVcmsMeta({
+          visaTypeName: res.data?.visaType?.nameEn,
+          visaPurposeName: res.data?.visaPurpose?.nameEn || res.data?.schema?.purpose?.nameEn,
+        });
+        const savedMap: Record<string, any> = {};
+        for (const ans of res.data?.savedAnswers || []) {
+          savedMap[ans.questionCode] =
+            Array.isArray(ans.selectedOptionCodesJson) && ans.selectedOptionCodesJson.length > 1
+              ? ans.selectedOptionCodesJson
+              : ans.valueText ||
+                (Array.isArray(ans.selectedOptionCodesJson) ? ans.selectedOptionCodesJson[0] : '') ||
+                (ans.valueJson !== null && ans.valueJson !== undefined ? ans.valueJson : '');
+        }
+        setVcmsAnswers(savedMap);
+      })
+      .catch(() => {});
+  }, [dossier?.id, targetAppId]);
+
+  const handleVcmsAnswerChange = (q: VcmsQuestionItem, val: any) => {
+    const nextMap = { ...vcmsAnswers, [q.questionCode]: val };
+    setVcmsAnswers(nextMap);
+    if (q.schengenPdfFieldKey) {
+      onFieldChange(
+        q.schengenPdfFieldKey,
+        Array.isArray(val) ? val.join(', ') : val
+      );
+    }
+    if (dossier?.id && targetAppId) {
+      const isSelect = ['SINGLE_SELECT', 'MULTIPLE_SELECT'].includes(q.answerType);
+      const selectedCodes = isSelect
+        ? Array.isArray(val)
+          ? val.map(String)
+          : val
+            ? [String(val)]
+            : []
+        : undefined;
+      const strVal = Array.isArray(val) ? val.join(', ') : String(val ?? '');
+      vcmsApi
+        .saveApplicantAnswers(dossier.id, targetAppId, [
+          {
+            purposeQuestionConfigId: q.configId,
+            questionCode: q.questionCode,
+            valueText: strVal,
+            valueJson: Array.isArray(val) ? val : undefined,
+            selectedOptionCodes: selectedCodes,
+          },
+        ])
+        .catch(() => {});
+    }
+  };
 
   const steps = [
     { id: 1, title: '1. Plans & Purpose' },
@@ -116,6 +185,17 @@ export default function SchengenQuestionnaire({
             corporatePhone={dossier?.user?.phone}
           />
         )}
+
+        {/* Dynamic Country & Purpose Configured VCMS Questions for Current Category Step */}
+        <DynamicVcmsFormRenderer
+          questions={vcmsQuestions}
+          answers={vcmsAnswers}
+          onAnswerChange={handleVcmsAnswerChange}
+          stepFilter={currentStep}
+          countryName={dossier?.country?.nameEn}
+          visaTypeName={vcmsMeta.visaTypeName}
+          visaPurposeName={vcmsMeta.visaPurposeName}
+        />
 
         {/* Footer Navigation Buttons */}
         <div className="questionnaire-footer-nav">

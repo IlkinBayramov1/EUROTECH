@@ -7,8 +7,8 @@ const { sendDownloadSafely } = require('../../utils/download.util');
 async function createPaymentIntent(req, res) {
   try {
     const { idempotencyKey } = req.body || {};
-    const result = await paymentService.createPaymentIntent(req.body, req.user.id, idempotencyKey);
-    return ApiResponse.success(res, result, 'Payment intent created');
+    const result = await paymentService.createPaymentIntent(req.body, req.user.id, idempotencyKey, req.user.role);
+    return ApiResponse.success(res, result, result?.zeroDueSettled ? 'Order settled via promo code' : 'Payment intent created');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
   }
@@ -35,7 +35,10 @@ async function getWalletOverview(req, res) {
 
 async function topupWallet(req, res) {
   try {
-    const { amount, currency, method, reference } = req.body || {};
+    const { amount, currency, method, reference, promoCode } = req.body || {};
+    if (promoCode && String(promoCode).trim()) {
+      return ApiResponse.error(res, 'Promo codes cannot be applied to wallet top-up deposits.', 400);
+    }
     const result = await walletService.topupWallet({
       userId: req.user.id,
       amount,
@@ -51,13 +54,16 @@ async function topupWallet(req, res) {
 
 async function payWithWallet(req, res) {
   try {
-    const { dossierId, groupBatchId, invoiceId } = req.body || {};
+    const { dossierId, groupBatchId, invoiceId, promoCode, scope, source } = req.body || {};
     const result = await walletService.payWithWallet({
       userId: req.user.id,
       userRole: req.user.role,
       dossierId: dossierId || null,
       groupBatchId: groupBatchId || null,
       invoiceId: invoiceId || null,
+      promoCode: promoCode || null,
+      scope: scope || null,
+      source: source || null,
     });
     return ApiResponse.success(res, result, 'Payment settled from wallet');
   } catch (error) {
@@ -155,12 +161,28 @@ async function submitBankPaymentSlip(req, res) {
   try {
     const fileUrl = req.file ? `/uploads/${req.file.filename}` : req.body.fileUrl;
     const fileName = req.file ? req.file.originalname : (req.body.fileName || 'bank-slip.pdf');
-    const { dossierId, groupBatchId, invoiceId, amount, currency, referenceCode, receiptNumber, bankName, depositDate, senderName, purpose } = req.body;
+    const {
+      dossierId,
+      groupBatchId,
+      invoiceId,
+      amount,
+      currency,
+      referenceCode,
+      receiptNumber,
+      bankName,
+      depositDate,
+      senderName,
+      purpose,
+      promoCode,
+      scope,
+      source,
+    } = req.body;
     const receipt = await paymentService.submitBankPaymentSlip({
       dossierId: dossierId || null,
       groupBatchId: groupBatchId || null,
       invoiceId: invoiceId || null,
       userId: req.user.id,
+      userRole: req.user.role,
       amount,
       currency: currency || 'EUR',
       referenceCode: referenceCode || receiptNumber,
@@ -170,6 +192,9 @@ async function submitBankPaymentSlip(req, res) {
       depositDate,
       senderName,
       purpose,
+      promoCode: promoCode || null,
+      scope: scope || null,
+      source: source || null,
     });
     return ApiResponse.success(res, { receipt }, 'Bank payment receipt submitted for review', 201);
   } catch (error) {

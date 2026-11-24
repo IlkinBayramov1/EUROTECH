@@ -88,7 +88,7 @@ export default function PasswordActionPage({ action }: PasswordActionPageProps) 
             </div>
           ) : completed ? (
             <div style={{ padding: '24px', background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '8px', color: '#166534', textAlign: 'center' }}>
-              <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1.1rem' }}>Şifrəniz Uğurla Yeniləndi! 🎉</p>
+              <p style={{ margin: 0, fontWeight: 'bold', fontSize: '1.1rem' }}>Şifrəniz Uğurla Yeniləndi!</p>
               <p style={{ marginTop: '8px', fontSize: '0.9rem' }}>Daxil olma səhifəsinə yönləndirilirsiniz...</p>
             </div>
           ) : (

@@ -11,6 +11,7 @@ const { archiveDossierFiles } = require('../../utils/zip.util');
 const notificationService = require('../notification/notification.service');
 const localBankAdapter = require('./adapters/localBankAdapter');
 const walletService = require('./wallet.service');
+const promoService = require('../promo/promo.service');
 
 function sanitizePdfText(text) {
   if (!text) return '';
@@ -105,6 +106,14 @@ async function generateBankSlipVoucherPdf(receipt) {
   const rows = [
     ['Voucher / Reference Code', refCode],
     ['Transfer Amount & Currency', amountStr],
+    ...(meta.promoCode
+      ? [
+          [
+            'Promo Code Applied',
+            `${meta.promoCode} (-${Number(meta.discountAmountEur || 0).toFixed(2)} EUR | Gross: ${Number(meta.originalAmountEur || 0).toFixed(2)} EUR)`,
+          ],
+        ]
+      : []),
     ['Payment Purpose / Target', targetStr],
     ['Payer / Sender Name', senderStr],
     ['Account Email', emailStr],
@@ -114,6 +123,7 @@ async function generateBankSlipVoucherPdf(receipt) {
   ];
 
   let yPos = 685;
+  const rowStep = rows.length > 8 ? 33 : 38;
   for (const [label, value] of rows) {
     page.drawText(sanitizePdfText(label.toUpperCase()), {
       x: 58,
@@ -130,12 +140,12 @@ async function generateBankSlipVoucherPdf(receipt) {
       color: rgb(0.06, 0.12, 0.22),
     });
     page.drawLine({
-      start: { x: 56, y: yPos - 12 },
-      end: { x: 538, y: yPos - 12 },
+      start: { x: 56, y: yPos - 11 },
+      end: { x: 538, y: yPos - 11 },
       thickness: 0.6,
       color: rgb(0.88, 0.91, 0.95),
     });
-    yPos -= 38;
+    yPos -= rowStep;
   }
 
   if (receipt.adminNotes) {
@@ -317,14 +327,18 @@ async function fulfillDossierPayment(transaction) {
 
 /**
  * Creates Stripe PaymentIntent supporting Dossier, GroupBatch, CorporateInvoice, or Wallet Top-Up
+ * Supports optional promoCode (blocked on WALLET_TOPUP and WIZARD_5_STEP).
  */
-async function createPaymentIntent(input, userId, idempotencyKey = null) {
+async function createPaymentIntent(input, userId, idempotencyKey = null, userRole = 'INDIVIDUAL') {
   let dossierId = null;
   let groupBatchId = null;
   let invoiceId = null;
   let explicitAmount = null;
   let currency = 'EUR';
   let purpose = 'DOSSIER_PAYMENT';
+  let promoCode = null;
+  let scope = null;
+  let source = null;
 
   if (typeof input === 'string') {
     dossierId = input;
@@ -335,9 +349,24 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
     explicitAmount = input.amount;
     currency = input.currency || 'EUR';
     purpose = input.purpose || (groupBatchId || invoiceId ? 'GROUP_BATCH_PAYMENT' : 'DOSSIER_PAYMENT');
+    promoCode = input.promoCode ? String(input.promoCode).trim() : null;
+    scope = input.scope || null;
+    source = input.source || null;
     if (input.idempotencyKey && !idempotencyKey) {
       idempotencyKey = input.idempotencyKey;
     }
+  }
+
+  if (promoCode && String(source || '').toUpperCase() === 'WIZARD_5_STEP') {
+    const err = new Error('Promo codes are not applicable in the 5-step application wizard.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (promoCode && String(purpose || '').toUpperCase().includes('TOPUP')) {
+    const err = new Error('Promo codes cannot be applied to wallet top-up deposits.');
+    err.statusCode = 400;
+    throw err;
   }
 
   if (idempotencyKey) {
@@ -388,10 +417,19 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
     const computedBatchTotal = inv
       ? Number(inv.amount || 0)
       : batch.dossiers.reduce((sum, d) => sum + Number(d.totalAmount || 0), 0);
+    const priorDiscount = await promoService.getGroupBatchConfirmedDiscountEur(batch.id, prisma);
+    const netDue = Math.max(0, Number((computedBatchTotal - priorDiscount).toFixed(2)));
     targetAmountEur =
-      computedBatchTotal > 0
-        ? Number(computedBatchTotal.toFixed(2))
-        : convertToEur(explicitAmount || 145, currency, eurToAznRate);
+      netDue > 0
+        ? netDue
+        : computedBatchTotal > 0
+          ? 0
+          : convertToEur(explicitAmount || 145, currency, eurToAznRate);
+    if (targetAmountEur <= 0) {
+      const err = new Error('This group or invoice is already settled.');
+      err.statusCode = 400;
+      throw err;
+    }
     refTag = batch.code;
   } else if (resolvedDossierId) {
     const dossier = await prisma.dossier.findUnique({
@@ -401,9 +439,14 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
     if (!dossier) {
       throw new Error('Dossier not found');
     }
-    const netPaid = await walletService.getDossierNetPaidEur(dossier.id, prisma, eurToAznRate);
-    const dueEur = Math.max(0, Number((Number(dossier.totalAmount || 0) - netPaid).toFixed(2)));
-    targetAmountEur = dueEur > 0 ? dueEur : Number(dossier.totalAmount || 0);
+    const { settledCreditEur } = await walletService.getDossierSettledCreditEur(dossier.id, prisma, eurToAznRate);
+    const dueEur = Math.max(0, Number((Number(dossier.totalAmount || 0) - settledCreditEur).toFixed(2)));
+    if (dueEur <= 0) {
+      const err = new Error('This dossier is already fully paid.');
+      err.statusCode = 400;
+      throw err;
+    }
+    targetAmountEur = dueEur;
     refTag = dossier.dossierNumber;
 
     await prisma.dossier.update({
@@ -412,6 +455,106 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
     });
   } else {
     throw new Error('Dossier ID, Group Batch ID, or Wallet Top-Up purpose is required');
+  }
+
+  let promoRes = null;
+  if (promoCode) {
+    // Atomically validate & reserve promo code (or settle immediately if 100% free!)
+    const promoOutcome = await prisma.$transaction(async (tx) => {
+      const res = await promoService.reserveOrApplyPromoInTx(tx, {
+        code: promoCode,
+        userId,
+        userRole,
+        paymentMethod: 'CARD',
+        mode: 'RESERVE',
+        dossierId: resolvedDossierId,
+        groupBatchId: resolvedGroupBatchId,
+        invoiceId,
+        scope,
+        purpose,
+        source,
+      });
+
+      // Special 100% Free Promo Settlement (Stripe rejects 0.00 / < 0.50 EUR intents)
+      if (res.finalAmountEur <= 0) {
+        await promoService.confirmReservedRedemptionInTx(tx, { redemptionId: res.redemption.id });
+        const freeRef = `PRM-${refTag}-${Date.now().toString().slice(-5)}`;
+        const promoMeta = {
+          promoCode: res.promo.code,
+          redemptionId: res.redemption.id,
+          originalAmountEur: res.originalAmountEur,
+          discountAmountEur: res.discountAmountEur,
+          allowAgentCommission: res.allowAgentCommission,
+          consularFeeTotalEur: res.consularFeeTotalEur,
+        };
+
+        let settledTx = null;
+        if (resolvedGroupBatchId) {
+          const s = await walletService.settleGroupBatchInTx(tx, {
+            groupBatchId: resolvedGroupBatchId,
+            payerUserId: userId,
+            paymentProvider: 'PROMO_FULL_COVERAGE',
+            referenceCode: freeRef,
+            explicitAmountEur: 0,
+            promoMeta,
+          });
+          settledTx = s.transaction;
+        } else if (resolvedDossierId) {
+          const s = await walletService.settleDossierInTx(tx, {
+            dossierId: resolvedDossierId,
+            payerUserId: userId,
+            paymentProvider: 'PROMO_FULL_COVERAGE',
+            referenceCode: freeRef,
+            explicitAmountEur: 0,
+            promoMeta,
+          });
+          settledTx = s.transaction;
+        }
+
+        if (settledTx?.id) {
+          await tx.promoCodeRedemption.update({
+            where: { id: res.redemption.id },
+            data: { transactionId: settledTx.id },
+          });
+        }
+
+        return { zeroDueSettled: true, res, settledTx, freeRef };
+      }
+
+      if (res.finalAmountEur > 0 && res.finalAmountEur < 0.5) {
+        const err = new Error(
+          'Online card payments require at least €0.50 remaining after promo discount. Please pay via EuroTech Wallet.'
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+
+      return { zeroDueSettled: false, res };
+    });
+
+    if (promoOutcome.zeroDueSettled) {
+      if (promoOutcome.settledTx?.dossierId && !resolvedGroupBatchId) {
+        setImmediate(async () => {
+          try {
+            await fulfillDossierPayment(promoOutcome.settledTx);
+          } catch {}
+        });
+      }
+      return {
+        zeroDueSettled: true,
+        paymentIntentId: null,
+        clientSecret: null,
+        amount: 0,
+        originalAmountEur: promoOutcome.res.originalAmountEur,
+        discountAmountEur: promoOutcome.res.discountAmountEur,
+        appliedPromoCode: promoOutcome.res.promo.code,
+        currency: 'EUR',
+        reference: promoOutcome.freeRef,
+      };
+    }
+
+    promoRes = promoOutcome.res;
+    targetAmountEur = promoRes.finalAmountEur;
   }
 
   const generatedIdempotencyKey = idempotencyKey || `tx_idemp_${refTag}_${Date.now()}`;
@@ -437,6 +580,7 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
             groupBatchId: resolvedGroupBatchId || '',
             purpose,
             userId,
+            promoCode: promoRes ? promoRes.promo.code : '',
           },
         },
         { idempotencyKey: generatedIdempotencyKey }
@@ -452,7 +596,7 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
     }
   }
 
-  await prisma.transaction.create({
+  const createdTx = await prisma.transaction.create({
     data: {
       dossierId: resolvedDossierId || null,
       userId,
@@ -467,14 +611,35 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
         groupBatchId: resolvedGroupBatchId || null,
         invoiceId: invoiceId || null,
         purpose,
+        ...(promoRes
+          ? {
+              promoCode: promoRes.promo.code,
+              promoRedemptionId: promoRes.redemption.id,
+              originalAmountEur: promoRes.originalAmountEur,
+              discountAmountEur: promoRes.discountAmountEur,
+              allowAgentCommission: promoRes.allowAgentCommission,
+              consularFeeTotalEur: promoRes.consularFeeTotalEur,
+            }
+          : {}),
       },
     },
   });
 
+  if (promoRes) {
+    await prisma.promoCodeRedemption.update({
+      where: { id: promoRes.redemption.id },
+      data: { transactionId: createdTx.id },
+    });
+  }
+
   return {
+    zeroDueSettled: false,
     clientSecret: paymentIntent.client_secret,
     paymentIntentId: paymentIntent.id,
     amount: targetAmountEur,
+    originalAmountEur: promoRes ? promoRes.originalAmountEur : targetAmountEur,
+    discountAmountEur: promoRes ? promoRes.discountAmountEur : 0,
+    appliedPromoCode: promoRes ? promoRes.promo.code : null,
     currency: 'EUR',
     idempotencyKey: generatedIdempotencyKey,
   };
@@ -482,69 +647,119 @@ async function createPaymentIntent(input, userId, idempotencyKey = null) {
 
 /**
  * Confirms payment success via Stripe PaymentIntent ID (Dossier, GroupBatch, or Wallet Top-Up)
+ * Atomically transitions PENDING -> PAID and confirms any RESERVED promo code redemption.
  */
 async function confirmPaymentSuccess(paymentIntentId) {
-  const transaction = await prisma.transaction.findFirst({
+  const existingTx = await prisma.transaction.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
   });
 
-  if (!transaction) {
+  if (!existingTx) {
     throw new Error(`Transaction with paymentIntentId ${paymentIntentId} not found`);
   }
 
-  if (transaction.status === 'PAID') {
-    if (transaction.dossierId) {
-      return prisma.dossier.findUnique({ where: { id: transaction.dossierId } });
+  if (existingTx.status === 'PAID') {
+    if (existingTx.dossierId) {
+      return prisma.dossier.findUnique({ where: { id: existingTx.dossierId } });
     }
-    return { alreadyConfirmed: true, transaction };
+    return { alreadyConfirmed: true, transaction: existingTx };
   }
 
-  await prisma.transaction.update({
-    where: { id: transaction.id },
-    data: { status: 'PAID' },
-  });
-
-  const meta = transaction.metadataJson || {};
+  const meta = existingTx.metadataJson && typeof existingTx.metadataJson === 'object' ? existingTx.metadataJson : {};
 
   // Case 1: Wallet Top-Up via Card
   if (String(meta.purpose || '').toUpperCase() === 'WALLET_TOPUP') {
-    await prisma.$transaction(async (tx) => {
-      const wallet = await walletService.getOrCreateWallet(transaction.userId, tx);
+    const result = await prisma.$transaction(async (tx) => {
+      const guarded = await tx.transaction.updateMany({
+        where: { id: existingTx.id, status: 'PENDING' },
+        data: { status: 'PAID' },
+      });
+      if (guarded.count === 0) return { alreadyConfirmed: true };
+
+      const wallet = await walletService.getOrCreateWallet(existingTx.userId, tx);
       await tx.walletTransaction.create({
         data: {
           walletId: wallet.id,
-          amount: Number(transaction.amount),
+          amount: Number(existingTx.amount),
           type: 'CREDIT',
           referenceType: 'TOPUP',
           referenceId: paymentIntentId,
-          description: `Wallet Top-Up via Online Card (€${Number(transaction.amount).toFixed(2)})`,
+          description: `Wallet Top-Up via Online Card (€${Number(existingTx.amount).toFixed(2)})`,
           status: 'PAID',
         },
       });
       await walletService.recalculateWalletBalances(wallet.id, tx);
+      return { purpose: 'WALLET_TOPUP', creditedEur: existingTx.amount };
     });
-    return { purpose: 'WALLET_TOPUP', creditedEur: transaction.amount };
+    return result;
   }
 
   // Case 2: GroupBatch / Corporate Invoice Card Settlement
   if (meta.groupBatchId) {
     const settlement = await prisma.$transaction(async (tx) => {
+      const guarded = await tx.transaction.updateMany({
+        where: { id: existingTx.id, status: 'PENDING' },
+        data: { status: 'PAID' },
+      });
+      if (guarded.count === 0) return { alreadyConfirmed: true };
+
+      let promoMeta = null;
+      if (meta.promoRedemptionId || meta.promoCode) {
+        const confirmed = await promoService.confirmReservedRedemptionInTx(tx, {
+          redemptionId: meta.promoRedemptionId || null,
+          transactionId: existingTx.id,
+        });
+        if (confirmed) {
+          promoMeta = {
+            promoCode: confirmed.promoCodeSnapshot,
+            redemptionId: confirmed.id,
+            originalAmountEur: confirmed.originalAmountEur,
+            discountAmountEur: confirmed.discountAmountEur,
+            allowAgentCommission: confirmed.allowAgentCommission ?? meta.allowAgentCommission ?? true,
+            consularFeeTotalEur: meta.consularFeeTotalEur ?? confirmed.metadataJson?.consularFeeTotalEur,
+          };
+        }
+      }
+
       return walletService.settleGroupBatchInTx(tx, {
         groupBatchId: meta.groupBatchId,
-        payerUserId: transaction.userId,
-        paymentProvider: 'STRIPE_CARD',
+        payerUserId: existingTx.userId,
+        paymentProvider: 'STRIPE',
         referenceCode: paymentIntentId,
-        explicitAmountEur: Number(transaction.amount),
+        explicitAmountEur: Number(existingTx.amount),
+        existingTransactionId: existingTx.id,
+        promoMeta,
       });
     });
-    if (transaction.dossierId) {
-      return prisma.dossier.findUnique({ where: { id: transaction.dossierId } });
+    if (existingTx.dossierId) {
+      return prisma.dossier.findUnique({ where: { id: existingTx.dossierId } });
     }
     return settlement;
   }
 
   // Case 3: Individual Dossier Settlement
-  return fulfillDossierPayment(transaction);
+  const txOutcome = await prisma.$transaction(async (tx) => {
+    const guarded = await tx.transaction.updateMany({
+      where: { id: existingTx.id, status: 'PENDING' },
+      data: { status: 'PAID' },
+    });
+    if (guarded.count === 0) return { alreadyConfirmed: true };
+
+    if (meta.promoRedemptionId || meta.promoCode) {
+      await promoService.confirmReservedRedemptionInTx(tx, {
+        redemptionId: meta.promoRedemptionId || null,
+        transactionId: existingTx.id,
+      });
+    }
+    return { alreadyConfirmed: false };
+  });
+
+  if (txOutcome.alreadyConfirmed) {
+    return existingTx.dossierId ? prisma.dossier.findUnique({ where: { id: existingTx.dossierId } }) : { alreadyConfirmed: true };
+  }
+
+  const paidTx = await prisma.transaction.findUnique({ where: { id: existingTx.id } });
+  return fulfillDossierPayment(paidTx);
 }
 
 /**
@@ -578,22 +793,39 @@ async function handleStripeWebhook({ rawBody, signatureHeader, eventBody }) {
     }
     case 'payment_intent.payment_failed': {
       const paymentIntent = event.data.object;
-      await prisma.transaction.updateMany({
+      const failedTx = await prisma.transaction.findFirst({
         where: { stripePaymentIntentId: paymentIntent.id },
-        data: { status: 'PENDING' },
       });
+      if (failedTx) {
+        await prisma.$transaction(async (tx) => {
+          await tx.transaction.update({
+            where: { id: failedTx.id },
+            data: { status: 'PENDING' },
+          });
+          await promoService.releaseReservedRedemptionInTx(tx, {
+            transactionId: failedTx.id,
+            reason: 'Stripe payment intent failed',
+          });
+        });
+      }
       break;
     }
     case 'charge.refunded': {
       const charge = event.data.object;
       const piId = charge.payment_intent;
       if (piId) {
-        const tx = await prisma.transaction.findFirst({ where: { stripePaymentIntentId: piId } });
-        if (tx) {
-          await prisma.transaction.update({ where: { id: tx.id }, data: { status: 'REFUNDED' } });
-          if (tx.dossierId) {
-            await prisma.dossier.update({ where: { id: tx.dossierId }, data: { paymentStatus: 'REFUNDED' } });
-          }
+        const refundedTx = await prisma.transaction.findFirst({ where: { stripePaymentIntentId: piId } });
+        if (refundedTx) {
+          await prisma.$transaction(async (tx) => {
+            await tx.transaction.update({ where: { id: refundedTx.id }, data: { status: 'REFUNDED' } });
+            if (refundedTx.dossierId) {
+              await tx.dossier.update({ where: { id: refundedTx.dossierId }, data: { paymentStatus: 'REFUNDED' } });
+            }
+            await promoService.refundAppliedRedemptionInTx(tx, {
+              transactionId: refundedTx.id,
+              reason: 'Stripe charge refunded',
+            });
+          });
         }
       }
       break;
@@ -679,12 +911,14 @@ async function confirmLocalBankPayment(callbackData) {
 
 /**
  * Submits Bank Wire / Slip Receipt for Manual Reconciliation (Dossier, GroupBatch, Corporate Invoice, or Wallet Top-Up)
+ * Supports optional promoCode (RESERVED until Admin approves or rejects the slip).
  */
 async function submitBankPaymentSlip({
   dossierId,
   groupBatchId,
   invoiceId,
   userId,
+  userRole = 'INDIVIDUAL',
   amount,
   currency,
   referenceCode,
@@ -694,7 +928,17 @@ async function submitBankPaymentSlip({
   depositDate,
   senderName,
   purpose,
+  promoCode = null,
+  scope = null,
+  source = null,
 }) {
+  const cleanPromoCode = promoCode ? String(promoCode).trim() : null;
+  if (cleanPromoCode && String(source || '').toUpperCase() === 'WIZARD_5_STEP') {
+    const err = new Error('Promo codes are not applicable in the 5-step application wizard.');
+    err.statusCode = 400;
+    throw err;
+  }
+
   let resolvedGroupBatchId = groupBatchId || null;
   if (invoiceId && !resolvedGroupBatchId) {
     const inv = await prisma.corporateInvoice.findUnique({ where: { id: invoiceId } });
@@ -715,68 +959,138 @@ async function submitBankPaymentSlip({
     purpose ||
     (resolvedGroupBatchId ? 'GROUP_BATCH_PAYMENT' : dossierId ? 'DOSSIER_PAYMENT' : 'WALLET_TOPUP');
 
+  const isTopup = String(resolvedPurpose).toUpperCase().includes('TOPUP') || (!dossierId && !resolvedGroupBatchId && !invoiceId);
+  if (cleanPromoCode && isTopup) {
+    const err = new Error('Promo codes cannot be applied to wallet top-up deposits.');
+    err.statusCode = 400;
+    throw err;
+  }
+
   const resolvedRefCode = referenceCode || `REF-EUR-${Date.now()}`;
-  const resolvedAmount = Number(amount) || (dossier ? dossier.totalAmount : 0);
   const resolvedCurrency = currency || 'EUR';
-  const metadataJson = {
-    bankName: bankName || null,
-    depositDate: depositDate ? new Date(depositDate).toISOString() : null,
-    senderName: senderName || null,
-    invoiceId: invoiceId || null,
-  };
 
-  let finalFileUrl = fileUrl;
-  let finalFileName = fileName;
+  const { receipt, promoRes } = await prisma.$transaction(async (tx) => {
+    let pRes = null;
+    if (cleanPromoCode) {
+      pRes = await promoService.reserveOrApplyPromoInTx(tx, {
+        code: cleanPromoCode,
+        userId,
+        userRole,
+        paymentMethod: 'BANK_SLIP',
+        mode: 'RESERVE',
+        dossierId: dossierId || null,
+        groupBatchId: resolvedGroupBatchId,
+        invoiceId: invoiceId || null,
+        scope: scope || null,
+        purpose: resolvedPurpose,
+        source,
+      });
+    }
 
-  if (!finalFileUrl || finalFileUrl.includes('bank-slip-placeholder')) {
-    try {
-      const voucher = await generateBankSlipVoucherPdf({
-        referenceCode: resolvedRefCode,
+    const eurToAznRate = await walletService.getEurToAznRate(tx);
+    let resolvedAmount = Number(amount);
+    if (!resolvedAmount || isNaN(resolvedAmount) || resolvedAmount <= 0) {
+      if (pRes) {
+        resolvedAmount =
+          String(resolvedCurrency).toUpperCase() === 'AZN'
+            ? Number((pRes.finalAmountEur * eurToAznRate).toFixed(2))
+            : pRes.finalAmountEur;
+      } else {
+        resolvedAmount = dossier ? Number(dossier.totalAmount || 0) : 0;
+      }
+    }
+
+    const metadataJson = {
+      bankName: bankName || null,
+      depositDate: depositDate ? new Date(depositDate).toISOString() : null,
+      senderName: senderName || null,
+      invoiceId: invoiceId || null,
+      ...(pRes
+        ? {
+            promoCode: pRes.promo.code,
+            promoRedemptionId: pRes.redemption.id,
+            originalAmountEur: pRes.originalAmountEur,
+            discountAmountEur: pRes.discountAmountEur,
+            expectedNetAmountEur: pRes.finalAmountEur,
+            allowAgentCommission: pRes.allowAgentCommission,
+            consularFeeTotalEur: pRes.consularFeeTotalEur,
+          }
+        : {}),
+    };
+
+    let finalFileUrl = fileUrl;
+    let finalFileName = fileName;
+
+    if (!finalFileUrl || finalFileUrl.includes('bank-slip-placeholder')) {
+      try {
+        const voucher = await generateBankSlipVoucherPdf({
+          referenceCode: resolvedRefCode,
+          amount: resolvedAmount,
+          currency: resolvedCurrency,
+          purpose: resolvedPurpose,
+          status: 'PENDING',
+          createdAt: new Date(),
+          metadataJson,
+          dossier,
+        });
+        finalFileUrl = voucher.fileUrl;
+        finalFileName = voucher.fileName;
+      } catch (err) {
+        finalFileUrl = '/uploads/bank-slip-placeholder.pdf';
+        finalFileName = 'bank-slip.pdf';
+      }
+    }
+
+    const createdReceipt = await tx.bankPaymentReceipt.create({
+      data: {
+        dossierId: dossierId || null,
+        groupBatchId: resolvedGroupBatchId,
+        userId,
         amount: resolvedAmount,
         currency: resolvedCurrency,
+        referenceCode: resolvedRefCode,
+        fileUrl: finalFileUrl,
+        fileName: finalFileName || 'bank-slip.pdf',
         purpose: resolvedPurpose,
-        status: 'PENDING',
-        createdAt: new Date(),
         metadataJson,
-        dossier,
-      });
-      finalFileUrl = voucher.fileUrl;
-      finalFileName = voucher.fileName;
-    } catch (err) {
-      finalFileUrl = '/uploads/bank-slip-placeholder.pdf';
-      finalFileName = 'bank-slip.pdf';
-    }
-  }
-
-  const receipt = await prisma.bankPaymentReceipt.create({
-    data: {
-      dossierId: dossierId || null,
-      groupBatchId: resolvedGroupBatchId,
-      userId,
-      amount: resolvedAmount,
-      currency: resolvedCurrency,
-      referenceCode: resolvedRefCode,
-      fileUrl: finalFileUrl,
-      fileName: finalFileName || 'bank-slip.pdf',
-      purpose: resolvedPurpose,
-      metadataJson,
-      status: 'PENDING',
-    },
-  });
-
-  if (dossierId && dossier) {
-    await prisma.dossierStatusHistory.create({
-      data: {
-        dossierId,
-        fromStatus: dossier.status,
-        toStatus: dossier.status,
-        changedByUserId: userId,
-        notes: `Bank köçürmə qəbzi yükləndi (${receipt.referenceCode}). Mühasibatlıq təsdiqi gözlənilir.`,
+        status: 'PENDING',
       },
     });
-  }
 
-  return receipt;
+    if (pRes) {
+      await tx.promoCodeRedemption.update({
+        where: { id: pRes.redemption.id },
+        data: { bankPaymentReceiptId: createdReceipt.id },
+      });
+    }
+
+    if (dossierId && dossier) {
+      const promoNote = pRes ? ` (Promo ${pRes.promo.code}: -€${pRes.discountAmountEur.toFixed(2)})` : '';
+      await tx.dossierStatusHistory.create({
+        data: {
+          dossierId,
+          fromStatus: dossier.status,
+          toStatus: dossier.status,
+          changedByUserId: userId,
+          notes: `Bank köçürmə qəbzi yükləndi (${createdReceipt.referenceCode})${promoNote}. Mühasibatlıq təsdiqi gözlənilir.`,
+        },
+      });
+    }
+
+    return { receipt: createdReceipt, promoRes: pRes };
+  });
+
+  return {
+    ...receipt,
+    promoApplied: promoRes
+      ? {
+          code: promoRes.promo.code,
+          originalAmountEur: promoRes.originalAmountEur,
+          discountAmountEur: promoRes.discountAmountEur,
+          finalAmountEur: promoRes.finalAmountEur,
+        }
+      : null,
+  };
 }
 
 async function getBankPaymentSlips(status = null) {
@@ -795,6 +1109,16 @@ async function getBankPaymentSlips(status = null) {
       groupBatch: {
         select: { id: true, code: true, name: true, status: true },
       },
+      promoRedemptions: {
+        select: {
+          id: true,
+          promoCodeSnapshot: true,
+          originalAmountEur: true,
+          discountAmountEur: true,
+          finalAmountEur: true,
+          status: true,
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -803,50 +1127,47 @@ async function getBankPaymentSlips(status = null) {
 /**
  * Unified Admin / Finance Reconciliation of Bank Payment Slips:
  * Supports WALLET_TOPUP, GROUP_BATCH_PAYMENT (Agent & Corporate), and DOSSIER_PAYMENT (Individual)
+ * Atomically transitions RESERVED promo code redemptions to APPLIED on Approve or RELEASED on Reject.
  */
 async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNotes }) {
-  const receipt = await prisma.bankPaymentReceipt.findUnique({
-    where: { id: receiptId },
-    include: { dossier: true, groupBatch: true },
-  });
-
-  if (!receipt) {
-    const err = new Error('Bank payment receipt not found');
-    err.statusCode = 404;
-    throw err;
-  }
-
   const normalizedAction = String(action || '').toUpperCase();
   const isApproved = ['APPROVE', 'APPROVED', 'PAID'].includes(normalizedAction);
-
-  if (isApproved && receipt.status === 'PAID') {
-    const err = new Error('This bank payment slip has already been approved and reconciled.');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (!isApproved && receipt.status === 'PAID') {
-    const err = new Error('This bank payment slip has already been approved and settled. It cannot be rejected.');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  if (!isApproved && receipt.status === 'REFUNDED') {
-    const err = new Error('This bank payment slip has already been rejected.');
-    err.statusCode = 400;
-    throw err;
-  }
-
-  const eurToAznRate = await walletService.getEurToAznRate();
-  const amountEur = convertToEur(receipt.amount, receipt.currency || 'EUR', eurToAznRate);
-  const purposeUpper = String(receipt.purpose || '').toUpperCase();
-  const isWalletTopup = purposeUpper.includes('TOPUP') || (!receipt.dossierId && !receipt.groupBatchId);
 
   let dossierTxForArchive = null;
 
   const updatedReceipt = await prisma.$transaction(async (tx) => {
-    const updated = await tx.bankPaymentReceipt.update({
+    const receipt = await tx.bankPaymentReceipt.findUnique({
       where: { id: receiptId },
+      include: { dossier: true, groupBatch: true },
+    });
+
+    if (!receipt) {
+      const err = new Error('Bank payment receipt not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    if (isApproved && receipt.status === 'PAID') {
+      const err = new Error('This bank payment slip has already been approved and reconciled.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!isApproved && receipt.status === 'PAID') {
+      const err = new Error('This bank payment slip has already been approved and settled. It cannot be rejected.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (!isApproved && receipt.status === 'REFUNDED') {
+      const err = new Error('This bank payment slip has already been rejected.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    // Atomic conditional update to prevent concurrent double-approval race conditions
+    const guarded = await tx.bankPaymentReceipt.updateMany({
+      where: { id: receiptId, status: 'PENDING' },
       data: {
         status: isApproved ? 'PAID' : 'REFUNDED',
         adminNotes: adminNotes || (isApproved ? 'Verified and approved by Finance' : 'Bank transfer rejected'),
@@ -855,7 +1176,41 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
       },
     });
 
+    if (guarded.count === 0) {
+      const err = new Error('This bank payment slip has already been reviewed by another officer.');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const updated = await tx.bankPaymentReceipt.findUnique({ where: { id: receiptId } });
+
+    const eurToAznRate = await walletService.getEurToAznRate(tx);
+    const amountEur = convertToEur(receipt.amount, receipt.currency || 'EUR', eurToAznRate);
+    const purposeUpper = String(receipt.purpose || '').toUpperCase();
+    const isWalletTopup = purposeUpper.includes('TOPUP') || (!receipt.dossierId && !receipt.groupBatchId);
+    const meta = receipt.metadataJson && typeof receipt.metadataJson === 'object' ? receipt.metadataJson : {};
+
     if (isApproved) {
+      // Confirm any RESERVED promo code redemption linked to this bank slip
+      let confirmedRedemption = null;
+      if (!isWalletTopup) {
+        confirmedRedemption = await promoService.confirmReservedRedemptionInTx(tx, {
+          bankPaymentReceiptId: receipt.id,
+          redemptionId: meta.promoRedemptionId || null,
+        });
+      }
+
+      const promoMeta = confirmedRedemption
+        ? {
+            promoCode: confirmedRedemption.promoCodeSnapshot,
+            redemptionId: confirmedRedemption.id,
+            originalAmountEur: confirmedRedemption.originalAmountEur,
+            discountAmountEur: confirmedRedemption.discountAmountEur,
+            allowAgentCommission: confirmedRedemption.allowAgentCommission ?? meta.allowAgentCommission ?? true,
+            consularFeeTotalEur: meta.consularFeeTotalEur ?? confirmedRedemption.metadataJson?.consularFeeTotalEur,
+          }
+        : null;
+
       if (isWalletTopup) {
         const wallet = await walletService.getOrCreateWallet(receipt.userId, tx);
         await tx.walletTransaction.create({
@@ -893,14 +1248,21 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
 
         await walletService.recalculateWalletBalances(wallet.id, tx);
       } else if (receipt.groupBatchId) {
-        await walletService.settleGroupBatchInTx(tx, {
+        const settlement = await walletService.settleGroupBatchInTx(tx, {
           groupBatchId: receipt.groupBatchId,
           payerUserId: receipt.userId,
           paymentProvider: 'BANK_TRANSFER',
           referenceCode: receipt.referenceCode,
           receiptUrl: receipt.fileUrl,
           explicitAmountEur: amountEur,
+          promoMeta,
         });
+        if (confirmedRedemption && settlement.transaction?.id) {
+          await tx.promoCodeRedemption.update({
+            where: { id: confirmedRedemption.id },
+            data: { transactionId: settlement.transaction.id },
+          });
+        }
       } else if (receipt.dossierId) {
         const settled = await walletService.settleDossierInTx(tx, {
           dossierId: receipt.dossierId,
@@ -909,19 +1271,34 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
           referenceCode: receipt.referenceCode,
           receiptUrl: receipt.fileUrl,
           explicitAmountEur: amountEur,
+          promoMeta,
         });
         dossierTxForArchive = settled.transaction;
+        if (confirmedRedemption && settled.transaction?.id) {
+          await tx.promoCodeRedemption.update({
+            where: { id: confirmedRedemption.id },
+            data: { transactionId: settled.transaction.id },
+          });
+        }
       }
-    } else if (receipt.dossierId) {
-      // Only revert dossier to PENDING if no other PAID transaction exists for it
-      const otherPaid = await tx.transaction.count({
-        where: { dossierId: receipt.dossierId, status: 'PAID' },
+    } else {
+      // REJECTED: Release any RESERVED promo code redemption so the user's quota is restored
+      await promoService.releaseReservedRedemptionInTx(tx, {
+        bankPaymentReceiptId: receipt.id,
+        redemptionId: meta.promoRedemptionId || null,
+        reason: adminNotes || 'Bank payment slip rejected by Finance',
       });
-      if (otherPaid === 0) {
-        await tx.dossier.update({
-          where: { id: receipt.dossierId },
-          data: { paymentStatus: 'PENDING' },
+
+      if (receipt.dossierId) {
+        const otherPaid = await tx.transaction.count({
+          where: { dossierId: receipt.dossierId, status: 'PAID' },
         });
+        if (otherPaid === 0) {
+          await tx.dossier.update({
+            where: { id: receipt.dossierId },
+            data: { paymentStatus: 'PENDING' },
+          });
+        }
       }
     }
 
@@ -936,6 +1313,8 @@ async function reviewBankPaymentSlip({ receiptId, adminUserId, action, adminNote
             dossierId: receipt.dossierId,
             groupBatchId: receipt.groupBatchId,
             amountEur,
+            promoCode: meta.promoCode || null,
+            discountAmountEur: meta.discountAmountEur || 0,
             status: isApproved ? 'APPROVED' : 'REJECTED',
             decision: isApproved ? 'APPROVED' : 'REJECTED',
             notes: adminNotes || null,

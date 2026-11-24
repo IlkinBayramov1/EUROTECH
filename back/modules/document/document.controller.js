@@ -8,11 +8,21 @@ async function uploadDocument(req, res, next) {
       return ApiResponse.error(res, 'File is required', 400);
     }
 
-    const { dossierId, applicantId, requiredDocumentType, isMandatory, isSharedWithFamily } = req.body;
+    const {
+      dossierId,
+      applicantId,
+      requiredDocumentType,
+      purposeDocumentConfigId,
+      globalDocumentCode,
+      isMandatory,
+      isSharedWithFamily,
+    } = req.body;
     const document = await documentService.uploadDocument({
       dossierId,
       applicantId,
       requiredDocumentType,
+      purposeDocumentConfigId,
+      globalDocumentCode,
       isMandatory,
       isSharedWithFamily,
       file: req.file,

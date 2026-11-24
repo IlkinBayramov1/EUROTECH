@@ -769,7 +769,7 @@ export default function CorporateBatches() {
                                                     style={{ cursor: 'pointer', color: '#1D4ED8', fontWeight: 700 }}
                                                     title="Change Batch Payment Package"
                                                 >
-                                                    📦 Package:{' '}
+                                                    Package:{' '}
                                                     <strong>
                                                         {activeAdminPackages.find(p => p.id === (batch.packageTier || 'standard'))?.name ||
                                                             (batch.packageTier || 'standard').toUpperCase()}

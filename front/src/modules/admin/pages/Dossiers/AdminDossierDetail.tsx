@@ -6,6 +6,10 @@ import { useToast } from '@/shared/context/ToastContext';
 import { downloadFileFromApi } from '@/shared/utils/download.util';
 import DocumentReviewModal from '@/modules/admin/components/DocumentReviewModal';
 import ConsularDecisionModal from '@/modules/admin/components/ConsularDecisionModal';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
+import DynamicVcmsFormRenderer, {
+  type VcmsQuestionItem,
+} from '@/modules/applicant/components/VcmsDynamicForm/DynamicVcmsFormRenderer';
 import type { AdminDossier, AdminApplicantDocument, DossierStatusType } from '@/shared/types/admin.types';
 import './AdminDossierDetail.css';
 
@@ -23,6 +27,13 @@ export default function AdminDossierDetail() {
   const [isEditingInputs, setIsEditingInputs] = useState(false);
   const [editingFormData, setEditingFormData] = useState<Record<string, any>>({});
   const [isSavingInputs, setIsSavingInputs] = useState(false);
+  const [vcmsQuestions, setVcmsQuestions] = useState<VcmsQuestionItem[]>([]);
+  const [vcmsAnswers, setVcmsAnswers] = useState<Record<string, any>>({});
+  const [vcmsMeta, setVcmsMeta] = useState<{
+    visaTypeName?: string;
+    visaPurposeName?: string;
+    versionNumber?: number;
+  }>({});
 
   // Modals state
   const [selectedDocForReview, setSelectedDocForReview] = useState<AdminApplicantDocument | null>(null);
@@ -148,8 +159,65 @@ export default function AdminDossierDetail() {
         homeAddress: effectiveApplicantAddress,
       });
       setIsEditingInputs(false);
+
+      if (id && curApp.id) {
+        vcmsApi
+          .getApplicantAnswers(id, curApp.id)
+          .then((res) => {
+            setVcmsQuestions(res.data?.schema?.questions || []);
+            setVcmsMeta({
+              visaTypeName: res.data?.visaType?.nameEn || (dossier as any)?.visaType?.nameEn,
+              visaPurposeName:
+                res.data?.visaPurpose?.nameEn ||
+                res.data?.schema?.purpose?.nameEn ||
+                (dossier as any)?.visaPurpose?.nameEn,
+              versionNumber:
+                res.data?.configurationVersion?.versionNumber ||
+                (dossier as any)?.configurationVersion?.versionNumber,
+            });
+            const savedMap: Record<string, any> = {};
+            for (const ans of res.data?.savedAnswers || []) {
+              savedMap[ans.questionCode] =
+                Array.isArray(ans.selectedOptionCodesJson) && ans.selectedOptionCodesJson.length > 1
+                  ? ans.selectedOptionCodesJson
+                  : ans.valueText ||
+                    (Array.isArray(ans.selectedOptionCodesJson) ? ans.selectedOptionCodesJson[0] : '') ||
+                    (ans.valueJson !== null && ans.valueJson !== undefined ? ans.valueJson : '');
+            }
+            setVcmsAnswers(savedMap);
+          })
+          .catch(() => {});
+      }
     }
-  }, [dossier, selectedApplicantIndex]);
+  }, [dossier, selectedApplicantIndex, id]);
+
+  const handleAdminVcmsAnswerChange = (q: VcmsQuestionItem, val: any) => {
+    const nextMap = { ...vcmsAnswers, [q.questionCode]: val };
+    setVcmsAnswers(nextMap);
+    const curApp = dossier?.applicants?.[selectedApplicantIndex] || dossier?.applicants?.[0];
+    if (id && curApp?.id) {
+      const isSelect = ['SINGLE_SELECT', 'MULTIPLE_SELECT'].includes(q.answerType);
+      const selectedCodes = isSelect
+        ? Array.isArray(val)
+          ? val.map(String)
+          : val
+            ? [String(val)]
+            : []
+        : undefined;
+      const strVal = Array.isArray(val) ? val.join(', ') : String(val ?? '');
+      vcmsApi
+        .saveApplicantAnswers(id, curApp.id, [
+          {
+            purposeQuestionConfigId: q.configId,
+            questionCode: q.questionCode,
+            valueText: strVal,
+            valueJson: Array.isArray(val) ? val : undefined,
+            selectedOptionCodes: selectedCodes,
+          },
+        ])
+        .catch(() => {});
+    }
+  };
 
   const handleFieldChange = (field: string, value: any) => {
     setEditingFormData((prev) => {
@@ -503,9 +571,17 @@ export default function AdminDossierDetail() {
           <span>Passport: {primaryApplicant?.passportNumber || '—'}</span>
         </div>
         <div className="summary-col">
-          <span className="col-label">DESTINATION / CATEGORY</span>
+          <span className="col-label">DESTINATION / VCMS PURPOSE</span>
           <strong>{dossier.country?.nameEn || 'Schengen Area'}</strong>
-          <span>{dossier.visaCategory?.nameEn || 'Visa'}</span>
+          <span>
+            {(dossier as any).visaType?.nameEn || vcmsMeta.visaTypeName || dossier.visaCategory?.nameEn || 'Visa'}
+            {((dossier as any).visaPurpose?.nameEn || vcmsMeta.visaPurposeName)
+              ? ` → ${(dossier as any).visaPurpose?.nameEn || vcmsMeta.visaPurposeName}`
+              : ''}
+            {((dossier as any).configurationVersion?.versionNumber || vcmsMeta.versionNumber)
+              ? ` (v${(dossier as any).configurationVersion?.versionNumber || vcmsMeta.versionNumber})`
+              : ''}
+          </span>
         </div>
         <div className="summary-col">
           <span className="col-label">BIOMETRIC APPOINTMENT</span>
@@ -513,6 +589,9 @@ export default function AdminDossierDetail() {
             {dossier.appointmentDate 
               ? new Date(dossier.appointmentDate).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
               : 'Not Scheduled'}
+            {(dossier as any).appointments?.[0]?.bookingCode
+              ? ` · ${(dossier as any).appointments[0].bookingCode}`
+              : ''}
           </strong>
           <span>{dossier.appointmentLocation || 'EuroTech Main Biometrics Center'}</span>
         </div>
@@ -520,6 +599,11 @@ export default function AdminDossierDetail() {
           <span className="col-label">REGISTERED USER / CONTACT</span>
           <strong>{dossier.user?.email || '—'}</strong>
           <span>{dossier.user?.phone || 'No phone recorded'}</span>
+          {((dossier as any).appliedPromoCode || Number((dossier as any).discountAmount || 0) > 0) && (
+            <span style={{ color: '#15803D', fontWeight: 600, fontSize: '0.78rem', marginTop: 4, display: 'block' }}>
+              Promo {(dossier as any).appliedPromoCode || 'DISCOUNT'}: -€{Number((dossier as any).discountAmount || 0).toFixed(2)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -579,7 +663,23 @@ export default function AdminDossierDetail() {
                       {getDocStatusBadge(doc.status)}
                     </div>
                     <div className="doc-card-title">
-                      <h4>{doc.requiredDocumentType.replace(/_/g, ' ')}</h4>
+                      <h4>
+                        {(doc as any).globalDocumentCode && (
+                          <code
+                            style={{
+                              fontSize: '0.72rem',
+                              background: '#eff6ff',
+                              color: '#1d4ed8',
+                              padding: '2px 6px',
+                              borderRadius: 5,
+                              marginRight: 6,
+                            }}
+                          >
+                            {(doc as any).globalDocumentCode}
+                          </code>
+                        )}
+                        {doc.requiredDocumentType.replace(/_/g, ' ')}
+                      </h4>
                       <p title={doc.fileName}>{doc.fileName}</p>
                     </div>
                     {doc.operatorNotes && (
@@ -692,6 +792,21 @@ export default function AdminDossierDetail() {
                     {isSavingInputs ? 'Saving...' : 'Save to DB'}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {vcmsQuestions.length > 0 && (
+              <div style={{ marginBottom: 22 }}>
+                <DynamicVcmsFormRenderer
+                  questions={vcmsQuestions}
+                  answers={vcmsAnswers}
+                  onAnswerChange={handleAdminVcmsAnswerChange}
+                  stepFilter={null}
+                  countryName={dossier.country?.nameEn}
+                  visaTypeName={vcmsMeta.visaTypeName}
+                  visaPurposeName={vcmsMeta.visaPurposeName}
+                  readOnly={!isEditingInputs}
+                />
               </div>
             )}
 

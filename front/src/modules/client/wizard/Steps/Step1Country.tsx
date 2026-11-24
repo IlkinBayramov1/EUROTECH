@@ -23,12 +23,8 @@ interface DestinationCountry {
 }
 
 function getFlagEmoji(countryCode: string): string {
-    if (!countryCode || countryCode.length !== 2) return '🇪🇺';
-    const codePoints = countryCode
-        .toUpperCase()
-        .split('')
-        .map(char => 127397 + char.charCodeAt(0));
-    return String.fromCodePoint(...codePoints);
+    if (!countryCode || countryCode.length !== 2) return 'EU';
+    return countryCode.toUpperCase();
 }
 
 export default function Step1Country({ data, updateData }: Step1Props) {
@@ -226,7 +222,7 @@ export default function Step1Country({ data, updateData }: Step1Props) {
                         ))}
                     </select>
                 </div>
-                {!data.duration && <span className="wizard-helper-text" style={{ color: '#F59E0B' }}>⚠️ Please choose your duration of stay first to unlock travel categories.</span>}
+                {!data.duration && <span className="wizard-helper-text" style={{ color: '#F59E0B' }}>Please choose your duration of stay first to unlock travel categories.</span>}
             </div>
         </div>
     );

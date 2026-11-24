@@ -328,12 +328,14 @@ export function usePricingCatalog() {
       activePackage = 'standard',
       services = {},
       duration = 'short',
+      baseConsularFeeOverride,
     }: {
       portalType?: string;
       paxCount?: number;
       activePackage?: string;
       services?: Record<string, any>;
       duration?: string;
+      baseConsularFeeOverride?: number;
     }) => {
       const count = Math.max(1, Number(paxCount) || 1);
       const bf = catalog.baseFees;
@@ -341,9 +343,11 @@ export function usePricingCatalog() {
       const pkgKey = String(activePackage || services?.activePackage || 'standard').toLowerCase();
 
       const stateFeePP =
-        duration === 'long'
-          ? Number(bf.nationalLongStayFeeEur ?? 90.0)
-          : Number(bf.schengenShortStayFeeEur ?? 80.0);
+        baseConsularFeeOverride !== undefined && baseConsularFeeOverride !== null && Number(baseConsularFeeOverride) > 0
+          ? Number(baseConsularFeeOverride)
+          : duration === 'long'
+            ? Number(bf.nationalLongStayFeeEur ?? 90.0)
+            : Number(bf.schengenShortStayFeeEur ?? 80.0);
 
       let baseServiceFeePP = Number(bf.individualBaseServiceFeeEur ?? 0.0);
       if (portalType === 'GROUP_AGENT') {

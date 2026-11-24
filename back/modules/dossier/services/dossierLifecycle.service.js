@@ -3,24 +3,87 @@ const { generateDossierNumber } = require('../../../utils/dossierCode.util');
 const { calculatePortalFees } = require('../../../utils/finance.util');
 const { getPricingCatalog } = require('../../service/pricingConfig.service');
 
-async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, visaCategoryId, costCenter, department, package: selectedPackage, services, applicantsCount = 1, applicants, primaryApplicant }) {
+async function createDossier({
+  userId,
+  portalType = 'INDIVIDUAL',
+  countryId,
+  visaCategoryId,
+  visaTypeId,
+  visaPurposeId,
+  configurationVersionId,
+  costCenter,
+  department,
+  package: selectedPackage,
+  services,
+  applicantsCount = 1,
+  applicants,
+  primaryApplicant,
+}) {
   const country = await prisma.country.findUnique({ where: { id: countryId } });
-  const visaCategory = await prisma.visaCategory.findUnique({ where: { id: visaCategoryId } });
+  if (!country) {
+    throw new Error('Invalid country');
+  }
 
-  if (!country || !visaCategory) {
+  let resolvedVisaPurpose = null;
+  let resolvedVisaType = null;
+  let resolvedCategoryId = visaCategoryId;
+
+  if (visaPurposeId) {
+    resolvedVisaPurpose = await prisma.visaPurpose.findUnique({
+      where: { id: visaPurposeId },
+      include: { visaType: true },
+    });
+    if (resolvedVisaPurpose) {
+      resolvedVisaType = resolvedVisaPurpose.visaType;
+      if (!resolvedCategoryId && resolvedVisaPurpose.legacyVisaCategoryId) {
+        resolvedCategoryId = resolvedVisaPurpose.legacyVisaCategoryId;
+      }
+    }
+  } else if (visaTypeId) {
+    resolvedVisaType = await prisma.visaType.findUnique({ where: { id: visaTypeId } });
+  }
+
+  let visaCategory = resolvedCategoryId
+    ? await prisma.visaCategory.findUnique({ where: { id: resolvedCategoryId } })
+    : null;
+  if (!visaCategory) {
+    visaCategory = await prisma.visaCategory.findFirst({ where: { countryId } });
+  }
+  if (!visaCategory) {
     throw new Error('Invalid country or visa category');
+  }
+
+  // Lock to latest published ConfigurationVersion of this country if none specified
+  let resolvedVersionId = configurationVersionId || null;
+  if (!resolvedVersionId) {
+    const activeVersion = await prisma.configurationVersion.findFirst({
+      where: {
+        countryId,
+        status: 'ACTIVE',
+      },
+      orderBy: { versionNumber: 'desc' },
+      select: { id: true },
+    });
+    resolvedVersionId = activeVersion?.id || null;
   }
 
   const catalog = await getPricingCatalog();
   const effectivePax = Array.isArray(applicants) && applicants.length > 0 ? applicants.length : Math.max(1, Number(applicantsCount) || 1);
   const resolvedPkg = selectedPackage || (services && services.activePackage) || 'standard';
 
+  const dynamicConsularFee =
+    resolvedVisaPurpose?.consularFeeOverride ??
+    resolvedVisaType?.defaultFeeEur ??
+    Number(visaCategory.baseFee) ??
+    catalog.baseFees?.schengenShortStayFeeEur ??
+    80.0;
+
   const fees = calculatePortalFees({
     portalType,
     paxCount: effectivePax,
     activePackage: resolvedPkg,
     services,
-    baseConsularFee: Number(visaCategory.baseFee) || catalog.baseFees?.schengenShortStayFeeEur || 80.0,
+    baseConsularFee: Number(dynamicConsularFee),
     catalog,
   });
 
@@ -32,7 +95,10 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
       portalType,
       userId,
       countryId,
-      visaCategoryId,
+      visaCategoryId: visaCategory.id,
+      visaTypeId: resolvedVisaType?.id || visaTypeId || null,
+      visaPurposeId: resolvedVisaPurpose?.id || visaPurposeId || null,
+      configurationVersionId: resolvedVersionId,
       currentStep: 1,
       status: 'RECEIVED',
       costCenter,
@@ -53,6 +119,8 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
     include: {
       country: true,
       visaCategory: true,
+      visaType: true,
+      visaPurpose: true,
     },
   });
 
@@ -168,6 +236,8 @@ async function createDossier({ userId, portalType = 'INDIVIDUAL', countryId, vis
     where: { id: dossier.id },
     include: {
       country: true,
+      visaType: true,
+      visaPurpose: true,
       visaCategory: {
         include: {
           requiredDocTypes: true,
@@ -208,6 +278,17 @@ async function getDossierById(dossierId) {
         },
       },
       country: true,
+      visaType: true,
+      visaPurpose: true,
+      configurationVersion: {
+        select: {
+          id: true,
+          versionNumber: true,
+          status: true,
+          changeSummary: true,
+          publishedAt: true,
+        },
+      },
       visaCategory: {
         include: {
           dynamicFields: true,
@@ -218,7 +299,7 @@ async function getDossierById(dossierId) {
         include: {
           invoices: true,
           appointments: {
-            include: { timeSlot: true },
+            include: { timeSlot: true, notifications: { orderBy: { sentAt: 'desc' }, take: 5 } },
           },
         },
       },
@@ -227,12 +308,15 @@ async function getDossierById(dossierId) {
       },
       documents: true,
       appointments: {
-        include: { timeSlot: true },
+        include: { timeSlot: true, notifications: { orderBy: { sentAt: 'desc' }, take: 5 } },
         orderBy: { createdAt: 'desc' },
       },
       services: true,
       transactions: {
         orderBy: { createdAt: 'desc' },
+      },
+      promoRedemptions: {
+        orderBy: { reservedAt: 'desc' },
       },
       statusHistory: {
         orderBy: { createdAt: 'desc' },
@@ -268,6 +352,17 @@ async function getUserDossiers(userId) {
         },
       },
       country: true,
+      visaType: true,
+      visaPurpose: true,
+      configurationVersion: {
+        select: {
+          id: true,
+          versionNumber: true,
+          status: true,
+          changeSummary: true,
+          publishedAt: true,
+        },
+      },
       visaCategory: {
         include: {
           dynamicFields: true,
@@ -278,7 +373,7 @@ async function getUserDossiers(userId) {
         include: {
           invoices: true,
           appointments: {
-            include: { timeSlot: true },
+            include: { timeSlot: true, notifications: { orderBy: { sentAt: 'desc' }, take: 5 } },
           },
         },
       },
@@ -287,12 +382,15 @@ async function getUserDossiers(userId) {
       },
       documents: true,
       appointments: {
-        include: { timeSlot: true },
+        include: { timeSlot: true, notifications: { orderBy: { sentAt: 'desc' }, take: 5 } },
         orderBy: { createdAt: 'desc' },
       },
       services: true,
       transactions: {
         orderBy: { createdAt: 'desc' },
+      },
+      promoRedemptions: {
+        orderBy: { reservedAt: 'desc' },
       },
       statusHistory: {
         orderBy: { createdAt: 'desc' },

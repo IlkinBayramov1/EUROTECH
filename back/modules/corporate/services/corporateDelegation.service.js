@@ -1,5 +1,6 @@
 const prisma = require('../../../config/db');
 const { generateSecureToken, hashToken } = require('../../../utils/token.util');
+const vcmsService = require('../../vcms/services/vcms.service');
 
 async function generateDelegationLink({ corporateUserId, employeeId, batchId }) {
   let employee = await prisma.corporateEmployee.findFirst({
@@ -153,6 +154,18 @@ async function getDelegationProfile(rawToken) {
 
   const phone = employee.phone || appForm.homePhone || appForm.phone || appForm.contactPhone || '';
 
+  let vcms = null;
+  if (applicant?.dossierId && applicant?.id) {
+    try {
+      vcms = await vcmsService.getApplicantAnswersAndSchema({
+        dossierId: applicant.dossierId,
+        applicantId: applicant.id,
+      });
+    } catch (err) {
+      console.warn('Could not load VCMS schema for corporate delegation:', err.message);
+    }
+  }
+
   return {
     id: employee.id,
     applicantId: applicant?.id || null,
@@ -172,10 +185,11 @@ async function getDelegationProfile(rawToken) {
     email: employee.email || appForm.homeEmail || appForm.email || '',
     companyName: employee.corporateUser?.companyName || employee.corporateUser?.fullName || 'Corporate Employer',
     destination: applicant?.dossier?.country?.nameEn || applicant?.dossier?.groupBatch?.destination || 'Europe / Schengen',
+    vcms,
   };
 }
 
-async function submitDelegationForm({ token, passportNumber, dob, passportExpiry, phone }) {
+async function submitDelegationForm({ token, passportNumber, dob, passportExpiry, phone, vcmsAnswers, formDataJson }) {
   if (!token) {
     const error = new Error('Delegation token is required');
     error.statusCode = 400;
@@ -238,6 +252,14 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
     });
 
     for (const app of applicants) {
+      if (Array.isArray(vcmsAnswers) && vcmsAnswers.length > 0) {
+        await vcmsService.saveApplicantQuestionAnswers({
+          dossierId: app.dossierId,
+          applicantId: app.id,
+          answers: vcmsAnswers,
+        });
+      }
+
       const currentForm = (app.formDataJson && typeof app.formDataJson === 'object') ? app.formDataJson : {};
       await prisma.applicant.update({
         where: { id: app.id },
@@ -246,6 +268,7 @@ async function submitDelegationForm({ token, passportNumber, dob, passportExpiry
           birthDate: parsedDob || app.birthDate,
           formDataJson: {
             ...currentForm,
+            ...(formDataJson && typeof formDataJson === 'object' ? formDataJson : {}),
             // Synchronize all field aliases so every module & form step finds its key:
             dob: cleanDobStr || currentForm.dob,
             birthDate: cleanDobStr || currentForm.birthDate,

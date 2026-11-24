@@ -45,6 +45,14 @@ import AdminDossierDetail from '@/modules/admin/pages/Dossiers/AdminDossierDetai
 import AdminAuditLogs from '@/modules/admin/pages/AuditLogs/AdminAuditLogs';
 import AdminSettings from '@/modules/admin/pages/Settings/AdminSettings';
 import AdminFinancials from '@/modules/admin/pages/Financials/AdminFinancials';
+import DestinationsHubLayout from '@/modules/admin/pages/Destinations/DestinationsHubLayout';
+import DestinationsPage from '@/modules/admin/pages/Destinations/DestinationsPage';
+import QuestionPoolPage from '@/modules/admin/pages/QuestionPool/QuestionPoolPage';
+import DocumentPoolPage from '@/modules/admin/pages/DocumentPool/DocumentPoolPage';
+import VisaOfficesPage from '@/modules/admin/pages/VisaOffices/VisaOfficesPage';
+import AdminAppointmentsPage from '@/modules/admin/pages/Appointments/AdminAppointmentsPage';
+import AdminUsersPage from '@/modules/admin/pages/Users/AdminUsersPage';
+import AdminPromoCodesPage from '@/modules/admin/pages/PromoCodes/AdminPromoCodesPage';
 
 import PasswordActionPage from '@/modules/auth/pages/PasswordActionPage';
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute';
@@ -172,10 +180,23 @@ export default function App() {
           }
         >
           <Route index element={<AdminDashboard />} />
+          <Route path="destinations" element={<DestinationsHubLayout />}>
+            <Route index element={<DestinationsPage />} />
+            <Route path="question-pool" element={<QuestionPoolPage />} />
+            <Route path="document-pool" element={<DocumentPoolPage />} />
+            <Route path="visa-offices" element={<VisaOfficesPage />} />
+            <Route path=":countryId" element={<DestinationsPage />} />
+          </Route>
+          <Route path="question-pool" element={<Navigate to="/admin/destinations/question-pool" replace />} />
+          <Route path="document-pool" element={<Navigate to="/admin/destinations/document-pool" replace />} />
+          <Route path="visa-offices" element={<Navigate to="/admin/destinations/visa-offices" replace />} />
+          <Route path="appointments" element={<AdminAppointmentsPage />} />
+          <Route path="users" element={<AdminUsersPage />} />
           <Route path="dossiers" element={<AdminDossierList />} />
           <Route path="dossiers/:id" element={<AdminDossierDetail />} />
           <Route path="dossiers/:dossierId/applicant/:applicantId" element={<UnifiedApplicantWorkspace />} />
           <Route path="financials" element={<AdminFinancials />} />
+          <Route path="promo-codes" element={<AdminPromoCodesPage />} />
           <Route path="audit-logs" element={<AdminAuditLogs />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>

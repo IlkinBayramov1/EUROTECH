@@ -5,6 +5,8 @@ import { useToast } from '@/shared/context/ToastContext';
 import { downloadFileFromApi } from '@/shared/utils/download.util';
 import { getFileUrl } from '@/shared/utils/file.util';
 import { storage } from '@/shared/utils/storage';
+import PromoCodeInput from '@/shared/components/PromoCodeInput/PromoCodeInput';
+import type { PromoValidationResult } from '@/shared/api/services/promo.service';
 import './ClientWallet.css';
 
 interface DossierItem {
@@ -70,6 +72,7 @@ export default function ClientWallet() {
 
     // Pay invoice form
     const [invoicePayMethod, setInvoicePayMethod] = useState<'WALLET' | 'CARD' | 'BANK_SLIP'>('WALLET');
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
 
     const loadData = useCallback(async () => {
         try {
@@ -283,6 +286,7 @@ export default function ClientWallet() {
     // Handle Pay Single Dossier
     const handleOpenPayModal = (dossier: DossierItem) => {
         setSelectedDossier(dossier);
+        setAppliedPromo(null);
         const due = getDossierDueEur(dossier);
         setInvoicePayMethod(balanceEur >= due ? 'WALLET' : 'CARD');
         setShowPayModal(true);
@@ -290,18 +294,29 @@ export default function ClientWallet() {
 
     const handleExecuteDossierPayment = async () => {
         if (!selectedDossier) return;
-        const totalDue = getDossierDueEur(selectedDossier);
+        const grossDue = getDossierDueEur(selectedDossier);
+        const totalDue = appliedPromo ? appliedPromo.finalAmountEur : grossDue;
+        const promoCodeStr = appliedPromo?.promo?.code || undefined;
 
         setIsSubmitting(true);
         try {
             if (invoicePayMethod === 'WALLET') {
-                if (balanceEur + 0.005 < totalDue) {
+                if (totalDue > 0 && balanceEur + 0.005 < totalDue) {
                     showError(`Insufficient wallet balance (€${balanceEur.toFixed(2)} < €${totalDue.toFixed(2)}). Please top up first.`);
                     setIsSubmitting(false);
                     return;
                 }
-                await paymentService.payWithWallet({ dossierId: selectedDossier.id });
-                showSuccess(`€${totalDue.toFixed(2)} successfully settled from your EuroTech Wallet!`);
+                await paymentService.payWithWallet({
+                    dossierId: selectedDossier.id,
+                    promoCode: promoCodeStr,
+                    scope: 'DOSSIER_PAYMENT',
+                });
+                showSuccess(
+                    totalDue <= 0
+                        ? `Dossier settled via promo code ${promoCodeStr} (€0.00 payable)!`
+                        : `€${totalDue.toFixed(2)} successfully settled from your EuroTech Wallet${promoCodeStr ? ` (Promo ${promoCodeStr} applied)` : ''}!`
+                );
+                setAppliedPromo(null);
                 setShowPayModal(false);
                 await loadData();
             } else if (invoicePayMethod === 'CARD') {
@@ -310,23 +325,34 @@ export default function ClientWallet() {
                     amount: totalDue,
                     currency: 'EUR',
                     purpose: 'DOSSIER_PAYMENT',
+                    scope: 'DOSSIER_PAYMENT',
+                    promoCode: promoCodeStr,
                 });
-                const intentId = intent?.paymentIntentId || (intent as any)?.paymentId || (intent as any)?.id;
-                if (intentId) {
-                    await paymentService.confirmPaymentMock({
-                        paymentIntentId: intentId,
-                        bankReference: `CARD-${Date.now().toString().slice(-6)}`,
-                    });
+                if (intent?.zeroDueSettled) {
+                    showSuccess(`Dossier settled via promo code ${promoCodeStr} (€0.00 payable)!`);
                 } else {
-                    await paymentService.topupWallet({
-                        amount: totalDue,
-                        currency: 'EUR',
-                        method: 'CARD',
-                        reference: `INSTANT-${Date.now().toString().slice(-6)}`,
-                    });
-                    await paymentService.payWithWallet({ dossierId: selectedDossier.id });
+                    const intentId = intent?.paymentIntentId || (intent as any)?.paymentId || (intent as any)?.id;
+                    if (intentId) {
+                        await paymentService.confirmPaymentMock({
+                            paymentIntentId: intentId,
+                            bankReference: `CARD-${Date.now().toString().slice(-6)}`,
+                        });
+                    } else {
+                        await paymentService.topupWallet({
+                            amount: totalDue,
+                            currency: 'EUR',
+                            method: 'CARD',
+                            reference: `INSTANT-${Date.now().toString().slice(-6)}`,
+                        });
+                        await paymentService.payWithWallet({
+                            dossierId: selectedDossier.id,
+                            promoCode: promoCodeStr,
+                            scope: 'DOSSIER_PAYMENT',
+                        });
+                    }
+                    showSuccess(`Payment of €${totalDue.toFixed(2)} processed successfully via Card${promoCodeStr ? ` (Promo ${promoCodeStr} applied)` : ''}!`);
                 }
-                showSuccess(`Payment of €${totalDue.toFixed(2)} processed successfully via Card!`);
+                setAppliedPromo(null);
                 setShowPayModal(false);
                 await loadData();
             } else if (invoicePayMethod === 'BANK_SLIP') {
@@ -338,12 +364,17 @@ export default function ClientWallet() {
                 fd.append('senderName', slipSenderName || user?.fullName || 'Client');
                 fd.append('referenceCode', slipRefCode.trim() || `DOS-${selectedDossier.dossierNumber}`);
                 fd.append('purpose', `Dossier Settlement: ${selectedDossier.dossierNumber}`);
+                fd.append('scope', 'DOSSIER_PAYMENT');
+                if (promoCodeStr) {
+                    fd.append('promoCode', promoCodeStr);
+                }
                 if (slipFile) {
                     fd.append('slip', slipFile);
                 }
 
                 await paymentService.submitBankSlip(fd);
-                showSuccess('Bank wire slip submitted! Dossier will update to PAID upon banking verification.');
+                showSuccess(`Bank wire slip (€${totalDue.toFixed(2)}) submitted! Dossier will update to PAID upon banking verification.`);
+                setAppliedPromo(null);
                 setShowPayModal(false);
                 setSlipFile(null);
                 setSlipRefCode('');
@@ -493,6 +524,7 @@ export default function ClientWallet() {
         : `≈ €${(withdrawNumeric / exchangeRate).toFixed(2)} EUR (Deducted from Wallet)`;
 
     const selectedDossierDue = getDossierDueEur(selectedDossier);
+    const effectiveDossierDue = appliedPromo ? appliedPromo.finalAmountEur : selectedDossierDue;
 
     return (
         <div className="client-wallet-container fade-in">
@@ -510,13 +542,13 @@ export default function ClientWallet() {
                 </div>
                 <div className="wallet-header-actions">
                     <button className="btn-wallet-secondary" onClick={handleExportStatementCsv} title="Download CSV Ledger Statement">
-                        📥 Export CSV
+                        Export CSV
                     </button>
                     <button className="btn-wallet-secondary" onClick={() => setShowBankDetailsModal(true)} title="Configure IBAN & Bank Account for Withdrawals">
-                        🏦 Payout IBAN
+                        Payout IBAN
                     </button>
                     <button className="btn-wallet-withdraw" onClick={() => setShowWithdrawModal(true)}>
-                        💸 Withdraw Funds
+                        Withdraw Funds
                     </button>
                     <button className="btn-topup-primary" onClick={() => setShowTopUpModal(true)}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -917,10 +949,10 @@ export default function ClientWallet() {
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button type="button" className="btn-action-outline" onClick={() => setShowBankDetailsModal(true)}>
-                                🏦 {iban ? 'Update IBAN' : 'Add IBAN'}
+                                {iban ? 'Update IBAN' : 'Add IBAN'}
                             </button>
                             <button type="button" className="btn-action-pay" onClick={() => setShowWithdrawModal(true)}>
-                                💸 Request Withdrawal
+                                Request Withdrawal
                             </button>
                         </div>
                     </div>
@@ -1012,14 +1044,14 @@ export default function ClientWallet() {
                                         className={`switch-btn ${topupMethod === 'CARD' ? 'active' : ''}`}
                                         onClick={() => setTopupMethod('CARD')}
                                     >
-                                        💳 Instant Card (3DS)
+                                        Instant Card (3DS)
                                     </button>
                                     <button 
                                         type="button" 
                                         className={`switch-btn ${topupMethod === 'BANK_SLIP' ? 'active' : ''}`}
                                         onClick={() => setTopupMethod('BANK_SLIP')}
                                     >
-                                        🏛️ Bank Wire Transfer
+                                        Bank Wire Transfer
                                     </button>
                                 </div>
 
@@ -1182,13 +1214,25 @@ export default function ClientWallet() {
                             <div>
                                 <h3 className="modal-title">Settle Consular Dossier Fees</h3>
                                 <p className="modal-subtitle">
-                                    Ref: <strong>{selectedDossier.dossierNumber}</strong> • Amount Due: <strong style={{ color: '#2563EB' }}>€{selectedDossierDue.toFixed(2)}</strong> (≈ {(selectedDossierDue * exchangeRate).toFixed(2)} AZN)
+                                    Ref: <strong>{selectedDossier.dossierNumber}</strong> • Amount Due: <strong style={{ color: '#2563EB' }}>€{effectiveDossierDue.toFixed(2)}</strong> (≈ {(effectiveDossierDue * exchangeRate).toFixed(2)} AZN)
                                 </p>
                             </div>
-                            <button className="modal-close-btn" onClick={() => setShowPayModal(false)}>✕</button>
+                            <button className="modal-close-btn" onClick={() => { setShowPayModal(false); setAppliedPromo(null); }}>✕</button>
                         </div>
 
                         <div className="modal-body">
+                            <PromoCodeInput
+                                targetType="DOSSIER_PAYMENT"
+                                dossierId={selectedDossier.id}
+                                grossAmountEur={selectedDossierDue}
+                                displayCurrency="EUR"
+                                exchangeRate={exchangeRate}
+                                appliedPromo={appliedPromo}
+                                onPromoChange={setAppliedPromo}
+                                disabled={isSubmitting}
+                                resetKey={selectedDossier.id}
+                            />
+
                             <div className="payment-options-list">
                                 {/* Option 1: Wallet */}
                                 <div 
@@ -1204,10 +1248,10 @@ export default function ClientWallet() {
                                     <div className="option-info" style={{ flex: 1 }}>
                                         <strong>EuroTech Wallet Balance</strong>
                                         <span>Available: €{balanceEur.toFixed(2)} (≈ {balanceAzn.toFixed(2)} AZN)</span>
-                                        {balanceEur + 0.005 < selectedDossierDue && (
+                                        {effectiveDossierDue > 0 && balanceEur + 0.005 < effectiveDossierDue && (
                                             <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                                                 <span style={{ color: '#DC2626', fontSize: '0.78rem' }}>
-                                                    ⚠️ Shortfall: €{(selectedDossierDue - balanceEur).toFixed(2)}
+                                                    Shortfall: €{(effectiveDossierDue - balanceEur).toFixed(2)}
                                                 </span>
                                                 <button
                                                     type="button"
@@ -1216,9 +1260,10 @@ export default function ClientWallet() {
                                                     onClick={(ev) => {
                                                         ev.stopPropagation();
                                                         setShowPayModal(false);
+                                                        setAppliedPromo(null);
                                                         setTopupCurrency('EUR');
                                                         setTopupMethod('CARD');
-                                                        setTopupAmount(Math.max(10, Number((selectedDossierDue - balanceEur).toFixed(2))).toFixed(2));
+                                                        setTopupAmount(Math.max(10, Number((effectiveDossierDue - balanceEur).toFixed(2))).toFixed(2));
                                                         setShowTopUpModal(true);
                                                     }}
                                                 >
@@ -1297,16 +1342,20 @@ export default function ClientWallet() {
                         </div>
 
                         <div className="modal-footer">
-                            <button type="button" className="btn-secondary" onClick={() => setShowPayModal(false)}>
+                            <button type="button" className="btn-secondary" onClick={() => { setShowPayModal(false); setAppliedPromo(null); }}>
                                 Close
                             </button>
                             <button 
                                 type="button" 
                                 className="btn-primary" 
                                 onClick={handleExecuteDossierPayment}
-                                disabled={isSubmitting || (invoicePayMethod === 'WALLET' && balanceEur + 0.005 < selectedDossierDue)}
+                                disabled={isSubmitting || (invoicePayMethod === 'WALLET' && effectiveDossierDue > 0 && balanceEur + 0.005 < effectiveDossierDue)}
                             >
-                                {isSubmitting ? 'Settling...' : `Confirm & Settle €${selectedDossierDue.toFixed(2)}`}
+                                {isSubmitting
+                                    ? 'Settling...'
+                                    : effectiveDossierDue <= 0
+                                        ? 'Confirm Free Promo Settlement (€0.00)'
+                                        : `Confirm & Settle €${effectiveDossierDue.toFixed(2)}`}
                             </button>
                         </div>
                     </div>

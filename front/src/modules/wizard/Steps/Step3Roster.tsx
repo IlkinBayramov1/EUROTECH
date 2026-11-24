@@ -224,7 +224,7 @@ export default function Step3Roster({
                       className="btn-roster-csv"
                       onClick={() => { setOpenMrzId(isMrzOpen ? null : app.id); setMrzError(null); }}
                     >
-                      📷 Scan Passport MRZ
+                      Scan Passport MRZ
                     </button>
                     {!isPrimary && (
                       <button
@@ -373,14 +373,14 @@ export default function Step3Roster({
                 className="btn-roster-csv"
                 onClick={() => downloadRosterTemplate()}
               >
-                📄 Download Excel Template
+                Download Excel Template
               </button>
               <button
                 type="button"
                 className="btn-roster-csv"
                 onClick={() => fileInputRef.current?.click()}
               >
-                📥 Upload CSV / Excel
+                Upload CSV / Excel
               </button>
               <button
                 type="button"

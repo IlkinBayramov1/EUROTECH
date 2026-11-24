@@ -1010,7 +1010,7 @@ export default function ClientPrivacy() {
               </button>
             </div>
             <p className="export-hint">
-              💡 <strong>Tövsiyə:</strong> Excel formatı çox-vərəqli (multi-sheet) və rəngli başlıqlarla təchiz olunub, Microsoft Excel-də dərhal açılır.
+              <strong>Tövsiyə:</strong> Excel formatı çox-vərəqli (multi-sheet) və rəngli başlıqlarla təchiz olunub, Microsoft Excel-də dərhal açılır.
             </p>
           </div>
         </div>
@@ -1033,7 +1033,7 @@ export default function ClientPrivacy() {
             </p>
 
             <div className="erasure-warning-box">
-              <strong>⚠️ Permanent Legal Action</strong>
+              <strong>Permanent Legal Action</strong>
               <p>
                 Once executed, your application account cannot be recovered. Ongoing visa submissions will lose active status tracking notifications.
               </p>

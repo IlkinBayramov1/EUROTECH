@@ -171,16 +171,16 @@ export default function ClientTracking() {
 
     const getCountryFlag = (code?: string) => {
         switch (code?.toUpperCase()) {
-            case 'HU': return '🇭🇺';
-            case 'PL': return '🇵🇱';
-            case 'DE': return '🇩🇪';
-            case 'FR': return '🇫🇷';
-            case 'IT': return '🇮🇹';
-            case 'ES': return '🇪🇸';
-            case 'CZ': return '🇨🇿';
-            case 'AT': return '🇦🇹';
-            case 'NL': return '🇳🇱';
-            default: return '🇪🇺';
+            case 'HU': return 'HU';
+            case 'PL': return 'PL';
+            case 'DE': return 'DE';
+            case 'FR': return 'FR';
+            case 'IT': return 'IT';
+            case 'ES': return 'ES';
+            case 'CZ': return 'CZ';
+            case 'AT': return 'AT';
+            case 'NL': return 'NL';
+            default: return 'EU';
         }
     };
 

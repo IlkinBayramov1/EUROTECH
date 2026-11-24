@@ -228,7 +228,7 @@ export default function AdminSettings() {
           onClick={() => handleSaveAllCatalog()}
           disabled={isSaving}
         >
-          {isSaving ? 'Saving All Changes...' : '💾 Save All Packages & Prices'}
+          {isSaving ? 'Saving All Changes...' : 'Save All Packages & Prices'}
         </button>
       </div>
 
@@ -247,7 +247,7 @@ export default function AdminSettings() {
             cursor: 'pointer',
           }}
         >
-          📦 Payment Packages ({catalog.packages.length})
+          Payment Packages ({catalog.packages.length})
         </button>
         <button
           type="button"
@@ -262,7 +262,7 @@ export default function AdminSettings() {
             cursor: 'pointer',
           }}
         >
-          ✨ Add-On Services ({catalog.services.length})
+          Add-On Services ({catalog.services.length})
         </button>
         <button
           type="button"
@@ -277,7 +277,7 @@ export default function AdminSettings() {
             cursor: 'pointer',
           }}
         >
-          💶 Base Fees, Rates &amp; Commissions
+          Base Fees, Rates &amp; Commissions
         </button>
         <button
           type="button"
@@ -292,7 +292,7 @@ export default function AdminSettings() {
             cursor: 'pointer',
           }}
         >
-          🏛️ Jurisdictions &amp; System Health
+          Jurisdictions &amp; System Health
         </button>
       </div>
 

@@ -2,6 +2,7 @@ const prisma = require('../../config/db');
 const { DEFAULT_EUR_TO_AZN_RATE, convertEurToAzn, convertToEur } = require('../../config/constants');
 const { getAgentCommissionRate, calculatePortalFees } = require('../../utils/finance.util');
 const { getPricingCatalog } = require('../service/pricingConfig.service');
+const promoService = require('../promo/promo.service');
 
 async function getEurToAznRate(tx = prisma) {
   try {
@@ -103,6 +104,21 @@ async function getDossierNetPaidEur(dossierId, tx = prisma, eurToAznRate = DEFAU
     }
   }
   return Number(Math.max(0, netPaid).toFixed(2));
+}
+
+/**
+ * Computes confirmed promo discounts + net paid EUR on a single dossier
+ */
+async function getDossierSettledCreditEur(dossierId, tx = prisma, eurToAznRate = DEFAULT_EUR_TO_AZN_RATE) {
+  const [netPaidEur, confirmedDiscountEur] = await Promise.all([
+    getDossierNetPaidEur(dossierId, tx, eurToAznRate),
+    promoService.getDossierConfirmedDiscountEur(dossierId, tx),
+  ]);
+  return {
+    netPaidEur,
+    confirmedDiscountEur,
+    settledCreditEur: Number((netPaidEur + confirmedDiscountEur).toFixed(2)),
+  };
 }
 
 /**
@@ -215,7 +231,16 @@ async function ensureGroupBatchPrimaryDossierInTx(tx, batch, catalog = null, { s
  */
 async function settleGroupBatchInTx(
   tx,
-  { groupBatchId, payerUserId, paymentProvider = 'WALLET', referenceCode, receiptUrl = null, explicitAmountEur = null }
+  {
+    groupBatchId,
+    payerUserId,
+    paymentProvider = 'WALLET',
+    referenceCode,
+    receiptUrl = null,
+    explicitAmountEur = null,
+    existingTransactionId = null,
+    promoMeta = null,
+  }
 ) {
   const batch = await tx.groupBatch.findUnique({
     where: { id: groupBatchId },
@@ -239,9 +264,9 @@ async function settleGroupBatchInTx(
   const primaryDossier = batch.dossiers[0] || null;
   const pendingInvoice = batch.invoices.find((inv) => inv.status !== 'PAID') || batch.invoices[0] || null;
 
-  // Determine settlement amount
+  // Determine settlement amount (allows exact 0.00 when 100% covered by promo code)
   let totalDueEur = 0.0;
-  if (explicitAmountEur !== null && explicitAmountEur !== undefined && Number(explicitAmountEur) > 0) {
+  if (explicitAmountEur !== null && explicitAmountEur !== undefined && Number(explicitAmountEur) >= 0) {
     totalDueEur = Number(Number(explicitAmountEur).toFixed(2));
   } else if (pendingInvoice) {
     totalDueEur = Number(Number(pendingInvoice.amount || 0).toFixed(2));
@@ -251,7 +276,15 @@ async function settleGroupBatchInTx(
     );
   }
 
-  const alreadyPaid = batch.dossiers.length > 0 && batch.dossiers.every((d) => d.paymentStatus === 'PAID') && (!pendingInvoice || pendingInvoice.status === 'PAID');
+  const alreadyPaid =
+    batch.dossiers.length > 0 &&
+    batch.dossiers.every((d) => d.paymentStatus === 'PAID') &&
+    (!pendingInvoice || pendingInvoice.status === 'PAID');
+
+  const promoNoteSuffix =
+    promoMeta && promoMeta.promoCode
+      ? ` (Promo ${promoMeta.promoCode}: -€${Number(promoMeta.discountAmountEur || 0).toFixed(2)})`
+      : '';
 
   // 1. Update all dossiers in this batch
   for (const d of batch.dossiers) {
@@ -266,32 +299,57 @@ async function settleGroupBatchInTx(
             fromStatus: d.status,
             toStatus: nextStatus,
             changedByUserId: payerUserId || batch.userId,
-            notes: `Group/Batch (${batch.code}) settled via ${paymentProvider} (€${totalDueEur.toFixed(2)}).`,
+            notes: `Group/Batch (${batch.code}) settled via ${paymentProvider} (€${totalDueEur.toFixed(2)})${promoNoteSuffix}.`,
           },
         },
       },
     });
   }
 
-  // 2. Record payment Transaction if not already settled with same reference
+  // 2. Update existing Stripe Transaction (prevents double revenue rows) OR create new Transaction
   const ref = referenceCode || `GRP-PAY-${batch.code}-${Date.now()}`;
-  const createdTx = await tx.transaction.create({
-    data: {
-      dossierId: primaryDossier ? primaryDossier.id : null,
-      userId: payerUserId || batch.userId,
-      amount: totalDueEur,
-      currency: 'EUR',
-      paymentProvider,
-      orderReference: ref,
-      receiptUrl,
-      status: 'PAID',
-      metadataJson: {
-        groupBatchId: batch.id,
-        batchCode: batch.code,
-        portalType: batch.portalType,
+  const txMeta = {
+    groupBatchId: batch.id,
+    batchCode: batch.code,
+    portalType: batch.portalType,
+    ...(promoMeta
+      ? {
+          promoCode: promoMeta.promoCode || null,
+          promoRedemptionId: promoMeta.redemptionId || null,
+          originalAmountEur: promoMeta.originalAmountEur ?? null,
+          discountAmountEur: promoMeta.discountAmountEur ?? 0,
+        }
+      : {}),
+  };
+
+  let createdTx;
+  if (existingTransactionId) {
+    const existing = await tx.transaction.findUnique({ where: { id: existingTransactionId } });
+    const prevMeta = existing?.metadataJson && typeof existing.metadataJson === 'object' ? existing.metadataJson : {};
+    createdTx = await tx.transaction.update({
+      where: { id: existingTransactionId },
+      data: {
+        dossierId: existing?.dossierId || (primaryDossier ? primaryDossier.id : null),
+        status: 'PAID',
+        receiptUrl: receiptUrl || existing?.receiptUrl || null,
+        metadataJson: { ...prevMeta, ...txMeta },
       },
-    },
-  });
+    });
+  } else {
+    createdTx = await tx.transaction.create({
+      data: {
+        dossierId: primaryDossier ? primaryDossier.id : null,
+        userId: payerUserId || batch.userId,
+        amount: totalDueEur,
+        currency: 'EUR',
+        paymentProvider,
+        orderReference: ref,
+        receiptUrl,
+        status: 'PAID',
+        metadataJson: txMeta,
+      },
+    });
+  }
 
   // 3. Advance GroupBatch status & confirm Appointments
   const nextBatchStatus = batch.status === 'DRAFT' ? 'PROCESSING' : batch.status;
@@ -311,7 +369,7 @@ async function settleGroupBatchInTx(
     data: { status: 'CONFIRMED' },
   });
 
-  // 4. Corporate Invoice & Department Budget update
+  // 4. Corporate Invoice & Department Budget update (uses actual net spent amount)
   if (batch.invoices.length > 0) {
     await tx.corporateInvoice.updateMany({
       where: { groupBatchId: batch.id },
@@ -342,7 +400,7 @@ async function settleGroupBatchInTx(
     }
   }
 
-  // 5. Tour Agent Commission Settlement (PENDING -> PAID)
+  // 5. Tour Agent Commission Settlement (with Promo Margin Protection against commission-farming)
   let commissionSettledEur = 0.0;
   if (
     batch.portalType === 'GROUP_AGENT' ||
@@ -356,7 +414,18 @@ async function settleGroupBatchInTx(
     );
     const tier = batch.user?.agentTier || 'BRONZE';
     const ratePerPax = getAgentCommissionRate(tier, catalog);
-    commissionSettledEur = Number((paxCount * ratePerPax).toFixed(2));
+    let rawCommission = Number((paxCount * ratePerPax).toFixed(2));
+
+    if (promoMeta && promoMeta.promoCode) {
+      if (promoMeta.allowAgentCommission === false) {
+        rawCommission = 0.0;
+      } else {
+        const consularFloor = Number(promoMeta.consularFeeTotalEur ?? paxCount * 80);
+        const netServiceMargin = Math.max(0, Number((totalDueEur - consularFloor).toFixed(2)));
+        rawCommission = Math.min(rawCommission, netServiceMargin);
+      }
+    }
+    commissionSettledEur = Number(Math.max(0, rawCommission).toFixed(2));
 
     const agentWallet = await getOrCreateWallet(batch.userId, tx);
     const existingComm = await tx.walletTransaction.findFirst({
@@ -367,26 +436,42 @@ async function settleGroupBatchInTx(
       },
     });
 
-    const commDesc = `Commission: ${batch.name} (${paxCount} Pax @ €${ratePerPax.toFixed(2)} [${tier}])`;
-    if (existingComm) {
+    const commDesc =
+      promoMeta && promoMeta.promoCode && commissionSettledEur < Number((paxCount * ratePerPax).toFixed(2))
+        ? `Commission (Promo Adjusted): ${batch.name} (${paxCount} Pax [${tier}], Promo ${promoMeta.promoCode})`
+        : `Commission: ${batch.name} (${paxCount} Pax @ €${ratePerPax.toFixed(2)} [${tier}])`;
+
+    if (commissionSettledEur > 0) {
+      if (existingComm) {
+        await tx.walletTransaction.update({
+          where: { id: existingComm.id },
+          data: {
+            amount: commissionSettledEur,
+            status: 'PAID',
+            description: commDesc,
+          },
+        });
+      } else {
+        await tx.walletTransaction.create({
+          data: {
+            walletId: agentWallet.id,
+            amount: commissionSettledEur,
+            type: 'CREDIT',
+            referenceType: 'COMMISSION',
+            referenceId: batch.code,
+            description: commDesc,
+            status: 'PAID',
+          },
+        });
+      }
+    } else if (existingComm) {
+      // Remove/zero-out pending commission if promo disabled or consumed full margin
       await tx.walletTransaction.update({
         where: { id: existingComm.id },
         data: {
-          amount: commissionSettledEur,
-          status: 'PAID',
-          description: commDesc,
-        },
-      });
-    } else {
-      await tx.walletTransaction.create({
-        data: {
-          walletId: agentWallet.id,
-          amount: commissionSettledEur,
-          type: 'CREDIT',
-          referenceType: 'COMMISSION',
-          referenceId: batch.code,
-          description: commDesc,
-          status: 'PAID',
+          amount: 0,
+          status: 'REFUNDED',
+          description: `Commission Waived (Promo ${promoMeta?.promoCode || 'DISCOUNT'}): ${batch.name}`,
         },
       });
     }
@@ -408,7 +493,16 @@ async function settleGroupBatchInTx(
  */
 async function settleDossierInTx(
   tx,
-  { dossierId, payerUserId, paymentProvider = 'WALLET', referenceCode, receiptUrl = null, explicitAmountEur = null }
+  {
+    dossierId,
+    payerUserId,
+    paymentProvider = 'WALLET',
+    referenceCode,
+    receiptUrl = null,
+    explicitAmountEur = null,
+    existingTransactionId = null,
+    promoMeta = null,
+  }
 ) {
   const dossier = await tx.dossier.findUnique({
     where: { id: dossierId },
@@ -430,18 +524,23 @@ async function settleDossierInTx(
       referenceCode,
       receiptUrl,
       explicitAmountEur,
+      existingTransactionId,
+      promoMeta,
     });
   }
 
   const rate = await getEurToAznRate(tx);
-  const netPaid = await getDossierNetPaidEur(dossier.id, tx, rate);
-  const remainingDue = Math.max(0, Number((Number(dossier.totalAmount || 0) - netPaid).toFixed(2)));
+  const { settledCreditEur } = await getDossierSettledCreditEur(dossier.id, tx, rate);
+  const remainingDue = Math.max(0, Number((Number(dossier.totalAmount || 0) - settledCreditEur).toFixed(2)));
   const amountToRecord =
-    explicitAmountEur !== null && explicitAmountEur !== undefined && Number(explicitAmountEur) > 0
+    explicitAmountEur !== null && explicitAmountEur !== undefined && Number(explicitAmountEur) >= 0
       ? Number(Number(explicitAmountEur).toFixed(2))
-      : remainingDue > 0
-        ? remainingDue
-        : Number(dossier.totalAmount || 0);
+      : remainingDue;
+
+  const promoNoteSuffix =
+    promoMeta && promoMeta.promoCode
+      ? ` (Promo ${promoMeta.promoCode}: -€${Number(promoMeta.discountAmountEur || 0).toFixed(2)})`
+      : '';
 
   const nextStatus = dossier.status === 'RECEIVED' ? 'UNDER_REVIEW' : dossier.status;
   const updatedDossier = await tx.dossier.update({
@@ -455,28 +554,52 @@ async function settleDossierInTx(
           fromStatus: dossier.status,
           toStatus: nextStatus,
           changedByUserId: payerUserId || dossier.userId,
-          notes: `Payment settled via ${paymentProvider} (€${amountToRecord.toFixed(2)}).`,
+          notes: `Payment settled via ${paymentProvider} (€${amountToRecord.toFixed(2)})${promoNoteSuffix}.`,
         },
       },
     },
   });
 
-  const createdTx = await tx.transaction.create({
-    data: {
-      dossierId: dossier.id,
-      userId: payerUserId || dossier.userId,
-      amount: amountToRecord,
-      currency: 'EUR',
-      paymentProvider,
-      orderReference: referenceCode || `DOS-PAY-${dossier.dossierNumber}-${Date.now()}`,
-      receiptUrl,
-      status: 'PAID',
-      metadataJson: {
-        dossierNumber: dossier.dossierNumber,
-        portalType: dossier.portalType,
+  const txMeta = {
+    dossierNumber: dossier.dossierNumber,
+    portalType: dossier.portalType,
+    ...(promoMeta
+      ? {
+          promoCode: promoMeta.promoCode || null,
+          promoRedemptionId: promoMeta.redemptionId || null,
+          originalAmountEur: promoMeta.originalAmountEur ?? null,
+          discountAmountEur: promoMeta.discountAmountEur ?? 0,
+        }
+      : {}),
+  };
+
+  let createdTx;
+  if (existingTransactionId) {
+    const existing = await tx.transaction.findUnique({ where: { id: existingTransactionId } });
+    const prevMeta = existing?.metadataJson && typeof existing.metadataJson === 'object' ? existing.metadataJson : {};
+    createdTx = await tx.transaction.update({
+      where: { id: existingTransactionId },
+      data: {
+        status: 'PAID',
+        receiptUrl: receiptUrl || existing?.receiptUrl || null,
+        metadataJson: { ...prevMeta, ...txMeta },
       },
-    },
-  });
+    });
+  } else {
+    createdTx = await tx.transaction.create({
+      data: {
+        dossierId: dossier.id,
+        userId: payerUserId || dossier.userId,
+        amount: amountToRecord,
+        currency: 'EUR',
+        paymentProvider,
+        orderReference: referenceCode || `DOS-PAY-${dossier.dossierNumber}-${Date.now()}`,
+        receiptUrl,
+        status: 'PAID',
+        metadataJson: txMeta,
+      },
+    });
+  }
 
   await tx.appointment.updateMany({
     where: { dossierId: dossier.id, status: 'PENDING_PAYMENT' },
@@ -725,11 +848,31 @@ async function requestWalletPayout({
 
 /**
  * Pay a Dossier, GroupBatch, or CorporateInvoice directly using the user's Wallet balance
+ * Supports optional promoCode (atomically validated & applied inside the same DB transaction).
  */
-async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId = null, invoiceId = null }) {
+async function payWithWallet({
+  userId,
+  userRole,
+  dossierId = null,
+  groupBatchId = null,
+  invoiceId = null,
+  promoCode = null,
+  scope = null,
+  source = null,
+}) {
+  if (promoCode && String(source || '').toUpperCase() === 'WIZARD_5_STEP') {
+    const err = new Error('Promo codes are not applicable in the 5-step application wizard.');
+    err.statusCode = 400;
+    throw err;
+  }
+
   return await prisma.$transaction(async (tx) => {
     const eurToAznRate = await getEurToAznRate(tx);
     const wallet = await getOrCreateWallet(userId, tx);
+
+    // Row-level InnoDB lock on Wallet to prevent concurrent double-spend
+    await tx.$queryRaw`SELECT id FROM Wallet WHERE id = ${wallet.id} FOR UPDATE`;
+
     const initialSummary = await recalculateWalletBalances(wallet.id, tx);
     const availableEur = initialSummary.balance;
     const isStaff = ['ADMIN', 'MANAGER', 'OPERATOR'].includes(userRole);
@@ -786,11 +929,11 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
 
       const catalog = await getPricingCatalog(tx);
       const totalAppsCount = batch.dossiers.reduce((sum, d) => sum + (d.applicants ? d.applicants.length : 0), 0);
-      let requiredEur = inv
+      let grossRequiredEur = inv
         ? Number(Number(inv.amount || 0).toFixed(2))
         : Number(batch.dossiers.reduce((s, d) => s + Number(d.totalAmount || 0), 0).toFixed(2));
 
-      if (requiredEur <= 0) {
+      if (grossRequiredEur <= 0) {
         const dynamicFees = calculatePortalFees({
           portalType: batch.portalType || 'GROUP_AGENT',
           paxCount: Math.max(1, totalAppsCount),
@@ -798,43 +941,86 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
           duration: batch.duration || 'short',
           catalog,
         });
-        requiredEur = Number(dynamicFees.grandTotalEur || 0);
+        grossRequiredEur = Number(dynamicFees.grandTotalEur || 0);
       }
 
-      if (requiredEur <= 0) {
+      const priorBatchDiscount = await promoService.getGroupBatchConfirmedDiscountEur(batch.id, tx);
+      const originalDueEur = Math.max(0, Number((grossRequiredEur - priorBatchDiscount).toFixed(2)));
+
+      if (originalDueEur <= 0) {
         const err = new Error('No payable amount found for this group/batch.');
         err.statusCode = 400;
         throw err;
       }
 
-      if (availableEur < requiredEur) {
+      // Optional Promo Code validation & atomic application
+      let promoRes = null;
+      let netPayableEur = originalDueEur;
+      if (promoCode && String(promoCode).trim()) {
+        promoRes = await promoService.reserveOrApplyPromoInTx(tx, {
+          code: promoCode,
+          userId,
+          userRole,
+          paymentMethod: 'WALLET',
+          mode: 'APPLY',
+          groupBatchId: batch.id,
+          invoiceId: inv?.id || null,
+          scope: scope || 'GROUP_BATCH_PAYMENT',
+          source,
+        });
+        netPayableEur = promoRes.finalAmountEur;
+      }
+
+      if (netPayableEur > 0 && availableEur + 0.001 < netPayableEur) {
         const err = new Error(
-          `Insufficient wallet balance. Available: €${availableEur.toFixed(2)}, Required: €${requiredEur.toFixed(2)}.`
+          `Insufficient wallet balance. Available: €${availableEur.toFixed(2)}, Required: €${netPayableEur.toFixed(2)}.`
         );
         err.statusCode = 400;
         throw err;
       }
 
-      const ref = `WLT-${batch.code}-${Date.now().toString().slice(-5)}`;
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          amount: -requiredEur,
-          type: 'DEBIT',
-          referenceType: 'VISA_PAYMENT',
-          referenceId: batch.code,
-          description: `Group/Batch Visa Fees: ${batch.name} (${batch.code})`,
-          status: 'PAID',
-        },
-      });
+      const ref = `${netPayableEur <= 0 ? 'PRM' : 'WLT'}-${batch.code}-${Date.now().toString().slice(-5)}`;
+      if (netPayableEur > 0) {
+        const promoSuffix = promoRes
+          ? ` (Promo: ${promoRes.promo.code} -€${promoRes.discountAmountEur.toFixed(2)})`
+          : '';
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            amount: -netPayableEur,
+            type: 'DEBIT',
+            referenceType: 'VISA_PAYMENT',
+            referenceId: batch.code,
+            description: `Group/Batch Visa Fees: ${batch.name} (${batch.code})${promoSuffix}`,
+            status: 'PAID',
+          },
+        });
+      }
 
       const settlement = await settleGroupBatchInTx(tx, {
         groupBatchId: batch.id,
         payerUserId: userId,
-        paymentProvider: 'WALLET',
+        paymentProvider: netPayableEur <= 0 ? 'PROMO_FULL_COVERAGE' : 'WALLET',
         referenceCode: ref,
-        explicitAmountEur: requiredEur,
+        explicitAmountEur: netPayableEur,
+        promoMeta: promoRes
+          ? {
+              promoCode: promoRes.promo.code,
+              redemptionId: promoRes.redemption.id,
+              originalAmountEur: promoRes.originalAmountEur,
+              discountAmountEur: promoRes.discountAmountEur,
+              allowAgentCommission: promoRes.allowAgentCommission,
+              consularFeeTotalEur: promoRes.consularFeeTotalEur,
+            }
+          : null,
       });
+
+      if (promoRes && settlement.transaction?.id) {
+        await tx.promoCodeRedemption.update({
+          where: { id: promoRes.redemption.id },
+          data: { transactionId: settlement.transaction.id },
+        });
+      }
 
       const finalSummary = await recalculateWalletBalances(wallet.id, tx);
 
@@ -842,13 +1028,24 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
         data: {
           userId,
           action: 'WALLET_GROUP_PAYMENT',
-          details: { groupBatchId: batch.id, batchCode: batch.code, paidEur: requiredEur, newBalance: finalSummary.balance },
+          details: {
+            groupBatchId: batch.id,
+            batchCode: batch.code,
+            originalAmountEur: promoRes ? promoRes.originalAmountEur : originalDueEur,
+            discountAmountEur: promoRes ? promoRes.discountAmountEur : 0,
+            appliedPromoCode: promoRes ? promoRes.promo.code : null,
+            paidEur: netPayableEur,
+            newBalance: finalSummary.balance,
+          },
         },
       });
 
       return {
-        paidAmountEur: requiredEur,
-        paidAmountAzn: convertEurToAzn(requiredEur, eurToAznRate),
+        originalAmountEur: promoRes ? promoRes.originalAmountEur : originalDueEur,
+        discountAmountEur: promoRes ? promoRes.discountAmountEur : 0,
+        appliedPromoCode: promoRes ? promoRes.promo.code : null,
+        paidAmountEur: netPayableEur,
+        paidAmountAzn: convertEurToAzn(netPayableEur, eurToAznRate),
         newBalance: finalSummary.balance,
         newBalanceAzn: convertEurToAzn(finalSummary.balance, eurToAznRate),
         commissionSettledEur: settlement.commissionSettledEur,
@@ -873,44 +1070,79 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
         throw err;
       }
 
-      const netPaid = await getDossierNetPaidEur(dossier.id, tx, eurToAznRate);
-      const dueEur = Math.max(0, Number((Number(dossier.totalAmount || 0) - netPaid).toFixed(2)));
+      const { settledCreditEur } = await getDossierSettledCreditEur(dossier.id, tx, eurToAznRate);
+      const dueEur = Math.max(0, Number((Number(dossier.totalAmount || 0) - settledCreditEur).toFixed(2)));
 
-      if (dueEur <= 0 && dossier.paymentStatus === 'PAID') {
+      if (dueEur <= 0) {
         const err = new Error('This dossier is already fully paid.');
         err.statusCode = 400;
         throw err;
       }
 
-      const payableEur = dueEur > 0 ? dueEur : Number(dossier.totalAmount || 0);
-      if (availableEur < payableEur) {
+      let promoRes = null;
+      let netPayableEur = dueEur;
+      if (promoCode && String(promoCode).trim()) {
+        promoRes = await promoService.reserveOrApplyPromoInTx(tx, {
+          code: promoCode,
+          userId,
+          userRole,
+          paymentMethod: 'WALLET',
+          mode: 'APPLY',
+          dossierId: dossier.id,
+          scope: scope || 'DOSSIER_PAYMENT',
+          source,
+        });
+        netPayableEur = promoRes.finalAmountEur;
+      }
+
+      if (netPayableEur > 0 && availableEur + 0.001 < netPayableEur) {
         const err = new Error(
-          `Insufficient wallet balance. Available: €${availableEur.toFixed(2)}, Required: €${payableEur.toFixed(2)}.`
+          `Insufficient wallet balance. Available: €${availableEur.toFixed(2)}, Required: €${netPayableEur.toFixed(2)}.`
         );
         err.statusCode = 400;
         throw err;
       }
 
-      const ref = `WLT-${dossier.dossierNumber}-${Date.now().toString().slice(-4)}`;
-      await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          amount: -payableEur,
-          type: 'DEBIT',
-          referenceType: 'VISA_PAYMENT',
-          referenceId: dossier.dossierNumber,
-          description: `Consular & Service Fees: Dossier ${dossier.dossierNumber}`,
-          status: 'PAID',
-        },
-      });
+      const ref = `${netPayableEur <= 0 ? 'PRM' : 'WLT'}-${dossier.dossierNumber}-${Date.now().toString().slice(-4)}`;
+      if (netPayableEur > 0) {
+        const promoSuffix = promoRes
+          ? ` (Promo: ${promoRes.promo.code} -€${promoRes.discountAmountEur.toFixed(2)})`
+          : '';
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            amount: -netPayableEur,
+            type: 'DEBIT',
+            referenceType: 'VISA_PAYMENT',
+            referenceId: dossier.dossierNumber,
+            description: `Consular & Service Fees: Dossier ${dossier.dossierNumber}${promoSuffix}`,
+            status: 'PAID',
+          },
+        });
+      }
 
       const settled = await settleDossierInTx(tx, {
         dossierId: dossier.id,
         payerUserId: userId,
-        paymentProvider: 'WALLET',
+        paymentProvider: netPayableEur <= 0 ? 'PROMO_FULL_COVERAGE' : 'WALLET',
         referenceCode: ref,
-        explicitAmountEur: payableEur,
+        explicitAmountEur: netPayableEur,
+        promoMeta: promoRes
+          ? {
+              promoCode: promoRes.promo.code,
+              redemptionId: promoRes.redemption.id,
+              originalAmountEur: promoRes.originalAmountEur,
+              discountAmountEur: promoRes.discountAmountEur,
+            }
+          : null,
       });
+
+      if (promoRes && settled.transaction?.id) {
+        await tx.promoCodeRedemption.update({
+          where: { id: promoRes.redemption.id },
+          data: { transactionId: settled.transaction.id },
+        });
+      }
 
       const finalSummary = await recalculateWalletBalances(wallet.id, tx);
 
@@ -918,7 +1150,15 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
         data: {
           userId,
           action: 'WALLET_DOSSIER_PAYMENT',
-          details: { dossierId: dossier.id, dossierNumber: dossier.dossierNumber, paidEur: payableEur, newBalance: finalSummary.balance },
+          details: {
+            dossierId: dossier.id,
+            dossierNumber: dossier.dossierNumber,
+            originalAmountEur: promoRes ? promoRes.originalAmountEur : dueEur,
+            discountAmountEur: promoRes ? promoRes.discountAmountEur : 0,
+            appliedPromoCode: promoRes ? promoRes.promo.code : null,
+            paidEur: netPayableEur,
+            newBalance: finalSummary.balance,
+          },
         },
       });
 
@@ -935,8 +1175,11 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
       }
 
       return {
-        paidAmountEur: payableEur,
-        paidAmountAzn: convertEurToAzn(payableEur, eurToAznRate),
+        originalAmountEur: promoRes ? promoRes.originalAmountEur : dueEur,
+        discountAmountEur: promoRes ? promoRes.discountAmountEur : 0,
+        appliedPromoCode: promoRes ? promoRes.promo.code : null,
+        paidAmountEur: netPayableEur,
+        paidAmountAzn: convertEurToAzn(netPayableEur, eurToAznRate),
         newBalance: finalSummary.balance,
         newBalanceEur: finalSummary.balance,
         newBalanceAzn: convertEurToAzn(finalSummary.balance, eurToAznRate),
@@ -952,11 +1195,13 @@ async function payWithWallet({ userId, userRole, dossierId = null, groupBatchId 
 
 /**
  * Refunds an EUR amount directly back into a user's Wallet (e.g. cancelled paid add-on service)
+ * Also writes a WALLET_REFUND Transaction row when dossierId is supplied so net-paid math stays exact.
  */
-async function refundToWallet({ userId, amountEur, reason, referenceId = null }, tx = prisma) {
+async function refundToWallet({ userId, amountEur, reason, referenceId = null, dossierId = null }, tx = prisma) {
   const amt = Number(Number(amountEur || 0).toFixed(2));
   if (amt <= 0) return null;
 
+  const ref = referenceId || `REFUND-${Date.now().toString().slice(-6)}`;
   const wallet = await getOrCreateWallet(userId, tx);
   await tx.walletTransaction.create({
     data: {
@@ -964,11 +1209,26 @@ async function refundToWallet({ userId, amountEur, reason, referenceId = null },
       amount: amt,
       type: 'CREDIT',
       referenceType: 'TOPUP',
-      referenceId: referenceId || `REFUND-${Date.now().toString().slice(-6)}`,
+      referenceId: ref,
       description: `Refund Credited: ${reason}`,
       status: 'PAID',
     },
   });
+
+  if (dossierId) {
+    await tx.transaction.create({
+      data: {
+        dossierId,
+        userId,
+        amount: amt,
+        currency: 'EUR',
+        paymentProvider: 'WALLET_REFUND',
+        orderReference: ref,
+        status: 'REFUNDED',
+        metadataJson: { reason },
+      },
+    });
+  }
 
   return recalculateWalletBalances(wallet.id, tx);
 }
@@ -1013,17 +1273,23 @@ async function getUserWalletOverview(userId) {
   let totalUnpaidEur = 0.0;
 
   for (const d of dossiers) {
-    const netPaidEur = await getDossierNetPaidEur(d.id, prisma, eurToAznRate);
+    const { netPaidEur, confirmedDiscountEur, settledCreditEur } = await getDossierSettledCreditEur(
+      d.id,
+      prisma,
+      eurToAznRate
+    );
     const totalEur = Number(Number(d.totalAmount || 0).toFixed(2));
-    const dueEur = d.paymentStatus === 'PAID' && netPaidEur >= totalEur
-      ? 0.0
-      : Math.max(0, Number((totalEur - netPaidEur).toFixed(2)));
+    const dueEur =
+      d.paymentStatus === 'PAID' && settledCreditEur >= totalEur
+        ? 0.0
+        : Math.max(0, Number((totalEur - settledCreditEur).toFixed(2)));
 
     if (dueEur > 0) {
       totalUnpaidEur += dueEur;
     }
 
     dossierInvoices.push({
+      id: d.id,
       dossierId: d.id,
       dossierNumber: d.dossierNumber,
       portalType: d.portalType,
@@ -1034,6 +1300,8 @@ async function getUserWalletOverview(userId) {
       governmentFee: Number(d.governmentFee || 80),
       serviceFee: Number(d.serviceFee || 0),
       extraServicesFee: Number(d.extraServicesFee || 0),
+      discountAmountEur: confirmedDiscountEur,
+      appliedPromoCode: d.appliedPromoCode || null,
       totalAmountEur: totalEur,
       totalAmountAzn: convertEurToAzn(totalEur, eurToAznRate),
       paidAmountEur: netPaidEur,
@@ -1232,6 +1500,7 @@ module.exports = {
   getOrCreateWallet,
   recalculateWalletBalances,
   getDossierNetPaidEur,
+  getDossierSettledCreditEur,
   findPaidGroupBatchTransaction,
   ensureGroupBatchPrimaryDossierInTx,
   settleGroupBatchInTx,

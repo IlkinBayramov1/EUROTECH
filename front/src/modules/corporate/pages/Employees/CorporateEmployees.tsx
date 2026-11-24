@@ -697,7 +697,6 @@ export default function CorporateEmployees() {
                                                             gap: '3px',
                                                             width: 'fit-content'
                                                         }}>
-                                                            {pStatus.status === 'CRITICAL' && '⚠️ '}
                                                             {pStatus.label}
                                                         </span>
                                                     </div>

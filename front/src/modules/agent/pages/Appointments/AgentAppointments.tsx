@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './AgentAppointments.css';
 import { agentService, appointmentService, TimeSlot as AvailableSlot } from '@/shared/api/services';
+import { vcmsApi } from '@/modules/admin/api/vcmsApi';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
 
@@ -14,10 +15,15 @@ export interface ApplicantItem {
 
 export interface AgentAppointmentItem {
     id: string;
+    bookingCode?: string | null;
+    countryId?: string | null;
+    visaTypeId?: string | null;
+    visaPurposeId?: string | null;
     timeSlotId: string;
     status: string;
     location: string;
     notes?: string;
+    notifications?: any[];
     timeSlot: {
         id: string;
         date: string;
@@ -31,6 +37,9 @@ export interface AgentAppointmentItem {
         dbId?: string;
         name: string;
         destination: string;
+        countryId?: string | null;
+        visaTypeId?: string | null;
+        visaPurposeId?: string | null;
         size: number;
         passportStatus: string;
         package: string;
@@ -56,8 +65,16 @@ export default function AgentAppointments() {
     const [loadingSlots, setLoadingSlots] = useState(false);
     const [selectedNewSlotId, setSelectedNewSlotId] = useState<string | null>(null);
     const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+    const [apptNotifications, setApptNotifications] = useState<any[]>([]);
 
     const { showSuccess, showError } = useToast();
+
+    useEffect(() => {
+        vcmsApi
+            .getMyAppointmentNotifications()
+            .then((res) => setApptNotifications(res.data?.notifications || []))
+            .catch(() => {});
+    }, []);
 
     const year = currentViewDate.getFullYear();
     const month = currentViewDate.getMonth();
@@ -150,17 +167,44 @@ export default function AgentAppointments() {
         setTimeout(() => setSelectedSlot(null), 300);
     };
 
-    // Open Reschedule view and fetch available slots from backend
+    // Open Reschedule view and fetch available slots from VCMS / backend
     const handleStartReschedule = async () => {
         setIsRescheduling(true);
         setSelectedNewSlotId(null);
         setLoadingSlots(true);
 
         try {
-            const res: any = await appointmentService.getSlots();
-            const slotsData = res?.data?.slots || res?.slots || [];
-            // Filter out the current slot and only show slots with capacity
-            const filtered = slotsData.filter((s: AvailableSlot) => s.id !== selectedSlot?.timeSlotId && (s.capacity - s.bookedCount) > 0);
+            const grpSize = Math.max(1, selectedSlot?.groupInfo?.size || 1);
+            let slotsData: any[] = [];
+            try {
+                const vcmsRes = await vcmsApi.getCustomerPublishedSlots({
+                    countryId: selectedSlot?.countryId || selectedSlot?.groupInfo?.countryId || undefined,
+                    visaTypeId: selectedSlot?.visaTypeId || selectedSlot?.groupInfo?.visaTypeId || undefined,
+                    visaPurposeId: selectedSlot?.visaPurposeId || selectedSlot?.groupInfo?.visaPurposeId || undefined,
+                    groupSize: grpSize,
+                });
+                if (Array.isArray(vcmsRes.data?.slots) && vcmsRes.data.slots.length > 0) {
+                    slotsData = vcmsRes.data.slots;
+                }
+            } catch {
+                // fallback below
+            }
+
+            if (slotsData.length === 0) {
+                const res: any = await appointmentService.getSlots(undefined, undefined, {
+                    countryId: selectedSlot?.countryId || selectedSlot?.groupInfo?.countryId,
+                    visaTypeId: selectedSlot?.visaTypeId || selectedSlot?.groupInfo?.visaTypeId,
+                    groupSize: grpSize,
+                } as any);
+                slotsData = res?.data?.slots || res?.slots || [];
+            }
+
+            const filtered = slotsData.filter(
+                (s: AvailableSlot) =>
+                    s.id !== selectedSlot?.timeSlotId &&
+                    (s.capacity - s.bookedCount) >= grpSize &&
+                    !['DRAFT', 'BLOCKED', 'CLOSED'].includes((s as any).slotStatus)
+            );
             setAvailableSlots(filtered);
         } catch (err: any) {
             console.error('Error fetching available slots:', err);
@@ -234,6 +278,49 @@ export default function AgentAppointments() {
                     <p className="dash-subtitle">Manage and track biometric consular appointments exclusively for your tour groups.</p>
                 </div>
             </div>
+
+            {apptNotifications.filter((n) => !n.readAt).length > 0 && (
+                <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {apptNotifications
+                        .filter((n) => !n.readAt)
+                        .map((notif) => (
+                            <div
+                                key={notif.id}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 14,
+                                    padding: '13px 16px',
+                                    borderRadius: 12,
+                                    background: notif.type === 'SLOT_RESCHEDULED' ? '#fef3c7' : '#eff6ff',
+                                    border: `1px solid ${notif.type === 'SLOT_RESCHEDULED' ? '#fcd34d' : '#bfdbfe'}`,
+                                    color: '#0f172a',
+                                    fontSize: '0.86rem',
+                                }}
+                            >
+                                <div>
+                                    <strong>{notif.title}:</strong> {notif.message}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-text-secondary"
+                                    style={{ padding: '5px 10px', fontSize: '0.78rem' }}
+                                    onClick={async () => {
+                                        await vcmsApi.markAppointmentNotificationRead(notif.id);
+                                        setApptNotifications((prev) =>
+                                            prev.map((item) =>
+                                                item.id === notif.id ? { ...item, readAt: new Date().toISOString() } : item
+                                            )
+                                        );
+                                    }}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        ))}
+                </div>
+            )}
 
             <div className="agent-appt-grid-premium">
                 {/* --- Sol Tərəf: İnteraktiv Təqvim --- */}
@@ -325,6 +412,20 @@ export default function AgentAppointments() {
                                                     <span className={`slot-status-badge badge-${appt.status.toLowerCase()}`}>
                                                         {appt.status === 'CONFIRMED' ? 'Confirmed' : appt.status === 'RESCHEDULED' ? 'Rescheduled' : appt.status}
                                                     </span>
+                                                    {appt.bookingCode && (
+                                                        <span
+                                                            style={{
+                                                                fontSize: '0.75rem',
+                                                                padding: '2px 8px',
+                                                                borderRadius: 999,
+                                                                background: '#e0e7ff',
+                                                                color: '#3730a3',
+                                                                fontWeight: 700,
+                                                            }}
+                                                        >
+                                                            {appt.bookingCode}
+                                                        </span>
+                                                    )}
                                                     <span className="group-id-ref">{appt.groupInfo.id}</span>
                                                 </div>
                                                 <h4>{appt.groupInfo.name}</h4>

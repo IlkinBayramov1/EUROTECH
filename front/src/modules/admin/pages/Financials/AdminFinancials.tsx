@@ -16,6 +16,11 @@ interface BankSlipItem {
   email?: string;
   amount: number;
   currency: string;
+  promoCode?: string | null;
+  originalAmountEur?: number | null;
+  discountAmountEur?: number | null;
+  expectedNetAmountEur?: number | null;
+  promoStatus?: string | null;
   referenceCode: string;
   fileUrl: string;
   fileName: string;
@@ -433,6 +438,19 @@ export default function AdminFinancials() {
                           <strong className="amount-cell">
                             {formatSlipCurrency(slip.amount, slip.currency)}
                           </strong>
+                          {slip.promoCode && (
+                            <span
+                              style={{
+                                display: 'block',
+                                fontSize: '0.73rem',
+                                color: '#15803D',
+                                fontWeight: 600,
+                                marginTop: 2,
+                              }}
+                            >
+                              Promo {slip.promoCode}: -€{Number(slip.discountAmountEur || 0).toFixed(2)}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <code className="ref-code">{slip.referenceCode || slip.id.substring(0, 8)}</code>
@@ -805,6 +823,14 @@ export default function AdminFinancials() {
                   <label>Payment Reference Code</label>
                   <code>{selectedSlip.referenceCode}</code>
                 </div>
+                {selectedSlip.promoCode && (
+                  <div style={{ gridColumn: '1 / -1', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 12px' }}>
+                    <label style={{ color: '#166534' }}>Promo Code Breakdown</label>
+                    <strong style={{ color: '#15803D', display: 'block', marginTop: 2 }}>
+                      Code: {selectedSlip.promoCode} &bull; Gross: €{Number(selectedSlip.originalAmountEur || 0).toFixed(2)} &bull; Discount: -€{Number(selectedSlip.discountAmountEur || 0).toFixed(2)} &bull; Expected Net: €{Number(selectedSlip.expectedNetAmountEur ?? selectedSlip.amount).toFixed(2)}
+                    </strong>
+                  </div>
+                )}
               </div>
 
               <div className="receipt-preview-box">

@@ -113,7 +113,7 @@ export const agentService = {
   topupWallet: (data: { amount: number; currency?: string; method?: string; paymentMethod?: string; reference?: string; referenceCode?: string }) =>
     apiClient.post('/agent/wallet/topup', data),
 
-  payGroupWithWallet: (groupId: string) =>
-    apiClient.post(`/agent/groups/${groupId}/pay-wallet`),
+  payGroupWithWallet: (groupId: string, data?: { promoCode?: string | null }) =>
+    apiClient.post(`/agent/groups/${groupId}/pay-wallet`, data || {}),
 };
 

@@ -140,6 +140,13 @@ export const apiClient = {
       headers,
     }),
 
+  put: <T = any>(endpoint: string, body?: any, headers?: Record<string, string>) =>
+    request<T>(endpoint, {
+      method: 'PUT',
+      body: body instanceof FormData ? body : JSON.stringify(body),
+      headers,
+    }),
+
   delete: <T = any>(endpoint: string, headers?: Record<string, string>) =>
     request<T>(endpoint, { method: 'DELETE', headers }),
 };

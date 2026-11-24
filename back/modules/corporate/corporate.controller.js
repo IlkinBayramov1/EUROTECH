@@ -87,11 +87,14 @@ async function generateInvoice(req, res, next) {
 async function payWithWallet(req, res, next) {
   try {
     const { batchId } = req.params;
-    const { amount } = req.body;
+    const { amount, promoCode, source } = req.body || {};
     const result = await corporateService.payBatchWithWallet({
       batchId,
       corporateUserId: req.user.id,
+      userRole: req.user.role,
       amount,
+      promoCode: promoCode || null,
+      source: source || null,
     });
     return ApiResponse.success(res, result, 'Batch paid from corporate wallet successfully');
   } catch (error) {
@@ -119,10 +122,14 @@ async function remindEmployee(req, res, next) {
 
 async function topupWallet(req, res, next) {
   try {
-    const { amount, method, reference } = req.body;
+    const { amount, currency, method, reference, promoCode } = req.body || {};
+    if (promoCode && String(promoCode).trim()) {
+      return ApiResponse.error(res, 'Promo codes cannot be applied to wallet top-up deposits.', 400);
+    }
     const result = await corporateService.topupCorporateWallet({
       corporateUserId: req.user.id,
       amount,
+      currency: currency || 'EUR',
       method,
       reference,
     });
@@ -227,13 +234,15 @@ async function getDashboardStats(req, res, next) {
 
 async function submitDelegationForm(req, res, next) {
   try {
-    const { token, passportNumber, dob, passportExpiry, phone } = req.body;
+    const { token, passportNumber, dob, passportExpiry, phone, vcmsAnswers, formDataJson } = req.body;
     const result = await corporateService.submitDelegationForm({
       token,
       passportNumber,
       dob,
       passportExpiry,
       phone,
+      vcmsAnswers,
+      formDataJson,
     });
     return ApiResponse.success(res, result, 'Employee delegation form submitted successfully');
   } catch (error) {

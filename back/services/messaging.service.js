@@ -235,11 +235,11 @@ async function handleWhatsAppWebhook(payload) {
           : 'Hələ təyin olunmayıb';
 
         responseText = `Hörmətli müştəri, Viza müraciətinizin cari vəziyyəti:\n\n` +
-          `📌 Dosye: ${dossier.dossierNumber}\n` +
-          `🌍 Ölkə: ${dossier.country ? dossier.country.nameAz : 'Şengen'}\n` +
-          `📊 Status: ${dossier.status}\n` +
-          `📅 Görüş: ${appointmentInfo}\n` +
-          `💳 Ödəniş: ${dossier.paymentStatus}\n\n` +
+          `Dosye: ${dossier.dossierNumber}\n` +
+          `Ölkə: ${dossier.country ? dossier.country.nameAz : 'Şengen'}\n` +
+          `Status: ${dossier.status}\n` +
+          `Görüş: ${appointmentInfo}\n` +
+          `Ödəniş: ${dossier.paymentStatus}\n\n` +
           `EuroTech Şəxsi Kabinet: https://customer.eurotech.az`;
       } else {
         responseText = `Hörmətli müştəri, telefon nömrənizə və ya daxil etdiyiniz koda uyğun aktiv dosye tapılmadı. Zəhmət olmasa "STATUS <DOSYE_NÖMRƏSİ>" formatında göndərin (Məsələn: STATUS HU-AZ-2026-04891).`;

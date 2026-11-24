@@ -1,5 +1,6 @@
 const prisma = require('../../../config/db');
 const { syncGroupFinancialsInTx } = require('./agentGroup.service');
+const vcmsService = require('../../vcms/services/vcms.service');
 
 async function addApplicantToGroup(groupId, userId, applicantData) {
   const group = await prisma.groupBatch.findFirst({
@@ -169,6 +170,16 @@ async function getCustomerSelfFillData(groupId, applicantId) {
     throw error;
   }
 
+  let vcms = null;
+  try {
+    vcms = await vcmsService.getApplicantAnswersAndSchema({
+      dossierId: applicant.dossierId,
+      applicantId: applicant.id,
+    });
+  } catch (err) {
+    console.warn('Could not load VCMS schema for traveler self-fill:', err.message);
+  }
+
   return {
     group: {
       id: group.id,
@@ -193,6 +204,7 @@ async function getCustomerSelfFillData(groupId, applicantId) {
       formDataJson: applicant.formDataJson || {},
       documents: applicant.documents || [],
     },
+    vcms,
   };
 }
 
@@ -206,6 +218,14 @@ async function submitCustomerSelfFill(groupId, applicantId, payload) {
     const error = new Error('Traveler not found in group');
     error.statusCode = 404;
     throw error;
+  }
+
+  if (Array.isArray(payload.vcmsAnswers) && payload.vcmsAnswers.length > 0) {
+    await vcmsService.saveApplicantQuestionAnswers({
+      dossierId: applicant.dossierId,
+      applicantId: applicant.id,
+      answers: payload.vcmsAnswers,
+    });
   }
 
   const updateData = {};

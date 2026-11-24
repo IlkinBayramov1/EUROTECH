@@ -7,6 +7,10 @@ import { Badge } from '@/shared/components/ui/Badge';
 import { Spinner } from '@/shared/components/ui/Spinner';
 import { BuildingIcon, ShieldIcon, CheckCircleIcon } from '@/shared/components/icons/Icons';
 import { apiClient } from '@/shared/api/client';
+import DynamicVcmsFormRenderer, {
+  type VcmsQuestionItem,
+} from '@/modules/applicant/components/VcmsDynamicForm/DynamicVcmsFormRenderer';
+import { evaluateFrontendConditionSet } from '@/modules/admin/api/vcmsApi';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
 
@@ -26,6 +30,9 @@ export default function CorporateDelegation() {
   const [passportNumber, setPassportNumber] = useState('');
   const [passportExpiry, setPassportExpiry] = useState('');
   const [phone, setPhone] = useState('');
+  const [vcmsQuestions, setVcmsQuestions] = useState<VcmsQuestionItem[]>([]);
+  const [vcmsDocuments, setVcmsDocuments] = useState<any[]>([]);
+  const [vcmsAnswers, setVcmsAnswers] = useState<Record<string, any>>({});
 
   const [tokenError, setTokenError] = useState<string | null>(null);
 
@@ -53,6 +60,20 @@ export default function CorporateDelegation() {
           if (prof.phone) {
             setPhone(prof.phone);
           }
+          if (prof.vcms?.schema) {
+            setVcmsQuestions(prof.vcms.schema.questions || []);
+            setVcmsDocuments(prof.vcms.schema.documents || []);
+            const savedMap: Record<string, any> = {};
+            for (const ans of prof.vcms.savedAnswers || []) {
+              savedMap[ans.questionCode] =
+                Array.isArray(ans.selectedOptionCodesJson) && ans.selectedOptionCodesJson.length > 1
+                  ? ans.selectedOptionCodesJson
+                  : ans.valueText ||
+                    (Array.isArray(ans.selectedOptionCodesJson) ? ans.selectedOptionCodesJson[0] : '') ||
+                    (ans.valueJson !== null && ans.valueJson !== undefined ? ans.valueJson : '');
+            }
+            setVcmsAnswers(savedMap);
+          }
         }
       } catch (err: any) {
         console.warn('Delegation profile load error:', err);
@@ -64,9 +85,31 @@ export default function CorporateDelegation() {
     loadProfile();
   }, [token]);
 
+  const handleVcmsAnswerChange = (q: VcmsQuestionItem, val: any) => {
+    setVcmsAnswers((prev) => ({ ...prev, [q.questionCode]: val }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+
+    const formattedVcmsAnswers = vcmsQuestions
+      .filter((q) => vcmsAnswers[q.questionCode] !== undefined && vcmsAnswers[q.questionCode] !== '')
+      .map((q) => {
+        const rawVal = vcmsAnswers[q.questionCode];
+        const isSelect = ['SINGLE_SELECT', 'MULTIPLE_SELECT'].includes(q.answerType);
+        return {
+          purposeQuestionConfigId: q.configId,
+          questionCode: q.questionCode,
+          valueText: Array.isArray(rawVal) ? rawVal.join(', ') : String(rawVal),
+          valueJson: Array.isArray(rawVal) ? rawVal : undefined,
+          selectedOptionCodes: isSelect
+            ? Array.isArray(rawVal)
+              ? rawVal.map(String)
+              : [String(rawVal)]
+            : undefined,
+        };
+      });
 
     setSubmitting(true);
     try {
@@ -76,6 +119,7 @@ export default function CorporateDelegation() {
         dob,
         passportExpiry,
         phone,
+        vcmsAnswers: formattedVcmsAnswers,
       });
       showSuccess('Your application details have been saved to your corporate file.');
       setIsCompleted(true);
@@ -176,7 +220,7 @@ export default function CorporateDelegation() {
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', backgroundColor: '#EF4444', borderColor: '#EF4444' }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              📄 Şengen Formasını Yüklə (PDF)
+              Şengen Formasını Yüklə (PDF)
             </Button>
             <Button variant="outline" onClick={() => navigate('/')}>
               Back to Portal Home
@@ -293,6 +337,80 @@ export default function CorporateDelegation() {
                 required
               />
             </div>
+
+            {vcmsQuestions.length > 0 && (
+              <DynamicVcmsFormRenderer
+                questions={vcmsQuestions}
+                answers={vcmsAnswers}
+                onAnswerChange={handleVcmsAnswerChange}
+                stepFilter={null}
+                countryName={profile?.destination}
+                visaTypeName={profile?.vcms?.visaType?.nameEn}
+                visaPurposeName={profile?.vcms?.visaPurpose?.nameEn || profile?.vcms?.schema?.purpose?.nameEn}
+              />
+            )}
+
+            {vcmsDocuments.length > 0 && (
+              <div
+                style={{
+                  padding: 16,
+                  borderRadius: 12,
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                }}
+              >
+                <strong style={{ display: 'block', fontSize: '0.92rem', color: '#0f172a', marginBottom: 8 }}>
+                  Required Consular Documents for {profile?.destination}
+                </strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {vcmsDocuments
+                    .filter((d) => {
+                      const evalState = evaluateFrontendConditionSet(
+                        { isRequired: d.isRequired, isVisible: true, conditions: d.conditions },
+                        vcmsAnswers
+                      );
+                      return evalState.isVisible;
+                    })
+                    .map((d) => (
+                      <div
+                        key={d.configId || d.documentCode}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '0.82rem',
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                        }}
+                      >
+                        <div>
+                          <code style={{ color: '#2563eb', fontWeight: 700, marginRight: 6 }}>{d.documentCode}</code>
+                          <strong style={{ color: '#0f172a' }}>{d.nameEn}</strong>
+                          {d.descriptionEn && (
+                            <span style={{ display: 'block', fontSize: '0.75rem', color: '#64748b' }}>
+                              {d.descriptionEn}
+                            </span>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: d.isRequired ? '#fee2e2' : '#f1f5f9',
+                            color: d.isRequired ? '#b91c1c' : '#475569',
+                          }}
+                        >
+                          {d.isRequired ? 'Required' : 'Optional'}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: '12px' }}>
               <Button type="submit" variant="primary" style={{ width: '100%' }} isLoading={submitting}>

@@ -330,16 +330,16 @@ export default function ClientDashboard() {
 
     const countryCodeToFlag = (country?: any) => {
         const c = (country?.code || country?.nameEn || country?.nameAz || '').toUpperCase();
-        if (c.includes('HU') || c.includes('HUNGAR') || c.includes('MACAR')) return '🇭🇺';
-        if (c.includes('DE') || c.includes('GERMAN') || c.includes('ALMAN')) return '🇩🇪';
-        if (c.includes('AT') || c.includes('AUSTRI') || c.includes('AVST')) return '🇦🇹';
-        if (c.includes('IT') || c.includes('ITAL')) return '🇮🇹';
-        if (c.includes('FR') || c.includes('FRAN')) return '🇫🇷';
-        if (c.includes('ES') || c.includes('SPAIN') || c.includes('ISP')) return '🇪🇸';
-        if (c.includes('CZ') || c.includes('CZECH') || c.includes('CEX')) return '🇨🇿';
-        if (c.includes('NL') || c.includes('NETHER') || c.includes('NIDER')) return '🇳🇱';
-        if (c.includes('PL') || c.includes('POLAND') || c.includes('POL')) return '🇵🇱';
-        return '🇪🇺';
+        if (c.includes('HU') || c.includes('HUNGAR') || c.includes('MACAR')) return 'HU';
+        if (c.includes('DE') || c.includes('GERMAN') || c.includes('ALMAN')) return 'DE';
+        if (c.includes('AT') || c.includes('AUSTRI') || c.includes('AVST')) return 'AT';
+        if (c.includes('IT') || c.includes('ITAL')) return 'IT';
+        if (c.includes('FR') || c.includes('FRAN')) return 'FR';
+        if (c.includes('ES') || c.includes('SPAIN') || c.includes('ISP')) return 'ES';
+        if (c.includes('CZ') || c.includes('CZECH') || c.includes('CEX')) return 'CZ';
+        if (c.includes('NL') || c.includes('NETHER') || c.includes('NIDER')) return 'NL';
+        if (c.includes('PL') || c.includes('POLAND') || c.includes('POL')) return 'PL';
+        return 'EU';
     };
 
     const stageNotices: Record<number, { title: string; desc: string }> = {

@@ -14,8 +14,34 @@ function parseBool(val, defaultVal = false) {
   return defaultVal;
 }
 
-async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, requiredDocumentType, isMandatory, isSharedWithFamily, file }) {
+async function uploadDocument({
+  dossierId,
+  applicantId,
+  corporateEmployeeId,
+  requiredDocumentType,
+  purposeDocumentConfigId,
+  globalDocumentCode,
+  isMandatory,
+  isSharedWithFamily,
+  file,
+}) {
   let resolvedApplicantId = applicantId;
+  let resolvedPurposeDocConfigId = purposeDocumentConfigId || null;
+  let resolvedGlobalDocCode = globalDocumentCode || null;
+  let resolvedDocType = requiredDocumentType || globalDocumentCode || 'DOCUMENT';
+
+  if (resolvedPurposeDocConfigId && !resolvedGlobalDocCode) {
+    const pCfg = await prisma.purposeDocumentConfig.findUnique({
+      where: { id: resolvedPurposeDocConfigId },
+      include: { globalDocument: true },
+    });
+    if (pCfg?.globalDocument) {
+      resolvedGlobalDocCode = pCfg.globalDocument.documentCode;
+      if (!requiredDocumentType) {
+        resolvedDocType = pCfg.globalDocument.legacyDocCode || pCfg.globalDocument.documentCode;
+      }
+    }
+  }
   if (dossierId) {
     const dossier = await prisma.dossier.findUnique({ where: { id: dossierId } });
     if (!dossier) {
@@ -48,13 +74,15 @@ async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, req
 
   // Check if an existing document for this applicant and requiredDocumentType already exists (unless type is OTHER)
   let existingDoc = null;
-  if (requiredDocumentType !== 'OTHER' && (dossierId || corporateEmployeeId)) {
+  if (resolvedDocType !== 'OTHER' && (dossierId || corporateEmployeeId)) {
     existingDoc = await prisma.applicantDocument.findFirst({
       where: {
         dossierId: dossierId || undefined,
         applicantId: resolvedApplicantId || undefined,
         corporateEmployeeId: corporateEmployeeId || undefined,
-        requiredDocumentType,
+        ...(resolvedPurposeDocConfigId
+          ? { purposeDocumentConfigId: resolvedPurposeDocConfigId }
+          : { requiredDocumentType: resolvedDocType }),
       },
     });
   }
@@ -64,6 +92,9 @@ async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, req
     document = await prisma.applicantDocument.update({
       where: { id: existingDoc.id },
       data: {
+        purposeDocumentConfigId: resolvedPurposeDocConfigId || existingDoc.purposeDocumentConfigId,
+        globalDocumentCode: resolvedGlobalDocCode || existingDoc.globalDocumentCode,
+        requiredDocumentType: resolvedDocType,
         fileUrl: `/uploads/${file.filename}`,
         fileName: file.originalname,
         originalFileName: file.originalname,
@@ -80,7 +111,9 @@ async function uploadDocument({ dossierId, applicantId, corporateEmployeeId, req
         dossierId: dossierId || null,
         applicantId: resolvedApplicantId || null,
         corporateEmployeeId: corporateEmployeeId || null,
-        requiredDocumentType,
+        purposeDocumentConfigId: resolvedPurposeDocConfigId,
+        globalDocumentCode: resolvedGlobalDocCode,
+        requiredDocumentType: resolvedDocType,
         fileUrl: `/uploads/${file.filename}`,
         fileName: file.originalname,
         originalFileName: file.originalname,

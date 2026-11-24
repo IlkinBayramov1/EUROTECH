@@ -3,55 +3,30 @@ const notificationService = require('../notification/notification.service');
 const paymentService = require('../payment/payment.service');
 const walletService = require('../payment/wallet.service');
 const pricingConfigService = require('../service/pricingConfig.service');
+const adminAnalyticsService = require('./adminAnalytics.service');
 
 async function getDashboardMetrics() {
-  const activeDossiers = await prisma.dossier.count({
-    where: {
-      status: { in: ['RECEIVED', 'UNDER_REVIEW', 'SUBMITTED_TO_CONSULATE'] },
-    },
-  });
+  return adminAnalyticsService.getAccurateSummaryMetrics();
+}
 
-  const underReviewCount = await prisma.dossier.count({
-    where: { status: 'UNDER_REVIEW' },
-  });
-
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
-
-  const approvedThisMonth = await prisma.dossier.count({
-    where: {
-      status: 'APPROVED',
-      updatedAt: { gte: startOfMonth },
-    },
-  });
-
-  const paidTransactions = await prisma.transaction.aggregate({
-    _sum: { amount: true },
-    where: { status: 'PAID' },
-  });
-
-  const totalRevenue = paidTransactions._sum.amount || 0;
-
-  return {
-    activeDossiers,
-    underReviewCount,
-    approvedThisMonth,
-    totalRevenue,
-  };
+async function getDashboardAnalytics(params = {}) {
+  return adminAnalyticsService.getExecutiveAnalytics(params);
 }
 
 async function getAllDossiers({ status, portalType, search, page = 1, limit = 10 }) {
   const skip = (page - 1) * limit;
 
   const where = {};
-  if (status) where.status = status;
-  if (portalType) where.portalType = portalType;
+  if (status && status !== 'ALL') where.status = status;
+  if (portalType && portalType !== 'ALL') where.portalType = portalType;
   if (search) {
     where.OR = [
       { dossierNumber: { contains: search } },
       { user: { fullName: { contains: search } } },
       { user: { email: { contains: search } } },
+      { country: { nameEn: { contains: search } } },
+      { country: { nameAz: { contains: search } } },
+      { country: { code: { contains: search } } },
     ];
   }
 
@@ -63,6 +38,8 @@ async function getAllDossiers({ status, portalType, search, page = 1, limit = 10
         user: true,
         country: true,
         visaCategory: true,
+        visaType: true,
+        visaPurpose: true,
         applicants: true,
         groupBatch: true,
       },
@@ -485,6 +462,7 @@ async function getBankSlips() {
 
   return slips.map((s) => {
     const meta = s.metadataJson && typeof s.metadataJson === 'object' ? s.metadataJson : {};
+    const linkedPromo = Array.isArray(s.promoRedemptions) && s.promoRedemptions.length > 0 ? s.promoRedemptions[0] : null;
     return {
       id: s.id,
       dossierId: s.dossierId || null,
@@ -499,6 +477,11 @@ async function getBankSlips() {
       email: s.user?.email || s.dossier?.user?.email || null,
       amount: s.amount,
       currency: s.currency || 'EUR',
+      promoCode: linkedPromo?.promoCodeSnapshot || meta.promoCode || null,
+      originalAmountEur: linkedPromo?.originalAmountEur ?? meta.originalAmountEur ?? null,
+      discountAmountEur: linkedPromo?.discountAmountEur ?? meta.discountAmountEur ?? 0,
+      expectedNetAmountEur: linkedPromo?.finalAmountEur ?? meta.expectedNetAmountEur ?? null,
+      promoStatus: linkedPromo?.status || null,
       referenceCode: s.referenceCode,
       fileUrl: s.fileUrl,
       fileName: s.fileName,
@@ -588,6 +571,7 @@ async function getCronMonitorStatus() {
 
 module.exports = {
   getDashboardMetrics,
+  getDashboardAnalytics,
   getAllDossiers,
   updateDossierStatusAndDecision,
   getAgentPayouts,

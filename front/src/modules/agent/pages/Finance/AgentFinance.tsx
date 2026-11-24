@@ -5,6 +5,8 @@ import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
 import { downloadFileFromApi } from '@/shared/utils/download.util';
 import { storage } from '@/shared/utils/storage';
+import PromoCodeInput from '@/shared/components/PromoCodeInput/PromoCodeInput';
+import type { PromoValidationResult } from '@/shared/api/services/promo.service';
 import './AgentFinance.css';
 
 interface Transaction {
@@ -91,6 +93,7 @@ export default function AgentFinance() {
     const [paySenderName, setPaySenderName] = useState('');
     const [payReceiptNumber, setPayReceiptNumber] = useState('');
     const [paySlipFile, setPaySlipFile] = useState<File | null>(null);
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
 
     // Filter & Payout Amount
     const [filterType, setFilterType] = useState<'all' | 'commissions' | 'topups' | 'payouts'>('all');
@@ -271,22 +274,29 @@ export default function AgentFinance() {
     const openPayInvoiceModal = (inv: GroupInvoice) => {
         const due = Number(inv.dueAmountEur ?? inv.totalAmount ?? 0);
         setPayingInvoice(inv);
+        setAppliedPromo(null);
         setPayMethod(currentBalance >= due ? 'WALLET' : 'CARD');
         setPayReceiptNumber(`INV-${inv.groupCode}`);
         setPaySlipFile(null);
     };
 
+    const payingInvoiceGrossDue = payingInvoice ? Number(payingInvoice.dueAmountEur ?? payingInvoice.totalAmount ?? 0) : 0;
+    const payingInvoiceEffectiveDue = appliedPromo ? appliedPromo.finalAmountEur : payingInvoiceGrossDue;
+
     const handleSettleGroupInvoice = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!payingInvoice) return;
-        const dueEur = Number(payingInvoice.dueAmountEur ?? payingInvoice.totalAmount ?? 0);
+        const dueEur = payingInvoiceEffectiveDue;
+        const promoCodeStr = appliedPromo?.promo?.code || undefined;
 
         setIsSaving(true);
         try {
             if (payMethod === 'WALLET') {
-                await agentService.payGroupWithWallet(payingInvoice.groupId);
+                await agentService.payGroupWithWallet(payingInvoice.groupId, { promoCode: promoCodeStr });
                 showSuccess(
-                    `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) cüzdandan ödənildi və komissiya balansınıza köçürüldü!`
+                    dueEur <= 0
+                        ? `${payingInvoice.groupCode} promo kod (${promoCodeStr}) ilə €0.00 ödənişlə bağlandı!`
+                        : `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) cüzdandan ödənildi${promoCodeStr ? ` (Promo ${promoCodeStr})` : ''}!`
                 );
             } else if (payMethod === 'CARD') {
                 const intent = await paymentService.createPaymentIntent({
@@ -294,13 +304,19 @@ export default function AgentFinance() {
                     amount: dueEur,
                     currency: 'EUR',
                     purpose: 'GROUP_BATCH_PAYMENT',
+                    scope: 'GROUP_BATCH_PAYMENT',
+                    promoCode: promoCodeStr,
                 });
-                await paymentService.confirmPaymentMock({
-                    paymentIntentId: intent.paymentIntentId,
-                    bankReference: `AG-CARD-${Date.now().toString().slice(-6)}`,
-                });
+                if (!intent?.zeroDueSettled && intent?.paymentIntentId) {
+                    await paymentService.confirmPaymentMock({
+                        paymentIntentId: intent.paymentIntentId,
+                        bankReference: `AG-CARD-${Date.now().toString().slice(-6)}`,
+                    });
+                }
                 showSuccess(
-                    `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) B2B kartla ödənildi və komissiya balansınıza köçürüldü!`
+                    dueEur <= 0
+                        ? `${payingInvoice.groupCode} promo kod (${promoCodeStr}) ilə €0.00 ödənişlə bağlandı!`
+                        : `${payingInvoice.groupCode} rüsumları (€ ${dueEur.toFixed(2)}) B2B kartla ödənildi${promoCodeStr ? ` (Promo ${promoCodeStr})` : ''}!`
                 );
             } else {
                 const fd = new FormData();
@@ -308,9 +324,13 @@ export default function AgentFinance() {
                 if (payingInvoice.dossierId) {
                     fd.append('dossierId', payingInvoice.dossierId);
                 }
-                fd.append('amount', String(dueEur));
+                fd.append('amount', dueEur.toFixed(2));
                 fd.append('currency', 'EUR');
                 fd.append('purpose', `GROUP_BATCH_PAYMENT (${payingInvoice.groupCode})`);
+                fd.append('scope', 'GROUP_BATCH_PAYMENT');
+                if (promoCodeStr) {
+                    fd.append('promoCode', promoCodeStr);
+                }
                 fd.append('bankName', payBankName);
                 fd.append('senderName', paySenderName || accountHolder || 'Travel Agency Partner');
                 fd.append('referenceCode', payReceiptNumber.trim() || `GRP-WIRE-${Date.now().toString().slice(-6)}`);
@@ -319,15 +339,17 @@ export default function AgentFinance() {
                 }
                 await paymentService.submitBankSlip(fd);
                 showSuccess(
-                    `${payingInvoice.groupCode} üzrə bank qəbzi göndərildi! Mühasibatlıq təsdiqindən sonra faktura bağlanacaq və komissiya aktivləşəcək.`
+                    `${payingInvoice.groupCode} üzrə bank qəbzi (€ ${dueEur.toFixed(2)}) göndərildi! Mühasibatlıq təsdiqindən sonra faktura bağlanacaq.`
                 );
             }
+            setAppliedPromo(null);
             setPayingInvoice(null);
             await loadWalletData();
         } catch (err: any) {
             console.error('Settle group invoice error:', err);
             const msg = err?.response?.data?.message || err.message || 'Qrup ödənişi zamanı xəta baş verdi.';
             if (/already.*settled|already.*paid/i.test(msg)) {
+                setAppliedPromo(null);
                 setPayingInvoice(null);
                 showSuccess('Bu qrup artıq ödənilib! Cədvəl yenilənir...');
                 await loadWalletData();
@@ -679,14 +701,14 @@ export default function AgentFinance() {
                     className={`finance-tab-btn ${activeTab === 'slips' ? 'active' : ''}`}
                     onClick={() => handleSwitchTab('slips')}
                 >
-                    🏦 Bank Wire Slips
+                    Bank Wire Slips
                     <span className="finance-tab-badge">{bankSlips.length}</span>
                 </button>
                 <button
                     className={`finance-tab-btn ${activeTab === 'payouts' ? 'active' : ''}`}
                     onClick={() => handleSwitchTab('payouts')}
                 >
-                    💸 Withdrawals &amp; Payouts
+                    Withdrawals &amp; Payouts
                     <span className="finance-tab-badge">{payoutRequests.length}</span>
                 </button>
             </div>
@@ -823,7 +845,7 @@ export default function AgentFinance() {
                                                                     disabled={actionLoadingId === inv.groupId}
                                                                     title="Pay consular & package fees via Wallet, Card or Bank Slip"
                                                                 >
-                                                                    💳 Pay Fees
+                                                                    Pay Fees
                                                                 </button>
                                                             )}
                                                             {inv.groupStatus === 'DRAFT' && inv.paymentStatus === 'PAID' && (
@@ -1043,7 +1065,7 @@ export default function AgentFinance() {
                                     style={{ marginTop: '8px', justifyContent: 'center' }}
                                     onClick={() => setIsPayoutModalOpen(true)}
                                 >
-                                    ✎ Rekvizitləri Yenilə
+                                    Rekvizitləri Yenilə
                                 </button>
                             </div>
                         ) : (
@@ -1181,7 +1203,7 @@ export default function AgentFinance() {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            💳 Online B2B Card (Instant)
+                                            Online B2B Card (Instant)
                                         </button>
                                         <button
                                             type="button"
@@ -1195,7 +1217,7 @@ export default function AgentFinance() {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            🏦 Bank Wire Slip
+                                            Bank Wire Slip
                                         </button>
                                     </div>
 
@@ -1266,18 +1288,30 @@ export default function AgentFinance() {
 
                         <div className="modal-body">
                             <form id="settleGroupInvoiceForm" onSubmit={handleSettleGroupInvoice}>
-                                <div style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '12px', padding: '16px 20px', marginBottom: '20px' }}>
+                                <div style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '12px', padding: '16px 20px', marginBottom: '12px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                         <span style={{ fontWeight: 600, color: '#475569' }}>
                                             Total Consular &amp; Package Fees ({payingInvoice.paxCount > 0 ? `${payingInvoice.paxCount} Pax` : 'Min. 1 Traveler Fee'}):
                                         </span>
-                                        <strong style={{ fontSize: '1.35rem', color: '#0F1E36' }}>€ {payingInvoice.totalAmount.toFixed(2)}</strong>
+                                        <strong style={{ fontSize: '1.35rem', color: '#0F1E36' }}>€ {payingInvoiceEffectiveDue.toFixed(2)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '0.84rem', color: '#059669', fontWeight: 600 }}>
                                         <span>Partner Commission Unlocked Upon Payment:</span>
                                         <span>+€ {(payingInvoice.estimatedCommissionEur || payingInvoice.paxCount * ratePerPax).toFixed(2)}</span>
                                     </div>
                                 </div>
+
+                                <PromoCodeInput
+                                    targetType="GROUP_BATCH_PAYMENT"
+                                    groupBatchId={payingInvoice.groupId}
+                                    grossAmountEur={payingInvoiceGrossDue}
+                                    displayCurrency="EUR"
+                                    exchangeRate={exchangeRate}
+                                    appliedPromo={appliedPromo}
+                                    onPromoChange={setAppliedPromo}
+                                    disabled={isSaving}
+                                    resetKey={payingInvoice.groupId}
+                                />
 
                                 <div className="settings-section">
                                     <h3>Select Payment Method</h3>
@@ -1295,8 +1329,8 @@ export default function AgentFinance() {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            👛 Agency Wallet
-                                            <div style={{ fontSize: '0.74rem', color: currentBalance >= payingInvoice.totalAmount ? '#059669' : '#DC2626', marginTop: '4px' }}>
+                                            Agency Wallet
+                                            <div style={{ fontSize: '0.74rem', color: currentBalance + 0.005 >= payingInvoiceEffectiveDue ? '#059669' : '#DC2626', marginTop: '4px' }}>
                                                 € {currentBalance.toFixed(2)} avail.
                                             </div>
                                         </button>
@@ -1313,7 +1347,7 @@ export default function AgentFinance() {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            💳 Online B2B Card
+                                            Online B2B Card
                                             <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '4px' }}>Instant 3D-Secure</div>
                                         </button>
                                         <button
@@ -1329,29 +1363,30 @@ export default function AgentFinance() {
                                                 cursor: 'pointer',
                                             }}
                                         >
-                                            🏦 Bank Wire Slip
+                                            Bank Wire Slip
                                             <div style={{ fontSize: '0.74rem', color: '#64748B', marginTop: '4px' }}>Admin Verification</div>
                                         </button>
                                     </div>
 
-                                    {payMethod === 'WALLET' && currentBalance < payingInvoice.totalAmount && (
+                                    {payMethod === 'WALLET' && payingInvoiceEffectiveDue > 0 && currentBalance + 0.005 < payingInvoiceEffectiveDue && (
                                         <div style={{ padding: '12px 14px', borderRadius: '8px', background: '#FEF2F2', color: '#991B1B', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <span>
-                                                Agency Wallet balansınız (€ {currentBalance.toFixed(2)}) bu faktura üçün kifayət deyil (Çatışmayan: € {(payingInvoice.totalAmount - currentBalance).toFixed(2)}).
+                                                Agency Wallet balansınız (€ {currentBalance.toFixed(2)}) bu faktura üçün kifayət deyil (Çatışmayan: € {(payingInvoiceEffectiveDue - currentBalance).toFixed(2)}).
                                             </span>
                                             <button
                                                 type="button"
                                                 className="btn-table-action primary"
                                                 onClick={() => {
-                                                    const shortfall = Math.max(10, Number((payingInvoice.totalAmount - currentBalance).toFixed(2)));
+                                                    const shortfall = Math.max(10, Number((payingInvoiceEffectiveDue - currentBalance).toFixed(2)));
                                                     setPayingInvoice(null);
+                                                    setAppliedPromo(null);
                                                     setTopupCurrency('EUR');
                                                     setTopupMethod('CARD');
                                                     setTopupAmount(shortfall);
                                                     setIsTopupModalOpen(true);
                                                 }}
                                             >
-                                                + Top Up € {(payingInvoice.totalAmount - currentBalance).toFixed(2)}
+                                                + Top Up € {(payingInvoiceEffectiveDue - currentBalance).toFixed(2)}
                                             </button>
                                         </div>
                                     )}
@@ -1381,18 +1416,20 @@ export default function AgentFinance() {
                         </div>
 
                         <div className="modal-footer">
-                            <button type="button" className="btn-modal-secondary" onClick={() => setPayingInvoice(null)} disabled={isSaving}>Cancel</button>
+                            <button type="button" className="btn-modal-secondary" onClick={() => { setPayingInvoice(null); setAppliedPromo(null); }} disabled={isSaving}>Cancel</button>
                             <button
                                 type="submit"
                                 form="settleGroupInvoiceForm"
                                 className="btn-modal-primary"
-                                disabled={isSaving || (payMethod === 'WALLET' && currentBalance < payingInvoice.totalAmount)}
+                                disabled={isSaving || (payMethod === 'WALLET' && payingInvoiceEffectiveDue > 0 && currentBalance + 0.005 < payingInvoiceEffectiveDue)}
                             >
                                 {isSaving
                                     ? 'Ödənilir...'
-                                    : payMethod === 'BANK_SLIP'
-                                      ? 'Submit Wire Slip'
-                                      : `Pay € ${payingInvoice.totalAmount.toFixed(2)}`}
+                                    : payingInvoiceEffectiveDue <= 0
+                                      ? 'Confirm Free Promo Settlement (€0.00)'
+                                      : payMethod === 'BANK_SLIP'
+                                        ? `Submit Wire Slip (€ ${payingInvoiceEffectiveDue.toFixed(2)})`
+                                        : `Pay € ${payingInvoiceEffectiveDue.toFixed(2)}`}
                             </button>
                         </div>
                     </div>

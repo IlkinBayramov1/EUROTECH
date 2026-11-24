@@ -4,6 +4,8 @@ export interface UploadDocPayload {
   dossierId: string;
   applicantId: string;
   requiredDocumentType: string;
+  purposeDocumentConfigId?: string;
+  globalDocumentCode?: string;
   isMandatory?: boolean;
   isSharedWithFamily?: boolean;
   file: File;
@@ -15,6 +17,12 @@ export const documentService = {
     formData.append('dossierId', payload.dossierId);
     formData.append('applicantId', payload.applicantId);
     formData.append('requiredDocumentType', payload.requiredDocumentType);
+    if (payload.purposeDocumentConfigId) {
+      formData.append('purposeDocumentConfigId', payload.purposeDocumentConfigId);
+    }
+    if (payload.globalDocumentCode) {
+      formData.append('globalDocumentCode', payload.globalDocumentCode);
+    }
     if (payload.isMandatory !== undefined) {
       formData.append('isMandatory', String(payload.isMandatory));
     }

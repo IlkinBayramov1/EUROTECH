@@ -122,7 +122,6 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                             transition: 'all 0.2s ease'
                         }}
                     >
-                        <div style={{ fontSize: '1.8rem' }}>🏛️</div>
                         <div>
                             <strong style={{ color: selectedCenter === 'baku' ? '#1E3A8A' : '#0F1E36', display: 'block', fontSize: '1rem', fontWeight: 700 }}>
                                 EuroTech Main Center — Baku
@@ -146,7 +145,6 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                             transition: 'all 0.2s ease'
                         }}
                     >
-                        <div style={{ fontSize: '1.8rem' }}>👑</div>
                         <div>
                             <strong style={{ color: selectedCenter === 'lounge' ? '#1E3A8A' : '#0F1E36', display: 'block', fontSize: '1rem', fontWeight: 700 }}>
                                 EuroTech VIP Lounge — Baku
@@ -170,7 +168,6 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                             transition: 'all 0.2s ease'
                         }}
                     >
-                        <div style={{ fontSize: '1.8rem' }}>🏢</div>
                         <div>
                             <strong style={{ color: selectedCenter === 'ganja' ? '#1E3A8A' : '#0F1E36', display: 'block', fontSize: '1rem', fontWeight: 700 }}>
                                 EuroTech Regional Hub — Ganja
@@ -185,7 +182,7 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                 {/* 1. INTERACTIVE CALENDAR COLUMN */}
                 <div className="appointment-column">
                     <h3 style={{ fontSize: '1.05rem', color: '#0F1E36', fontWeight: 700, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>📅</span> 1. Select Date
+                        1. Select Date
                     </h3>
                     
                     <div className="premium-calendar-card" style={{
@@ -258,7 +255,7 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                 {/* 2. TIME SLOTS COLUMN */}
                 <div className="appointment-column">
                     <h3 style={{ fontSize: '1.05rem', color: '#0F1E36', fontWeight: 700, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span>⏰</span> 2. Select Time Slot
+                        2. Select Time Slot
                     </h3>
 
                     {!data.appointmentDate ? (
@@ -270,7 +267,6 @@ export default function Step4Appointment({ data, updateData }: Step4Props) {
                             textAlign: 'center',
                             color: '#64748B'
                         }}>
-                            <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>📅</span>
                             <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 500 }}>Please select an available appointment date from the calendar first.</p>
                         </div>
                     ) : (

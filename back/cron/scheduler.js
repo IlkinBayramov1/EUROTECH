@@ -272,14 +272,23 @@ async function runUnpaidDossierCleanupJob() {
       });
     }
 
+    // Also release stale RESERVED promo code redemptions from abandoned 24h+ pending online intents
+    let releasedPromoCount = 0;
+    try {
+      const promoService = require('../modules/promo/promo.service');
+      releasedPromoCount = await promoService.releaseExpiredReservedRedemptions(24);
+    } catch (promoErr) {
+      console.warn('[CRON] Stale promo reservation cleanup notice:', promoErr.message);
+    }
+
     await prisma.cronTaskLog.create({
       data: {
         taskName: 'UNPAID_DOSSIER_CLEANUP',
         status: 'SUCCESS',
         startedAt,
         finishedAt: new Date(),
-        processedCount,
-        detailsJson: { releasedDossierCount: processedCount },
+        processedCount: processedCount + releasedPromoCount,
+        detailsJson: { releasedDossierCount: processedCount, releasedPromoReservationCount: releasedPromoCount },
       },
     });
 

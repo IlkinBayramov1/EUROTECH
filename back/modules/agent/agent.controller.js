@@ -63,6 +63,9 @@ async function getWallet(req, res, next) {
 
 async function topupWallet(req, res, next) {
   try {
+    if (req.body?.promoCode && String(req.body.promoCode).trim()) {
+      return ApiResponse.error(res, 'Promo codes cannot be applied to wallet top-up deposits.', 400);
+    }
     const result = await agentService.topupAgentWallet(req.user.id, req.body || {});
     return ApiResponse.success(res, result, 'Agency wallet topped up successfully', 201);
   } catch (error) {
@@ -73,7 +76,11 @@ async function topupWallet(req, res, next) {
 async function payGroupWithWallet(req, res, next) {
   try {
     const { groupId } = req.params;
-    const result = await agentService.payGroupWithWallet(groupId, req.user.id, req.user.role);
+    const { promoCode, source } = req.body || {};
+    const result = await agentService.payGroupWithWallet(groupId, req.user.id, req.user.role, {
+      promoCode: promoCode || null,
+      source: source || null,
+    });
     return ApiResponse.success(res, result, 'Group consular fees settled from Agency Wallet and commission credited');
   } catch (error) {
     return ApiResponse.error(res, error.message, error.statusCode || 400);
@@ -210,7 +217,7 @@ async function submitCustomerSelfFill(req, res, next) {
 async function uploadCustomerDoc(req, res, next) {
   try {
     const { groupId, applicantId } = req.params;
-    const { requiredDocumentType } = req.body;
+    const { requiredDocumentType, purposeDocumentConfigId, globalDocumentCode } = req.body;
     if (!req.file) {
       return ApiResponse.error(res, 'No file uploaded', 400);
     }
@@ -218,7 +225,9 @@ async function uploadCustomerDoc(req, res, next) {
     const doc = await documentService.uploadDocument({
       dossierId: data.applicant.dossierId,
       applicantId,
-      requiredDocumentType: requiredDocumentType || 'DOCUMENT',
+      requiredDocumentType: requiredDocumentType || globalDocumentCode || 'DOCUMENT',
+      purposeDocumentConfigId: purposeDocumentConfigId || null,
+      globalDocumentCode: globalDocumentCode || null,
       file: req.file,
     });
     return ApiResponse.success(res, { document: doc }, 'Document uploaded successfully', 201);

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/shared/context/ToastContext';
 import { dossierService, documentService } from '@/shared/api/services';
+import { vcmsApi, evaluateFrontendConditionSet } from '@/modules/admin/api/vcmsApi';
 import { storage } from '@/shared/utils/storage';
 import { getFileUrl } from '@/shared/utils/file.util';
 import './ClientDocuments.css';
@@ -12,6 +13,8 @@ interface DocumentItem {
     id: string;
     backendDocId?: string;
     docType: string;
+    purposeDocumentConfigId?: string;
+    globalDocumentCode?: string;
     title: string;
     description: string;
     status: DocStatus;
@@ -69,24 +72,54 @@ export default function ClientDocuments() {
     const [applicants, setApplicants] = useState<Array<{ id: string; name: string }>>([]);
     const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
-    // Map documents dynamically from database requiredDocTypes
-    const syncDocumentsForApplicant = useCallback((targetAppId: string, currentDossier: any) => {
+    // Map documents dynamically from VCMS PurposeDocumentConfig (with fallback to legacy requiredDocTypes)
+    const syncDocumentsForApplicant = useCallback(async (targetAppId: string, currentDossier: any) => {
         if (!currentDossier) return;
 
         const allDocs = currentDossier.documents || [];
-        const requiredDocTypes = currentDossier.visaCategory?.requiredDocTypes || [];
+        let requiredDocTypes = currentDossier.visaCategory?.requiredDocTypes || [];
+
+        try {
+            const vcmsRes = await vcmsApi.getApplicantAnswers(currentDossier.id, targetAppId);
+            const vcmsDocs = vcmsRes.data?.schema?.documents || [];
+            const answersMap = vcmsRes.data?.answersByQuestionCode || {};
+            if (vcmsDocs.length > 0) {
+                requiredDocTypes = vcmsDocs
+                    .map((d: any) => {
+                        const evalState = evaluateFrontendConditionSet(
+                            { isRequired: d.isRequired, isVisible: true, conditions: d.conditions },
+                            answersMap
+                        );
+                        return {
+                            ...d,
+                            code: d.documentCode,
+                            isRequired: evalState.isRequired,
+                            isVisible: evalState.isVisible,
+                        };
+                    })
+                    .filter((d: any) => d.isVisible);
+            }
+        } catch {
+            // fallback to legacy requiredDocTypes
+        }
 
         const builtItems: DocumentItem[] = requiredDocTypes.map((req: any) => {
-            const docCode = req.code;
+            const docCode = req.code || req.documentCode;
             const directDoc = allDocs.find(
-                (d: any) => d.applicantId === targetAppId &&
-                (d.requiredDocumentType === docCode || d.requiredDocumentType?.toLowerCase() === docCode.toLowerCase())
+                (d: any) =>
+                    d.applicantId === targetAppId &&
+                    (d.requiredDocumentType === docCode ||
+                        d.globalDocumentCode === docCode ||
+                        (req.configId && d.purposeDocumentConfigId === req.configId) ||
+                        d.requiredDocumentType?.toLowerCase() === String(docCode).toLowerCase())
             );
 
             const sharedDoc = !directDoc && SHARABLE_TYPES.includes(docCode)
                 ? allDocs.find((d: any) =>
                     d.isSharedWithFamily &&
-                    (d.requiredDocumentType === docCode || d.requiredDocumentType?.toLowerCase() === docCode.toLowerCase())
+                    (d.requiredDocumentType === docCode ||
+                        d.globalDocumentCode === docCode ||
+                        d.requiredDocumentType?.toLowerCase() === String(docCode).toLowerCase())
                   )
                 : null;
 
@@ -100,13 +133,17 @@ export default function ClientDocuments() {
             }
 
             return {
-                id: `doc-${docCode.toLowerCase()}`,
+                id: `doc-${String(docCode).toLowerCase()}`,
                 backendDocId: found?.id,
                 docType: docCode,
+                purposeDocumentConfigId: req.configId || undefined,
+                globalDocumentCode: req.documentCode || docCode,
                 title: req.nameEn || req.nameAz || docCode,
-                description: req.nameAz ? `${req.nameEn} (${req.nameAz})` : req.nameEn,
+                description:
+                    req.descriptionEn ||
+                    (req.nameAz ? `${req.nameEn} (${req.nameAz})` : req.nameEn),
                 status,
-                icon: getDocumentIcon(docCode),
+                icon: getDocumentIcon(`${docCode} ${req.nameEn || ''}`),
                 feedback: found?.operatorNotes || undefined,
                 fileName: found?.fileName,
                 fileSize: found?.fileSize,
@@ -208,14 +245,17 @@ export default function ClientDocuments() {
 
             if (currentDossierId && currentApplicantId) {
                 const isSharable = SHARABLE_TYPES.includes(docType);
+                const docItem = documents.find((d) => d.id === docId);
                 const res = await documentService.uploadDocument({
                     dossierId: currentDossierId,
                     applicantId: currentApplicantId,
                     requiredDocumentType: docType,
+                    purposeDocumentConfigId: docItem?.purposeDocumentConfigId,
+                    globalDocumentCode: docItem?.globalDocumentCode,
                     isMandatory: true,
                     isSharedWithFamily: isSharable,
                     file,
-                });
+                } as any);
                 const backendDoc = res.data?.document;
 
                 // Update local document
@@ -626,8 +666,8 @@ export default function ClientDocuments() {
                                             )}
                                             <span>
                                                 {doc.isInheritedFromFamily 
-                                                    ? '👥 Shared voucher inherited from primary applicant' 
-                                                    : '👥 Share with all accompanying family co-applicants'}
+                                                    ? 'Shared voucher inherited from primary applicant' 
+                                                    : 'Share with all accompanying family co-applicants'}
                                             </span>
                                         </label>
                                     </div>

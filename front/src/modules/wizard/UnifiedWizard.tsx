@@ -183,6 +183,7 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
     activePackage: formData.services.activePackage,
     services: formData.services,
     duration: formData.duration || 'short',
+    baseConsularFeeOverride: formData.consularFeeEur,
   });
 
   // Exit Link
@@ -274,11 +275,13 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
           portalType: 'INDIVIDUAL',
           countryId: countryId || 'hu-default',
           visaCategoryId: visaCategoryId || countryId || 'cat-default',
+          visaTypeId: formData.visaTypeId || undefined,
+          visaPurposeId: formData.visaPurposeId || undefined,
           package: formData.services.activePackage || 'standard',
           services: formData.services,
           applicantsCount: formData.applicants.length,
           applicants: formData.applicants,
-        });
+        } as any);
 
         const createdDossier = dossierRes.data?.dossier || dossierRes.data;
         const dossierId = createdDossier?.id;
@@ -307,19 +310,26 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
           }
 
           // Book Appointment
-          if (formData.appointmentDate) {
+          if (formData.timeSlotId || formData.appointmentDate) {
             try {
-              let centerLocation = 'EuroTech Main Center';
-              if (formData.visaCenter === 'lounge') centerLocation = 'EuroTech Premium Lounge';
-              else if (formData.visaCenter === 'ganja') centerLocation = 'Ganja Regional Center';
-              const slotsRes = await appointmentService.getSlots(formData.appointmentDate, centerLocation);
-              const slots = slotsRes.data?.slots || [];
-              const chosenSlot = slots.find((sl: any) => sl.slotTime === formData.appointmentTime) || slots[0];
-              if (chosenSlot) {
+              if (formData.timeSlotId) {
                 await appointmentService.bookAppointment({
                   dossierId,
-                  timeSlotId: chosenSlot.id,
+                  timeSlotId: formData.timeSlotId,
                 });
+              } else {
+                let centerLocation = 'EuroTech Main Center';
+                if (formData.visaCenter === 'lounge') centerLocation = 'EuroTech Premium Lounge';
+                else if (formData.visaCenter === 'ganja') centerLocation = 'Ganja Regional Center';
+                const slotsRes = await appointmentService.getSlots(formData.appointmentDate, centerLocation);
+                const slots = slotsRes.data?.slots || [];
+                const chosenSlot = slots.find((sl: any) => sl.slotTime === formData.appointmentTime) || slots[0];
+                if (chosenSlot) {
+                  await appointmentService.bookAppointment({
+                    dossierId,
+                    timeSlotId: chosenSlot.id,
+                  });
+                }
               }
             } catch (apptErr) {
               console.warn('Appointment booking error:', apptErr);
@@ -367,6 +377,9 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
         const groupRes: any = await agentService.createGroup({
           name: formData.groupName || 'Tour Group',
           destination: formData.country || 'Hungary',
+          countryId: countryId || formData.countryId || undefined,
+          visaTypeId: formData.visaTypeId || undefined,
+          visaPurposeId: formData.visaPurposeId || undefined,
           travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
           duration: formData.duration || 'short',
           projectReason: formData.projectReason || 'Tourism',
@@ -374,6 +387,8 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
           services: formData.services,
           appointmentDate: formData.appointmentDate || undefined,
           appointmentTime: formData.appointmentTime || undefined,
+          timeSlotId: formData.timeSlotId || undefined,
+          visaCenter: formData.visaCenter || undefined,
           paymentMethod: formData.paymentMethod || 'WALLET',
           applicants: formData.applicants.map((a) => ({
             firstName: a.firstName.trim(),
@@ -423,6 +438,9 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
         await corporateService.createBatch({
           name: formData.groupName || 'Corporate Delegation',
           destination: formData.country || 'Hungary',
+          countryId: countryId || formData.countryId || undefined,
+          visaTypeId: formData.visaTypeId || undefined,
+          visaPurposeId: formData.visaPurposeId || undefined,
           travelDate: formData.travelDate || new Date().toISOString().split('T')[0],
           duration: formData.duration || 'short',
           projectReason: formData.projectReason || 'Business',
@@ -430,6 +448,8 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
           packagePrice: liveFees.packageAddOnPP,
           appointmentDate: formData.appointmentDate || undefined,
           appointmentTime: formData.appointmentTime || undefined,
+          timeSlotId: formData.timeSlotId || undefined,
+          visaCenter: formData.visaCenter || undefined,
           paymentMethod: formData.paymentMethod || 'WALLET',
           totalAmount: liveFees.grandTotalEur,
           employees: formData.applicants.map((a) => ({
@@ -442,7 +462,7 @@ export default function UnifiedWizard({ portalType: propPortalType }: UnifiedWiz
             role: a.jobTitle || 'Specialist',
             department: a.department || 'Operations',
           })),
-        });
+        } as any);
 
         showSuccess(
           formData.paymentMethod === 'WALLET'

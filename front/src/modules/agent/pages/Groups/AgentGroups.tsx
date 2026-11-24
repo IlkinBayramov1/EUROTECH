@@ -7,6 +7,8 @@ import { downloadRosterTemplate } from '@/shared/utils/excelParser';
 import SchengenQuestionnaire from '@/modules/applicant/components/SchengenQuestionnaire/SchengenQuestionnaire';
 import { DEFAULT_SCHENGEN_FORM_DATA } from '@/modules/applicant/types/applicant.types';
 import { usePricingCatalog } from '@/shared/hooks/usePricingCatalog';
+import PromoCodeInput from '@/shared/components/PromoCodeInput/PromoCodeInput';
+import type { PromoValidationResult } from '@/shared/api/services/promo.service';
 import './AgentGroups.css';
 
 // --- Tiplər ---
@@ -131,6 +133,7 @@ export default function AgentGroups() {
     const [slipSenderName, setSlipSenderName] = useState('');
     const [slipReceiptNumber, setSlipReceiptNumber] = useState('');
     const [slipFile, setSlipFile] = useState<File | null>(null);
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
 
     // Hidden file input ref
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -640,6 +643,7 @@ export default function AgentGroups() {
     const openPaymentModal = async (group: Group) => {
         setSelectedGroupForAction(group);
         setSelectedPaymentStatus(group.paymentStatus || 'PENDING');
+        setAppliedPromo(null);
         setSlipFile(null);
         setSlipReceiptNumber(`GRP-${group.code}`);
         const amountEur = group.totalFee || (group.applicants.length * 145) || 145;
@@ -656,17 +660,28 @@ export default function AgentGroups() {
         }
     };
 
+    const selectedGroupGrossFee = selectedGroupForAction
+        ? selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145
+        : 0;
+    const selectedGroupEffectiveFee = appliedPromo ? appliedPromo.finalAmountEur : selectedGroupGrossFee;
+
     const handleExecuteB2BPayment = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedGroupForAction) return;
 
         setIsSaving(true);
         try {
-            const amountEur = selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145;
+            const amountEur = selectedGroupEffectiveFee;
+            const promoCodeStr = appliedPromo?.promo?.code || undefined;
 
             if (b2bPaymentMethod === 'WALLET') {
-                await agentService.payGroupWithWallet(selectedGroupForAction.id);
-                showSuccess(`Qrup rüsumu (€${amountEur.toFixed(2)}) Agency Wallet balansından ödənildi və komissiya aktivləşdirildi!`);
+                await agentService.payGroupWithWallet(selectedGroupForAction.id, { promoCode: promoCodeStr });
+                showSuccess(
+                    amountEur <= 0
+                        ? `Qrup promo kod (${promoCodeStr}) ilə €0.00 ödənişlə bağlandı!`
+                        : `Qrup rüsumu (€${amountEur.toFixed(2)}) Agency Wallet balansından ödənildi${promoCodeStr ? ` (Promo ${promoCodeStr})` : ''}!`
+                );
+                setAppliedPromo(null);
                 setIsPaymentModalOpen(false);
                 await fetchGroups();
             } else if (b2bPaymentMethod === 'BANK_SLIP') {
@@ -681,19 +696,24 @@ export default function AgentGroups() {
                 if (selectedGroupForAction.dossierId) {
                     fd.append('dossierId', selectedGroupForAction.dossierId);
                 }
-                fd.append('amount', String(amountEur));
+                fd.append('amount', amountEur.toFixed(2));
                 fd.append('currency', 'EUR');
                 fd.append('bankName', slipBankName);
                 fd.append('senderName', slipSenderName || 'Turizm Agentliyi');
                 fd.append('referenceCode', slipReceiptNumber || `GRP-SLIP-${Date.now()}`);
                 fd.append('receiptNumber', slipReceiptNumber || `GRP-SLIP-${Date.now()}`);
                 fd.append('purpose', `GROUP_BATCH_PAYMENT (${selectedGroupForAction.code})`);
+                fd.append('scope', 'GROUP_BATCH_PAYMENT');
+                if (promoCodeStr) {
+                    fd.append('promoCode', promoCodeStr);
+                }
                 if (slipFile) {
                     fd.append('slip', slipFile);
                 }
 
                 await paymentService.submitBankSlip(fd);
-                showSuccess('Qrup üzrə bank köçürmə qəbzi uğurla təqdim olundu! Mühasibatlıq təsdiqindən sonra konsulluq emalına icazə veriləcək.');
+                showSuccess(`Qrup üzrə bank köçürmə qəbzi (€${amountEur.toFixed(2)}) uğurla təqdim olundu! Mühasibatlıq təsdiqindən sonra konsulluq emalına icazə veriləcək.`);
+                setAppliedPromo(null);
                 setIsPaymentModalOpen(false);
                 setSlipFile(null);
                 await fetchGroups();
@@ -704,12 +724,21 @@ export default function AgentGroups() {
                     amount: amountEur,
                     currency: 'EUR',
                     purpose: 'GROUP_BATCH_PAYMENT',
+                    scope: 'GROUP_BATCH_PAYMENT',
+                    promoCode: promoCodeStr,
                 });
-                await paymentService.confirmPaymentMock({
-                    paymentIntentId: intent.paymentIntentId,
-                    bankReference: `B2B-CARD-${Date.now()}`,
-                });
-                showSuccess(`Qrup üzrə €${amountEur.toFixed(2)} məbləğində B2B kart ödənişi təsdiqləndi və komissiya aktivləşdirildi!`);
+                if (!intent?.zeroDueSettled && intent?.paymentIntentId) {
+                    await paymentService.confirmPaymentMock({
+                        paymentIntentId: intent.paymentIntentId,
+                        bankReference: `B2B-CARD-${Date.now()}`,
+                    });
+                }
+                showSuccess(
+                    amountEur <= 0
+                        ? `Qrup promo kod (${promoCodeStr}) ilə €0.00 ödənişlə bağlandı!`
+                        : `Qrup üzrə €${amountEur.toFixed(2)} məbləğində B2B kart ödənişi təsdiqləndi${promoCodeStr ? ` (Promo ${promoCodeStr})` : ''}!`
+                );
+                setAppliedPromo(null);
                 setIsPaymentModalOpen(false);
                 await fetchGroups();
             }
@@ -717,6 +746,7 @@ export default function AgentGroups() {
             console.error('B2B payment processing error:', err);
             const msg = err?.response?.data?.message || err.message || 'Ödəniş qeydə alınarkən xəta baş verdi.';
             if (/already.*settled|already.*paid/i.test(msg)) {
+                setAppliedPromo(null);
                 setIsPaymentModalOpen(false);
                 showSuccess('Bu qrup artıq ödənilib! Siyahı yenilənir...');
                 await fetchGroups();
@@ -1074,7 +1104,7 @@ export default function AgentGroups() {
                                                         style={{ cursor: 'pointer', background: '#EFF6FF', color: '#1D4ED8', borderColor: '#BFDBFE' }}
                                                         title="Qrupun Ödəniş Paketini dəyiş"
                                                     >
-                                                        📦 Paket:{' '}
+                                                        Paket:{' '}
                                                         <strong>
                                                             {activeAdminPackages.find(p => p.id === (group.packageTier || 'standard'))?.name ||
                                                                 (group.packageTier || 'standard').toUpperCase()}
@@ -1537,17 +1567,28 @@ export default function AgentGroups() {
 
                             <div className="modal-body">
                                 <form id="paymentStatusForm" onSubmit={handleExecuteB2BPayment}>
-                                    <div style={{ background: '#F8FAFC', padding: '14px 18px', borderRadius: '10px', border: '1.5px solid #E2E8F0', marginBottom: '16px' }}>
+                                    <div style={{ background: '#F8FAFC', padding: '14px 18px', borderRadius: '10px', border: '1.5px solid #E2E8F0', marginBottom: '12px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <span style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: 600 }}>Total Group Fee:</span>
                                             <strong style={{ fontSize: '1.2rem', color: '#0F1E36' }}>
-                                                € {(selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145).toFixed(2)} EUR
+                                                € {selectedGroupEffectiveFee.toFixed(2)} EUR
                                             </strong>
                                         </div>
                                         <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '4px' }}>
-                                            Includes {selectedGroupForAction.applicants.length} applicant(s) consular & package fees. Current Status: <strong style={{ color: selectedGroupForAction.paymentStatus === 'PAID' ? '#16A34A' : '#D97706' }}>{selectedGroupForAction.paymentStatus || 'PENDING'}</strong>
+                                            Includes {selectedGroupForAction.applicants.length} applicant(s) consular &amp; package fees. Current Status: <strong style={{ color: selectedGroupForAction.paymentStatus === 'PAID' ? '#16A34A' : '#D97706' }}>{selectedGroupForAction.paymentStatus || 'PENDING'}</strong>
                                         </div>
                                     </div>
+
+                                    <PromoCodeInput
+                                        targetType="GROUP_BATCH_PAYMENT"
+                                        groupBatchId={selectedGroupForAction.id}
+                                        grossAmountEur={selectedGroupGrossFee}
+                                        displayCurrency="EUR"
+                                        appliedPromo={appliedPromo}
+                                        onPromoChange={setAppliedPromo}
+                                        disabled={isSaving}
+                                        resetKey={selectedGroupForAction.id}
+                                    />
 
                                     {/* Payment Method Switcher */}
                                     <div style={{ marginBottom: '16px' }}>
@@ -1570,7 +1611,7 @@ export default function AgentGroups() {
                                                 }}
                                             >
                                                 Agency Wallet
-                                                <div style={{ fontSize: '0.72rem', marginTop: '2px', color: walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#059669' : '#DC2626' }}>
+                                                <div style={{ fontSize: '0.72rem', marginTop: '2px', color: walletBalance + 0.005 >= selectedGroupEffectiveFee ? '#059669' : '#DC2626' }}>
                                                     € {walletBalance.toFixed(2)} avail.
                                                 </div>
                                             </button>
@@ -1612,23 +1653,24 @@ export default function AgentGroups() {
                                     </div>
 
                                     {b2bPaymentMethod === 'WALLET' ? (
-                                        <div style={{ background: walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${walletBalance >= (selectedGroupForAction.totalFee || 145) ? '#A7F3D0' : '#FECACA'}`, borderRadius: '8px', padding: '14px' }}>
+                                        <div style={{ background: walletBalance + 0.005 >= selectedGroupEffectiveFee ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${walletBalance + 0.005 >= selectedGroupEffectiveFee ? '#A7F3D0' : '#FECACA'}`, borderRadius: '8px', padding: '14px' }}>
                                             <p style={{ margin: '0 0 6px 0', fontSize: '0.85rem', color: '#0F1E36', fontWeight: 700 }}>
                                                 Pay Directly from Prepaid Agency Wallet (Available: € {walletBalance.toFixed(2)})
                                             </p>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                                 <p style={{ margin: 0, fontSize: '0.78rem', color: '#475569' }}>
-                                                    {walletBalance >= (selectedGroupForAction.totalFee || 145)
+                                                    {walletBalance + 0.005 >= selectedGroupEffectiveFee
                                                         ? 'Instant consular settlement with automatic commission credit back to your Agency Wallet.'
                                                         : 'Insufficient wallet balance. Top up your wallet in Finance & Commissions or choose B2B Card / Bank Slip.'}
                                                 </p>
-                                                {walletBalance < (selectedGroupForAction.totalFee || 145) && (
+                                                {selectedGroupEffectiveFee > 0 && walletBalance + 0.005 < selectedGroupEffectiveFee && (
                                                     <button
                                                         type="button"
                                                         className="btn-primary"
                                                         style={{ padding: '6px 12px', fontSize: '0.76rem' }}
                                                         onClick={() => {
                                                             setIsPaymentModalOpen(false);
+                                                            setAppliedPromo(null);
                                                             navigate('/agent/finance');
                                                         }}
                                                     >
@@ -1698,18 +1740,20 @@ export default function AgentGroups() {
                             </div>
 
                             <div className="modal-footer">
-                                <button type="button" className="btn-modal-secondary" onClick={() => setIsPaymentModalOpen(false)} disabled={isSaving}>Cancel</button>
+                                <button type="button" className="btn-modal-secondary" onClick={() => { setIsPaymentModalOpen(false); setAppliedPromo(null); }} disabled={isSaving}>Cancel</button>
                                 <button
                                     type="submit"
                                     form="paymentStatusForm"
                                     className="btn-modal-primary"
-                                    disabled={isSaving || (b2bPaymentMethod === 'WALLET' && walletBalance < (selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145))}
+                                    disabled={isSaving || (b2bPaymentMethod === 'WALLET' && selectedGroupEffectiveFee > 0 && walletBalance + 0.005 < selectedGroupEffectiveFee)}
                                 >
                                     {isSaving
                                         ? 'Processing...'
-                                        : b2bPaymentMethod === 'BANK_SLIP'
-                                          ? 'Submit Bank Slip'
-                                          : 'Pay €' + (selectedGroupForAction.totalFee || (selectedGroupForAction.applicants.length * 145) || 145).toFixed(2)}
+                                        : selectedGroupEffectiveFee <= 0
+                                          ? 'Confirm Free Promo Settlement (€0.00)'
+                                          : b2bPaymentMethod === 'BANK_SLIP'
+                                            ? `Submit Bank Slip (€${selectedGroupEffectiveFee.toFixed(2)})`
+                                            : `Pay €${selectedGroupEffectiveFee.toFixed(2)}`}
                                 </button>
                             </div>
                         </div>

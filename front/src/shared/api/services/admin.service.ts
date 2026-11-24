@@ -1,6 +1,8 @@
 import { apiClient } from '../client';
 import type {
   AdminMetrics,
+  AdminDashboardAnalytics,
+  DashboardRange,
   AdminDossierListResponse,
   AdminDossier,
   AdminDossierFilter,
@@ -9,9 +11,19 @@ import type {
 } from '@/shared/types/admin.types';
 
 export const adminService = {
-  // 1. Dashboard Metrics
+  // 1. Dashboard Metrics (Legacy Summary) & Executive Analytics
   getMetrics: () => 
     apiClient.get<{ success: boolean; data: { metrics: AdminMetrics } }>('/admin/metrics'),
+
+  getAnalytics: (params?: { range?: DashboardRange; portalType?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.range) query.append('range', params.range);
+    if (params?.portalType && params.portalType !== 'ALL') query.append('portalType', params.portalType);
+    const qs = query.toString();
+    return apiClient.get<{ success: boolean; data: { analytics: AdminDashboardAnalytics } }>(
+      `/admin/analytics${qs ? `?${qs}` : ''}`
+    );
+  },
 
   // 2. Dossiers List with Filter and Pagination
   getAllDossiers: (params?: AdminDossierFilter) => {

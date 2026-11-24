@@ -1,4 +1,5 @@
 const prisma = require('../../../config/db');
+const { nextBookingCode } = require('../../vcms/services/codeGenerator.service');
 
 function parseSlotDateTime(dateObj, timeStr) {
   const d = new Date(dateObj);
@@ -71,13 +72,20 @@ async function ensureRollingTimeSlots(daysAhead = 21) {
   }
 }
 
-async function getAvailableSlots({ date, location }) {
+async function getAvailableSlots({ date, location, countryId, visaTypeId, providerId, groupSize = 1 } = {}) {
   // Ensure rolling slots exist for current and future days
   await ensureRollingTimeSlots(21);
 
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const where = { isActive: true };
+  const where = {
+    isActive: true,
+    slotStatus: 'AVAILABLE',
+    OR: [
+      { scheduleId: null },
+      { schedule: { status: 'PUBLISHED' } },
+    ],
+  };
 
   if (date) {
     const targetDate = new Date(date);
@@ -92,19 +100,32 @@ async function getAvailableSlots({ date, location }) {
   if (location) {
     where.location = { contains: location };
   }
+  if (countryId) {
+    where.countryId = countryId;
+  }
+  if (providerId) {
+    where.providerId = providerId;
+  }
+  if (visaTypeId) {
+    where.AND = [...(where.AND || []), { OR: [{ visaTypeId }, { visaTypeId: null }] }];
+  }
 
   const slots = await prisma.timeSlot.findMany({
     where,
     orderBy: [{ date: 'asc' }, { startTime: 'asc' }],
     include: {
+      provider: true,
+      visaType: true,
       _count: { select: { appointments: true } },
     },
   });
 
-  // Filter out any slot whose scheduled hour/minute has already passed
+  const minSeats = Math.max(1, Number(groupSize || 1));
+
+  // Filter out any slot whose scheduled hour/minute has already passed or lacks capacity
   const activeSlots = slots.filter((slot) => {
     const slotFullDateTime = parseSlotDateTime(slot.date, slot.startTime);
-    return slotFullDateTime > now;
+    return slotFullDateTime > now && slot.capacity - slot.bookedCount >= minSeats;
   });
 
   return activeSlots.map((slot) => ({
@@ -114,27 +135,34 @@ async function getAvailableSlots({ date, location }) {
   }));
 }
 
-async function bookAppointment({ userId, dossierId, groupBatchId, timeSlotId, location, notes }) {
+async function bookAppointment({ userId, dossierId, groupBatchId, timeSlotId, location, notes, groupSize = 1 }) {
   return await prisma.$transaction(async (tx) => {
     const slot = await tx.timeSlot.findUnique({ where: { id: timeSlotId } });
-    if (!slot || !slot.isActive) {
+    if (!slot || !slot.isActive || ['DRAFT', 'BLOCKED', 'CLOSED'].includes(slot.slotStatus)) {
       const error = new Error('Selected time slot is not available');
       error.statusCode = 400;
       throw error;
     }
 
-    if (slot.bookedCount >= slot.capacity) {
+    const neededSeats = Math.max(1, Number(groupSize || 1));
+    if (slot.bookedCount + neededSeats > slot.capacity) {
       const error = new Error('Selected time slot is fully booked');
       error.statusCode = 400;
       throw error;
     }
 
+    const bookingCode = await nextBookingCode(tx);
+
     const appointment = await tx.appointment.create({
       data: {
+        bookingCode,
         userId,
         timeSlotId,
         dossierId: dossierId || null,
         groupBatchId: groupBatchId || null,
+        providerId: slot.providerId || null,
+        visaTypeId: slot.visaTypeId || null,
+        groupSize: neededSeats,
         status: 'CONFIRMED',
         location: location || slot.location,
         notes,
@@ -142,9 +170,25 @@ async function bookAppointment({ userId, dossierId, groupBatchId, timeSlotId, lo
       include: { timeSlot: true, dossier: true, groupBatch: true },
     });
 
+    const newBookedCount = slot.bookedCount + neededSeats;
     await tx.timeSlot.update({
       where: { id: timeSlotId },
-      data: { bookedCount: { increment: 1 } },
+      data: {
+        bookedCount: newBookedCount,
+        ...(newBookedCount >= slot.capacity ? { slotStatus: 'FULL' } : {}),
+      },
+    });
+
+    await tx.appointmentNotification.create({
+      data: {
+        appointmentId: appointment.id,
+        userId,
+        type: 'BOOKING_CONFIRMED',
+        channel: 'IN_APP',
+        title: `Appointment Confirmed (${bookingCode})`,
+        message: `Your consular appointment (${bookingCode}) at ${location || slot.location} for ${slot.slotDate || slot.date.toISOString().slice(0, 10)} ${slot.startTime} is confirmed.`,
+        newSlotIso: `${slot.slotDate || slot.date.toISOString().slice(0, 10)} ${slot.startTime}`,
+      },
     });
 
     if (dossierId) {
@@ -182,29 +226,50 @@ async function rescheduleAppointment({ appointmentId, newTimeSlotId, currentUser
       throw error;
     }
 
+    const neededSeats = Math.max(1, Number(appointment.groupSize || 1));
     const newSlot = await tx.timeSlot.findUnique({ where: { id: newTimeSlotId } });
-    if (!newSlot || !newSlot.isActive || newSlot.bookedCount >= newSlot.capacity) {
+    if (
+      !newSlot ||
+      !newSlot.isActive ||
+      ['DRAFT', 'BLOCKED', 'CLOSED'].includes(newSlot.slotStatus) ||
+      newSlot.bookedCount + neededSeats > newSlot.capacity
+    ) {
       const error = new Error('New time slot is not available or fully booked');
       error.statusCode = 400;
       throw error;
     }
 
     // Decrement old slot count
-    await tx.timeSlot.update({
-      where: { id: appointment.timeSlotId },
-      data: { bookedCount: { decrement: 1 } },
-    });
+    if (appointment.timeSlot) {
+      const dec = Math.min(appointment.timeSlot.bookedCount, neededSeats);
+      if (dec > 0) {
+        await tx.timeSlot.update({
+          where: { id: appointment.timeSlotId },
+          data: {
+            bookedCount: { decrement: dec },
+            ...(appointment.timeSlot.slotStatus === 'FULL' ? { slotStatus: 'AVAILABLE' } : {}),
+          },
+        });
+      }
+    }
 
     // Increment new slot count
+    const nextBooked = newSlot.bookedCount + neededSeats;
     await tx.timeSlot.update({
       where: { id: newTimeSlotId },
-      data: { bookedCount: { increment: 1 } },
+      data: {
+        bookedCount: nextBooked,
+        ...(nextBooked >= newSlot.capacity ? { slotStatus: 'FULL' } : {}),
+      },
     });
 
     const updated = await tx.appointment.update({
       where: { id: appointmentId },
       data: {
+        rescheduledFromSlotId: appointment.timeSlotId,
         timeSlotId: newTimeSlotId,
+        providerId: newSlot.providerId || appointment.providerId,
+        visaTypeId: newSlot.visaTypeId || appointment.visaTypeId,
         status: 'RESCHEDULED',
         location: newSlot.location,
       },
@@ -245,10 +310,16 @@ async function cancelAppointment({ appointmentId, currentUser }) {
       throw error;
     }
 
-    await tx.timeSlot.update({
-      where: { id: appointment.timeSlotId },
-      data: { bookedCount: { decrement: 1 } },
-    });
+    const dec = Math.min(appointment.timeSlot?.bookedCount || 0, Math.max(1, Number(appointment.groupSize || 1)));
+    if (dec > 0) {
+      await tx.timeSlot.update({
+        where: { id: appointment.timeSlotId },
+        data: {
+          bookedCount: { decrement: dec },
+          ...(appointment.timeSlot?.slotStatus === 'FULL' ? { slotStatus: 'AVAILABLE' } : {}),
+        },
+      });
+    }
 
     return await tx.appointment.update({
       where: { id: appointmentId },

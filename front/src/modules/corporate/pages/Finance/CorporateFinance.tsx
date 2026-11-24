@@ -5,6 +5,8 @@ import { paymentService } from '@/shared/api/services/payment.service';
 import { useAuth } from '@/shared/context/AuthContext';
 import { useToast } from '@/shared/context/ToastContext';
 import { getFileUrl } from '@/shared/utils/file.util';
+import PromoCodeInput from '@/shared/components/PromoCodeInput/PromoCodeInput';
+import type { PromoValidationResult } from '@/shared/api/services/promo.service';
 import './CorporateFinance.css';
 
 interface Transaction {
@@ -41,6 +43,7 @@ export default function CorporateFinance() {
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState<PendingInvoice | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'card' | 'bank_slip' | 'invoice'>('wallet');
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationResult | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopupModalOpen, setIsTopupModalOpen] = useState(false);
     const [topupAmount, setTopupAmount] = useState('2500');
@@ -167,11 +170,18 @@ export default function CorporateFinance() {
     // --- Aksiyalar ---
     const handleOpenPayment = (invoice: PendingInvoice) => {
         setSelectedInvoice(invoice);
+        setAppliedPromo(null);
         setPaymentMethod(walletBalance >= invoice.amount ? 'wallet' : 'card');
         setSlipRefCode('');
         setSlipFile(null);
         setIsPaymentModalOpen(true);
     };
+
+    const effectiveInvoiceDue = selectedInvoice
+        ? appliedPromo
+            ? appliedPromo.finalAmountEur
+            : selectedInvoice.amount
+        : 0;
 
     const handleDownloadInvoice = async (invoice: PendingInvoice) => {
         let downloadUrl = invoice.pdfUrl;
@@ -204,21 +214,30 @@ export default function CorporateFinance() {
         e.preventDefault();
         if (!selectedInvoice) return;
 
+        const netPayableEur = effectiveInvoiceDue;
+        const promoCodeStr = appliedPromo?.promo?.code || undefined;
+
         setIsProcessing(true);
         try {
             if (paymentMethod === 'wallet') {
-                if (walletBalance < selectedInvoice.amount) {
-                    showError(`Insufficient wallet balance. Available: € ${walletBalance.toFixed(2)}, Required: € ${selectedInvoice.amount.toFixed(2)}.`);
+                if (netPayableEur > 0 && walletBalance + 0.005 < netPayableEur) {
+                    showError(`Insufficient wallet balance. Available: € ${walletBalance.toFixed(2)}, Required: € ${netPayableEur.toFixed(2)}.`);
                     return;
                 }
 
                 const payRes: any = await paymentService.payWithWallet({
                     invoiceId: selectedInvoice.id,
                     groupBatchId: selectedInvoice.batchId,
+                    promoCode: promoCodeStr,
+                    scope: 'GROUP_BATCH_PAYMENT',
                 });
-                const updatedBal = Number(payRes?.data?.newBalance ?? payRes?.newBalance ?? (walletBalance - selectedInvoice.amount));
+                const updatedBal = Number(payRes?.data?.newBalance ?? payRes?.newBalance ?? (walletBalance - netPayableEur));
                 setWalletBalance(updatedBal);
-                showSuccess('Payment settled from Company Wallet! Biometric appointments confirmed.');
+                showSuccess(
+                    netPayableEur <= 0
+                        ? `Invoice settled via promo code ${promoCodeStr} (€0.00 payable)! Biometric appointments confirmed.`
+                        : `Payment (€ ${netPayableEur.toFixed(2)}) settled from Company Wallet${promoCodeStr ? ` (Promo ${promoCodeStr} applied)` : ''}! Biometric appointments confirmed.`
+                );
                 await loadFinanceData();
             } else if (paymentMethod === 'invoice') {
                 await handleDownloadInvoice(selectedInvoice);
@@ -226,9 +245,13 @@ export default function CorporateFinance() {
                 const fd = new FormData();
                 if (selectedInvoice.batchId) fd.append('groupBatchId', selectedInvoice.batchId);
                 fd.append('invoiceId', selectedInvoice.id);
-                fd.append('amount', String(selectedInvoice.amount));
+                fd.append('amount', netPayableEur.toFixed(2));
                 fd.append('currency', 'EUR');
                 fd.append('purpose', 'GROUP_BATCH_PAYMENT');
+                fd.append('scope', 'GROUP_BATCH_PAYMENT');
+                if (promoCodeStr) {
+                    fd.append('promoCode', promoCodeStr);
+                }
                 fd.append('bankName', slipBankName || 'PASHA Bank');
                 fd.append('referenceCode', slipRefCode.trim() || `CORP-WIRE-${Date.now().toString().slice(-6)}`);
                 fd.append('senderName', user?.companyName || user?.fullName || 'Corporate Partner');
@@ -236,27 +259,36 @@ export default function CorporateFinance() {
                     fd.append('slip', slipFile);
                 }
                 await paymentService.submitBankSlip(fd);
-                showSuccess('Bank wire receipt submitted! Finance Desk will verify and confirm the invoice shortly.');
+                showSuccess(`Bank wire receipt (€ ${netPayableEur.toFixed(2)}) submitted! Finance Desk will verify and confirm the invoice shortly.`);
                 await loadFinanceData();
             } else {
                 // Direct Corporate Card Settlement via PaymentIntent
                 const intent = await paymentService.createPaymentIntent({
                     invoiceId: selectedInvoice.id,
                     groupBatchId: selectedInvoice.batchId,
-                    amount: selectedInvoice.amount,
+                    amount: netPayableEur,
                     currency: 'EUR',
                     purpose: 'GROUP_BATCH_PAYMENT',
+                    scope: 'GROUP_BATCH_PAYMENT',
+                    promoCode: promoCodeStr,
                 });
-                await paymentService.confirmPaymentMock({ paymentIntentId: intent.paymentIntentId });
-                showSuccess('Corporate card payment confirmed! Batch appointments confirmed and invoice marked PAID.');
+                if (!intent?.zeroDueSettled && intent?.paymentIntentId) {
+                    await paymentService.confirmPaymentMock({ paymentIntentId: intent.paymentIntentId });
+                }
+                showSuccess(
+                    netPayableEur <= 0
+                        ? `Invoice settled via promo code ${promoCodeStr} (€0.00 payable)!`
+                        : `Corporate card payment (€ ${netPayableEur.toFixed(2)}) confirmed${promoCodeStr ? ` (Promo ${promoCodeStr} applied)` : ''}! Batch appointments confirmed and invoice marked PAID.`
+                );
                 await loadFinanceData();
             }
 
+            setAppliedPromo(null);
             setIsPaymentModalOpen(false);
             setSelectedInvoice(null);
         } catch (err: any) {
             console.error('Payment processing failed:', err);
-            showError(err.message || 'Payment processing failed.');
+            showError(err?.response?.data?.message || err.message || 'Payment processing failed.');
         } finally {
             setIsProcessing(false);
         }
@@ -723,9 +755,23 @@ export default function CorporateFinance() {
                                 </div>
                                 <div className="summary-row total">
                                     <span>Total Amount Due:</span>
-                                    <strong className="total-val">€ {selectedInvoice.amount.toFixed(2)}</strong>
+                                    <strong className="total-val">€ {effectiveInvoiceDue.toFixed(2)}</strong>
                                 </div>
                             </div>
+
+                            {paymentMethod !== 'invoice' && (
+                                <PromoCodeInput
+                                    targetType="GROUP_BATCH_PAYMENT"
+                                    invoiceId={selectedInvoice.id}
+                                    groupBatchId={selectedInvoice.batchId || null}
+                                    grossAmountEur={selectedInvoice.amount}
+                                    displayCurrency="EUR"
+                                    appliedPromo={appliedPromo}
+                                    onPromoChange={setAppliedPromo}
+                                    disabled={isProcessing}
+                                    resetKey={selectedInvoice.id}
+                                />
+                            )}
 
                             <form id="paymentForm" onSubmit={handleProcessPayment}>
                                 <h3>Select Payment Method</h3>
@@ -737,7 +783,7 @@ export default function CorporateFinance() {
                                         <div className="option-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="5" width="20" height="14" rx="2" ry="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div>
                                         <div className="option-details">
                                             <h4>Company Wallet</h4>
-                                            <span className={walletBalance >= selectedInvoice.amount ? 'text-success' : 'text-danger'}>
+                                            <span className={walletBalance + 0.005 >= effectiveInvoiceDue ? 'text-success' : 'text-danger'}>
                                                 Available: € {walletBalance.toFixed(2)}
                                             </span>
                                         </div>
@@ -810,7 +856,7 @@ export default function CorporateFinance() {
                                     </div>
                                 )}
                                 
-                                {walletBalance < selectedInvoice.amount && paymentMethod === 'wallet' && (
+                                {effectiveInvoiceDue > 0 && walletBalance + 0.005 < effectiveInvoiceDue && paymentMethod === 'wallet' && (
                                     <div className="info-alert warning-alert mt-16">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                                         <span>Insufficient funds in Company Wallet. Please add funds or select another payment method.</span>
@@ -820,20 +866,22 @@ export default function CorporateFinance() {
                         </div>
 
                         <div className="modal-footer">
-                            <button type="button" className="btn-modal-secondary" onClick={() => setIsPaymentModalOpen(false)} disabled={isProcessing}>Cancel</button>
+                            <button type="button" className="btn-modal-secondary" onClick={() => { setIsPaymentModalOpen(false); setAppliedPromo(null); }} disabled={isProcessing}>Cancel</button>
                             <button 
                                 type="submit" 
                                 form="paymentForm" 
                                 className="btn-modal-primary" 
-                                disabled={isProcessing || (walletBalance < selectedInvoice.amount && paymentMethod === 'wallet')}
+                                disabled={isProcessing || (effectiveInvoiceDue > 0 && walletBalance + 0.005 < effectiveInvoiceDue && paymentMethod === 'wallet')}
                             >
                                 {isProcessing
                                     ? 'Processing...'
                                     : paymentMethod === 'invoice'
                                       ? 'Download Invoice'
-                                      : paymentMethod === 'bank_slip'
-                                        ? 'Submit Wire Receipt'
-                                        : `Pay € ${selectedInvoice.amount.toFixed(2)}`}
+                                      : effectiveInvoiceDue <= 0
+                                        ? 'Confirm Free Promo Settlement (€0.00)'
+                                        : paymentMethod === 'bank_slip'
+                                          ? `Submit Wire Receipt (€ ${effectiveInvoiceDue.toFixed(2)})`
+                                          : `Pay € ${effectiveInvoiceDue.toFixed(2)}`}
                             </button>
                         </div>
                     </div>

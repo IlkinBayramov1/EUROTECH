@@ -119,7 +119,7 @@ async function sendCorporateExpiryRadarNotification({ hrEmail, hrFullName, expir
 
   return sendEmail({
     to: hrEmail,
-    subject: `⚠️ EuroTech Radar: ${expiringEmployees.length} Əməkdaşın Pasport Müddəti Bitir`,
+    subject: `EuroTech Radar: ${expiringEmployees.length} Əməkdaşın Pasport Müddəti Bitir`,
     html,
     templateName: 'corporateExpiryRadarAlert',
   });
